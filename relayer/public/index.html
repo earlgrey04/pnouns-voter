@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>pNouns MetaGov 投票</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
 <style>
   :root { --bg:#f7f7f5; --card:#fff; --fg:#1b1b1b; --muted:#666; --line:#e2e2df; --for:#1f8f4a; --against:#c8382e; --abstain:#6b6b6b; --accent:#d22209; }
   * { box-sizing:border-box; }
@@ -35,7 +36,7 @@
 <body>
 <header>
   <div><h1 style="display:inline">⚡ pNouns MetaGov 投票</h1><span class="net" id="net"></span></div>
-  <div class="row"><span id="addr" class="muted"></span><button id="connect" class="primary">ウォレット接続</button></div>
+  <div class="row"><span id="addr" class="muted"></span><button id="connect" class="primary">ウォレット接続</button><button id="disconnect" style="display:none">接続解除</button></div>
 </header>
 <main>
   <div class="card muted">
@@ -53,19 +54,34 @@ async function api(path, opt) { const r = await fetch(path, opt); const j = awai
 function msg(t, err) { $("#msg").textContent = t; $("#msg").className = err ? "err" : "muted"; }
 const eth = () => window.ethereum;
 
-async function connect() {
-  if (!eth()) return msg("MetaMask 等のウォレット拡張が見つかりません", true);
-  const accs = await eth().request({ method: "eth_requestAccounts" });
-  account = accs[0];
+async function ensureChain() {
   const chainHex = "0x" + CONFIG.chainId.toString(16);
   const cur = await eth().request({ method: "eth_chainId" });
-  if (cur !== chainHex) {
-    try { await eth().request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] }); }
-    catch (e) { return msg(`ウォレットのネットワークを ${CONFIG.network} (chainId ${CONFIG.chainId}) に切り替えてください`, true); }
-  }
-  $("#addr").textContent = account.slice(0, 6) + "…" + account.slice(-4);
-  $("#connect").textContent = "接続済み";
+  if (cur === chainHex) return true;
+  try { await eth().request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] }); return true; }
+  catch (e) { msg(`ウォレットのネットワークを ${CONFIG.network} (chainId ${CONFIG.chainId}) に切り替えてください`, true); return false; }
+}
+function setAccount(a) {
+  account = a || null;
+  $("#addr").textContent = account ? account.slice(0, 6) + "…" + account.slice(-4) : "";
+  $("#connect").style.display = account ? "none" : "";
+  $("#disconnect").style.display = account ? "" : "none";
+  localStorage.setItem("pnouns-metagov-connected", account ? "1" : "");
+}
+async function connect(silent) {
+  if (!eth()) { if (!silent) msg("MetaMask 等のウォレット拡張が見つかりません", true); return; }
+  // silent: 既に承認済みの接続を無プロンプトで復元(eth_accounts)。手動: eth_requestAccounts
+  const accs = await eth().request({ method: silent ? "eth_accounts" : "eth_requestAccounts" });
+  if (!accs || !accs.length) return;
+  setAccount(accs[0]);
+  if (!(await ensureChain())) return;
   await render();
+}
+async function disconnect() {
+  try { await eth().request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }); } catch (e) { /* 未対応ウォレットはローカル状態のみ解除 */ }
+  setAccount(null);
+  await render();
+  msg("ウォレットの接続を解除しました。");
 }
 
 async function render() {
@@ -149,8 +165,14 @@ function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&am
 (async () => {
   CONFIG = await api("/api/config");
   $("#net").textContent = `${CONFIG.network} · MetaGov ${CONFIG.metagov.slice(0, 8)}…`;
-  $("#connect").addEventListener("click", connect);
-  if (eth()) { eth().on?.("accountsChanged", () => location.reload()); eth().on?.("chainChanged", () => location.reload()); }
+  $("#connect").addEventListener("click", () => connect(false));
+  $("#disconnect").addEventListener("click", disconnect);
+  if (eth()) {
+    // リロードせず状態だけ更新(接続を維持)
+    eth().on?.("accountsChanged", (accs) => { setAccount(accs && accs[0]); render(); });
+    eth().on?.("chainChanged", async () => { if (account && (await ensureChain())) render(); });
+    if (localStorage.getItem("pnouns-metagov-connected")) await connect(true); // 前回接続していれば自動復元
+  }
   await render();
   setInterval(render, 30000);
 })();
