@@ -41,7 +41,7 @@
 <main>
   <div class="card muted">
     pNouns 保有者は「署名するだけ」で投票できます(ガス代不要)。署名はリレイヤーがまとめてオンチェーンの pNouns Voter に投函し、締切後に pNouns Voter が結果を Nouns DAO に投票します。
-    重みは保有 pNouns 数(トレジャリー分は除外)。同数の場合は投票者数が多い方、それも同数なら棄権になります。
+    重みは保有 pNouns 数(トレジャリー分は除外)。同数の場合は投票者数が多い方、それも同数なら棄権。誰も投票しなかった提案には投票しません。
   </div>
   <div id="proposals"></div>
   <div class="card"><div id="msg" class="muted">読み込み中…</div></div>
@@ -146,7 +146,7 @@ async function render() {
         <div class="against">反対 ${mg.tokens[0]} <small>(${mg.voters[0]}名)</small></div>
         <div class="abstain">棄権 ${mg.tokens[2]} <small>(${mg.voters[2]}名)</small></div>
       </div>
-      <div class="muted">現時点の判定: <b>${mg.executed ? "確定 → " : ""}${SUPPORT[mg.result]}</b>${mg.executed ? "(Nouns DAO に投票済み)" : ""}</div>
+      <div class="muted">現時点の判定: <b>${mg.executed ? "確定 → " : ""}${mg.tokens[0] + mg.tokens[1] + mg.tokens[2] ? SUPPORT[mg.result] : "投票なし(このままなら Nouns DAO には投票しません)"}</b>${mg.executed ? "(Nouns DAO に投票済み)" : ""}</div>
       <div id="my-${p.id}"></div>`;
     root.appendChild(el);
     if (account && p.votable) await renderMine(p);
@@ -157,7 +157,8 @@ async function render() {
     el.innerHTML = `<b>最近の結果</b>` + closed.map((p) => {
       const mg = p.metagov, ex = p.executed;
       const nr = mg.nounsReceipt;
-      const canExecute = !mg.executed && mg.deadline && block >= mg.deadline && (p.stateName === "Active" || p.stateName === "Pending");
+      const hasVotes = mg.tokens[0] + mg.tokens[1] + mg.tokens[2] > 0;
+      const canExecute = hasVotes && !mg.executed && mg.deadline && block >= mg.deadline && (p.stateName === "Active" || p.stateName === "Pending");
       const r = mg.executed ? `pNouns Voter → Nouns DAO: <b>${SUPPORT[mg.result]}</b>${ex && ex.tx ? ` <a href="${CONFIG.explorer}/tx/${ex.tx}" target="_blank">tx</a>${CONFIG.blockscout ? ` / <a href="${CONFIG.blockscout}/tx/${ex.tx}?tab=logs" target="_blank">イベント</a>` : ""}` : ""}` : (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] ? "未実行" : "投票なし");
       const nouns = nr && nr.hasVoted ? `<br><span style="color:var(--for)">✔ Nouns DAO 側の記録: pNouns Voter が「${SUPPORT[nr.support]}」${nr.votes} 票(提案全体: 賛成 ${p.forVotes} / 反対 ${p.againstVotes} / 棄権 ${p.abstainVotes})</span>` : "";
       const exec = canExecute ? `<br><button class="exec" data-p="${p.id}" style="margin-top:4px">締切済み — 手動で execute する(誰でも可、ガスは Nouns DAO から払い戻し)</button>` : "";

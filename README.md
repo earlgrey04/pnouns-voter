@@ -10,7 +10,7 @@ mainnet フォーク上の E2E テスト(段階1)。
 ## 決定事項(2026-08-18 アールグレイ)
 - pNouns トレジャリー `0x8ae80e0b44205904be18869240c2ec62d2342785` の保有分は投票権に含めない(`excluded`。owner が変更可)
 - 定足数なし
-- tokens 同数 → 投票者数が多い方 → それも同数なら棄権。票ゼロも棄権(仮置き、要確認)
+- tokens 同数 → 投票者数が多い方 → それも同数なら棄権。**票ゼロは投票しない**(execute が NoVotes で拒否、リレイヤーは ℹ️ 通知のみ。2026-08-18 決定)
 - 締切 = Nouns の `endBlock − marginBlocks`(初期値 3600 ブロック ≒ 12h)。締切後に誰でも `execute`
 - チェーンは Ethereum mainnet(Nouns の委任先は mainnet アドレス必須。L2→L1 メッセージは Nouns の投票期間に間に合わない)
 
@@ -76,7 +76,7 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - 新提案が Pending/Active になると 📢 告知(締切 JST・dApp URL・nouns.wtf リンク)。`ANNOUNCE=0` で無効
 - 常駐: `deploy/pnouns-metagov-relayer.service`(systemd user unit。`~/.config/systemd/user/` にコピーして enable。2026-08-18 から Sepolia で稼働中)
 - Discord 通知は一文ごとに改行。✅ には Blockscout のイベントログ URL(Nouns DAO の `VoteCast` の reason に集計文が入る)を添付
-- 検証: pNouns Voter(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0x41Bcc06ed7E11b845f953Efce7134A8aD58Da635 (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
+- 検証: pNouns Voter(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0xeeb0741Bf61Bd4486A96902eD5B1AdEb631016d8 (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
 - 手動テスト: `TO=0x… N=3 npx hardhat --network sepolia run scripts/sepolia/08-mint-to.js` で MetaMask アドレスに pNouns 複製を配り、`06-propose.js` で提案を出して 5 分以内に dApp で署名
 
 ## Cloudflare Workers 版リレイヤー(`relayer-cf/`、2026-08-18 デプロイ・クラウドのみで通し成功)
@@ -93,4 +93,4 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - 段階2 残り: dApp の「手動 execute」ボタン(ワーカー停止時の保険)、残高警告、日本語要約の表示(任意)、独自ドメイン
 - pNouns Voter 方式では Snapshot への「起案」工程(pnouns-mirror の drafts→PR→publish)は不要。Nouns 提案は自動で受付対象になる
 - 段階3: mainnet に `liveMode=false` でデプロイし Snapshot と並走 → 一致を確認 → マルチシグが委任先を切替、`liveMode=true`
-- 未決: 票ゼロ時の挙動(棄権 or 投票しない)、`marginBlocks` の値、owner をどのマルチシグにするか
+- 未決: `marginBlocks` の値(12h 想定)、owner をどのマルチシグにするか、ガス代負担(案 A/B/C)

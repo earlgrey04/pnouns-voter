@@ -223,12 +223,12 @@ describe("PNounsVoter (mainnet fork E2E)", function () {
     expect(receipt.votes).to.equal(2n);
   });
 
-  it("票ゼロなら ABSTAIN", async function () {
+  it("票ゼロなら execute できず(NoVotes)、Nouns DAO には投票しない", async function () {
     const dl = await metagov.voteDeadline(proposalId);
     await mine(dl - BigInt(await ethers.provider.getBlockNumber()));
-    await metagov.connect(executor).execute(proposalId);
+    await expect(metagov.connect(executor).execute(proposalId)).to.be.revertedWithCustomError(metagov, "NoVotes");
     const receipt = await dao.getReceipt(proposalId, await metagov.getAddress());
-    expect(receipt.support).to.equal(2n);
+    expect(receipt.hasVoted).to.equal(false);
   });
 
   it("不正系: 他人の token / 二重投票 / 除外アドレス / 移転後の再投票 / 署名改ざん", async function () {

@@ -51,6 +51,11 @@ async function maybeExecute(db, p, block) {
   if (p.state !== 1 && p.state !== 0) { // Nouns 側がもう Active でない(取消等)なら記録だけ
     db.executed[p.id] = { skipped: `nouns state ${p.stateName}` }; store.save(db); return;
   }
+  if (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] === 0) { // 票ゼロ → 投票しない
+    db.executed[p.id] = { skipped: "no votes" }; store.save(db);
+    await notify(`ℹ️ Prop ${p.id}: pNouns の投票がなかったため、Nouns DAO には投票しません。\n提案の内容: https://nouns.wtf/vote/${p.id}`);
+    return;
+  }
   const wallet = relayerWallet();
   const c = contracts(wallet);
   const est = await c.metagov.execute.estimateGas(p.id);

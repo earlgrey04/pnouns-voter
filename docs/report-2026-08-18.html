@@ -88,7 +88,7 @@
 <h3>投票ルール（コントラクトに固定）</h3>
 <ul>
   <li>重み＝保有 pNouns の枚数。<b>トレジャリー保有分（13枚）は除外</b>。</li>
-  <li>定足数なし。<b>枚数が同数なら投票者数の多い方</b>、それも同数なら棄権。</li>
+  <li>定足数なし。<b>枚数が同数なら投票者数の多い方</b>、それも同数なら棄権。<b>誰も投票しなかった提案には投票しません</b>。</li>
   <li>受付は Nouns 側の投票期間中、締切は <b>Nouns の締切の 12 時間前</b>（今の 48 時間より長く投票できます）。</li>
   <li>投票は提案ごとに 1 回。NFT を移しても同じ token で再投票はできません。</li>
 </ul>
@@ -111,7 +111,7 @@
 <div class="card">
   <dl class="kv">
     <dt>投票ページ（Sepolia）</dt><dd><a href="https://pnouns-voter.x402-adsb-worker.workers.dev">pnouns-voter.x402-adsb-worker.workers.dev</a></dd>
-    <dt>pNouns Voter（Sepolia）</dt><dd><span class="mono">0x41Bcc06ed7E11b845f953Efce7134A8aD58Da635</span> — <a href="https://eth-sepolia.blockscout.com/address/0x41Bcc06ed7E11b845f953Efce7134A8aD58Da635">検証済みソース</a></dd>
+    <dt>pNouns Voter（Sepolia）</dt><dd><span class="mono">0xeeb0741Bf61Bd4486A96902eD5B1AdEb631016d8</span> — <a href="https://eth-sepolia.blockscout.com/address/0xeeb0741Bf61Bd4486A96902eD5B1AdEb631016d8">検証済みソース</a></dd>
     <dt>実例</dt><dd><a href="https://eth-sepolia.blockscout.com/tx/0x13f600016bdb2afff341f4dfb21f57d90f6a5c2282d96a4318e02242a8c5f3ac?tab=logs">Prop 507 の execute tx</a>（Nouns DAO の VoteCast イベントに「賛成 2 票、reason: pNouns holders voted on-chain via pNouns Voter: FOR (tokens 3/2/1, voters 1/1/1)」）</dd>
   </dl>
 </div>
@@ -148,7 +148,7 @@
   <ol style="margin:0">
     <li>この方向で進めてよいか（メインネットへのシャドー運用デプロイ）</li>
     <li>ガス代の負担方法（案 A / B / C）</li>
-    <li>細部のルール: 票がゼロのときは「棄権」でよいか（現在の仮置き）／締切は Nouns の 12 時間前でよいか</li>
+    <li>細部のルール: 締切は Nouns の 12 時間前でよいか（票ゼロのときは「投票しない」に決定済み）</li>
   </ol>
 </div>
 

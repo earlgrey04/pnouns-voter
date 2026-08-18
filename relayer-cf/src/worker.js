@@ -68,6 +68,11 @@ async function maybeExecute(c, pc, wc, store, p, block) {
   if (mg.executed) { await store.putExecuted(p.id, { external: true }); return; }
   if (mg.deadline === 0 || block < mg.deadline) return;
   if (p.state !== 1 && p.state !== 0) { await store.putExecuted(p.id, { skipped: `nouns state ${p.stateName}` }); return; }
+  if (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] === 0) { // 票ゼロ → 投票しない(コントラクトも NoVotes で拒否する)
+    await store.putExecuted(p.id, { skipped: "no votes", at: new Date().toISOString() });
+    await notify(c, [`ℹ️ Prop ${p.id}: pNouns の投票がなかったため、Nouns DAO には投票しません。`, `提案の内容: https://nouns.wtf/vote/${p.id}`].join("\n"));
+    return;
+  }
   const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "execute", args: [BigInt(p.id)], account: wc.account });
   const gasLimit = BigInt(Math.ceil(Number(gas) * c.executeGasMult)); // Nouns refund 分は見積りに乗らない
   const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "execute", args: [BigInt(p.id)], gas: gasLimit });

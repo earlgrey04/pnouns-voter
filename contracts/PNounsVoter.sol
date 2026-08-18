@@ -24,6 +24,7 @@ interface INounsDAO {
  *  - 重み = tokenId 数。tokenId ごとに投票済みビットを立てるので、NFT を移しても再投票できない。
  *  - 締切(Nouns の endBlock − marginBlocks)を過ぎたら誰でも execute でき、
  *    tokens 最多 → 同数なら voters 最多 → それも同数なら棄権、を Nouns DAO に castRefundableVoteWithReason する。
+ *    票がひとつもない提案は execute できない(NoVotes)= Nouns DAO には投票しない。
  *  - liveMode=false のあいだは Nouns DAO を呼ばず結果イベントだけ出す(シャドー運用用)。
  *
  *  Nouns 側の前提: この Nouns 保有ウォレット(マルチシグ)が本コントラクトに delegate() 済みであること。
@@ -92,6 +93,7 @@ contract PNounsVoter is EIP712, Ownable {
     error ExcludedVoter(address voter);
     error NothingCounted();
     error AlreadyExecuted();
+    error NoVotes();
 
     constructor(
         address pnouns_,
@@ -260,6 +262,7 @@ contract PNounsVoter is EIP712, Ownable {
         if (block.number < deadline) revert VotingNotClosed();
 
         (uint256[3] memory tokens, uint256[3] memory voters) = _arrays(t);
+        if (tokens[0] + tokens[1] + tokens[2] == 0) revert NoVotes(); // 票ゼロ → 投票しない
         uint8 support = _decide(tokens, voters);
         t.executed = true;
         t.result = support;
@@ -272,7 +275,7 @@ contract PNounsVoter is EIP712, Ownable {
 
     function _decide(uint256[3] memory tokens, uint256[3] memory voters) internal pure returns (uint8) {
         uint256 maxTokens = _max3(tokens[0], tokens[1], tokens[2]);
-        if (maxTokens == 0) return ABSTAIN; // 票ゼロ → 棄権
+        if (maxTokens == 0) return ABSTAIN; // 票ゼロ(execute では NoVotes で拒否される。表示用の既定値)
         // tokens 最多の候補のうち voters 最多を選ぶ。単独最多なら即決。
         uint8 winner = 3; // 未定
         uint256 bestVoters;
