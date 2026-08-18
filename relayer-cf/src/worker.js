@@ -1,6 +1,6 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
-import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI } from "./chain.js";
+import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs } from "./chain.js";
 import { makeStore } from "./store.js";
 
 async function notify(c, text) {
@@ -37,21 +37,27 @@ async function announceNew(c, pc, store, p, block) {
   ].join("\n"));
 }
 
-// 票一覧を取得。dirty(新規署名あり)または force のときだけ KV list を実行し、サマリーを書き直す。それ以外はサマリー(get 1 回)
+// 票一覧。「前回 list 以降に受付があった(dirty > listedAt)」または「前回 list から forceAfterMs 経過」なら KV list(metadata のみ)してサマリーを更新。それ以外はサマリー(get 1 回)
+const FORCE_LIST_MS = 20 * 60 * 1000;
 async function loadVotes(store, proposalId, force) {
-  const dirty = await store.isDirty(proposalId);
-  if (!dirty && !force) return { summaries: await store.getSummary(proposalId), fulls: null };
-  const fulls = await store.listVotesFull(proposalId);
-  const summaries = fulls.map((v) => store.summarize(v.voter, v));
-  await store.putSummary(proposalId, summaries);
-  if (dirty) await store.clearDirty(proposalId);
-  return { summaries, fulls };
+  const sum = await store.getSummary(proposalId);
+  const dirty = await store.dirtyAt(proposalId);
+  const stale = Date.now() - (sum.listedAt || 0) > FORCE_LIST_MS;
+  if (!force && !stale && dirty <= (sum.listedAt || 0)) return { summaries: sum.votes };
+  const listedAt = Date.now(); // list 開始時刻。これより後に受け付けた署名は次回の再 list で拾う(競合しない)
+  const summaries = await store.listVoteSummaries(proposalId);
+  await store.putSummary(proposalId, summaries, listedAt);
+  return { summaries, listedAt };
 }
 async function saveVote(store, proposalId, voter, rec, summaries) {
   await store.putVote(proposalId, voter, rec);
   const i = summaries.findIndex((x) => x.voter.toLowerCase() === voter.toLowerCase());
   const sm = store.summarize(voter, rec);
   if (i >= 0) summaries[i] = sm; else summaries.push(sm);
+}
+async function flushSummary(store, proposalId, summaries) {
+  const sum = await store.getSummary(proposalId);
+  await store.putSummary(proposalId, summaries, sum.listedAt || 0);
 }
 
 // 送信済み(未確定)の投函を receipt で確定。取れないまま 10 分たてば on-chain 状態で判定して戻す
@@ -88,18 +94,18 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
       console.warn(`[worker] prop ${proposalId} tx ${tx} ${rc ? "reverted" : "not mined in 10 min"} → re-evaluated ${vs.length} votes`);
     }
   }
-  if (changed) await store.putSummary(proposalId, summaries);
+  if (changed) await flushSummary(store, proposalId, summaries);
   return changed;
 }
 
-async function submitPending(c, pc, wc, store, proposalId, inflight) {
-  const { summaries, fulls } = await loadVotes(store, proposalId, false);
-  if (summaries.some((v) => v.txStatus === "sent")) { if (!inflight.has(proposalId)) inflight.add(proposalId); return; } // 送信中は新規投函しない(確定は reconcileInflight)
+async function submitPending(c, pc, wc, store, proposalId) {
+  const { summaries } = await loadVotes(store, proposalId, false);
+  if (summaries.some((v) => v.txStatus === "sent")) return; // 送信中は新規投函しない(確定は reconcile)
   const pendingSummaries = summaries.filter((v) => !v.tx && !v.dropped && Date.now() - Date.parse(v.receivedAt) >= c.minPendingAgeSec * 1000).slice(0, c.maxBatch);
   if (!pendingSummaries.length) return;
-  // 本文(署名)を取得(list 済みならその結果を使う)
+  // 本文(署名)は投函対象だけ get(≤ MAX_BATCH 件)
   const pending = [];
-  for (const s of pendingSummaries) { const v = fulls ? fulls.find((f) => f.voter.toLowerCase() === s.voter.toLowerCase()) : await store.getVote(proposalId, s.voter); if (v) pending.push({ ...v, voter: s.voter }); }
+  for (const s of pendingSummaries) { const v = await store.getVote(proposalId, s.voter); if (v) pending.push({ ...v, voter: s.voter }); }
   // 既に他者が投函済み(on-chain)のものは external に(multicall 1 回)
   const voted = await pc.multicall({ contracts: pending.map((v) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), v.voter] })), allowFailure: false });
   const cands = [];
@@ -108,7 +114,7 @@ async function submitPending(c, pc, wc, store, proposalId, inflight) {
     if (voted[i]) { await saveVote(store, proposalId, pending[i].voter, { ...pending[i], voter: undefined, tx: "external" }, summaries); touched = true; continue; }
     cands.push(pending[i]);
   }
-  if (!cands.length) { if (touched) await store.putSummary(proposalId, summaries); return; }
+  if (!cands.length) { if (touched) await flushSummary(store, proposalId, summaries); return; }
   const toArg = (v) => ({ proposalId: BigInt(proposalId), support: v.support, tokenIds: v.tokenIds.map(BigInt), signature: v.signature });
   // バッチ全体を 1 回 simulate。失敗したら個別に切り分け(通常は起きない)
   let good = cands;
@@ -126,7 +132,7 @@ async function submitPending(c, pc, wc, store, proposalId, inflight) {
         }
       }
     }
-    if (!good.length) { if (touched) await store.putSummary(proposalId, summaries); return; }
+    if (!good.length) { if (touched) await flushSummary(store, proposalId, summaries); return; }
   }
   const args = good.map(toArg);
   const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], account: wc.account });
@@ -134,12 +140,11 @@ async function submitPending(c, pc, wc, store, proposalId, inflight) {
   console.log(`[worker] castVotesBySig prop ${proposalId} ${args.length} votes tx ${hash}`);
   const sentAt = new Date().toISOString();
   for (const v of good) await saveVote(store, proposalId, v.voter, { ...v, voter: undefined, tx: hash, txStatus: "sent", sentAt }, summaries);
-  await store.putSummary(proposalId, summaries);
-  inflight.add(proposalId);
-  // receipt は待たない(次回 tick の reconcileSent で確定・通知)
+  await flushSummary(store, proposalId, summaries);
+  // receipt は待たない(次回 tick の reconcile で確定・通知)
 }
 
-async function maybeExecute(c, pc, wc, store, p, block, mg, inflight) {
+async function maybeExecute(c, pc, wc, store, p, block, mg) {
   const ex = await store.getExecuted(p.id);
   if (ex && ex.pending && ex.tx) {
     // 送信済み・未確定の execute を確定
@@ -182,7 +187,6 @@ async function maybeExecute(c, pc, wc, store, p, block, mg, inflight) {
   const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "execute", args: [BigInt(p.id)], gas: gasLimit });
   console.log(`[worker] execute prop ${p.id} tx ${hash} (est ${gas}, limit ${gasLimit})`);
   await store.putExecuted(p.id, { tx: hash, pending: true, at: new Date().toISOString() });
-  inflight.add(String(p.id));
 }
 
 // 残高警告(リレイヤー・返金プール)。1 日 1 回、閾値未満のときだけ KV に書く
@@ -200,57 +204,58 @@ async function checkBalance(c, pc, wc, store) {
   }
 }
 
-// 送信中 tx の確定処理(提案の Nouns 側 state に関係なく実行)。inflight はメモリで管理し tick 末尾に 1 回だけ書く
-async function reconcileInflight(c, pc, wc, store, proposalsById, inflight) {
-  for (const pid of [...inflight]) {
+// 送信中 tx の確定処理: 直近提案のサマリー(get)と executed(get)から「送信中」を検出し、Nouns 側 state に関係なく確定させる
+async function reconcileRecent(c, pc, wc, store, proposals) {
+  for (const p of proposals.slice(0, 15)) {
     try {
-      const { summaries } = await loadVotes(store, pid, false);
-      await reconcileSent(c, pc, store, pid, summaries);
-      const p = proposalsById.get(Number(pid)) || { id: Number(pid), state: -1, stateName: "unknown", endBlock: 0 };
+      const pid = String(p.id);
+      const sum = await store.getSummary(pid);
+      if (sum.votes.some((v) => v.txStatus === "sent")) {
+        const summaries = [...sum.votes];
+        await reconcileSent(c, pc, store, pid, summaries);
+      }
       const ex = await store.getExecuted(pid);
       if (ex && ex.pending && ex.tx) {
         const mg = await metagovInfo(c, pc, pid);
-        await maybeExecute(c, pc, wc, store, p, Number.MAX_SAFE_INTEGER, mg, inflight); // pending 分岐だけが走る
+        await maybeExecute(c, pc, wc, store, p, Number.MAX_SAFE_INTEGER, mg); // pending 分岐だけが走る
       }
-      const stillVotes = (await store.getSummary(pid)).some((v) => v.txStatus === "sent");
-      const ex2 = await store.getExecuted(pid);
-      if (!stillVotes && !(ex2 && ex2.pending)) inflight.delete(pid);
-    } catch (e) { console.error(`[worker] reconcile prop ${pid} error:`, e.shortMessage || e.message); }
+    } catch (e) { console.error(`[worker] reconcile prop ${p.id} error:`, e.shortMessage || e.message); }
   }
 }
 
-let tickCount = 0;
+// KV/RPC 障害の Discord 警告(メモリ内で 1 時間に 1 回に抑える。KV には書かない)
+let lastErrNotify = 0;
+export async function notifyError(c, where, e) {
+  const msg = (e && (e.shortMessage || e.message)) || String(e);
+  console.error(`[${where}]`, msg);
+  if (Date.now() - lastErrNotify < 3600 * 1000) return;
+  lastErrNotify = Date.now();
+  await notify(c, [`⚠️ リレイヤーでエラーが発生しました(${where}): ${msg.slice(0, 200)}`, `KV の 1 日上限(無料枠)や RPC 障害の可能性があります。Cloudflare のダッシュボード(Workers & Pages → KV Metrics)を確認してください。`, `上限到達中は署名の受付・投函が止まりますが、票は消えません。締切が近い提案は投票ページの「手動で execute」で救済できます。`].join("\n"));
+}
+
+let lastBalanceCheck = 0;
 export async function tick(env) {
   const c = cfg(env);
   const { publicClient: pc, walletClient: wc } = clients(c);
-  const store = makeStore(env.STATE);
-  tickCount++;
-  if (tickCount % 10 === 1) { try { await checkBalance(c, pc, wc, store); } catch (e) { console.warn("[worker] balance check failed", e.message); } }
-  const { block, proposals } = await recentProposals(c, pc);
-  const inflightBefore = await store.getInflight();
-  const inflight = new Set(inflightBefore.map(String));
-  await reconcileInflight(c, pc, wc, store, new Map(proposals.map((p) => [p.id, p])), inflight);
-  for (const p of proposals) {
-    if (p.state !== 0 && p.state !== 1) continue;
-    try {
-      if (c.announce) await announceNew(c, pc, store, p, block);
-      const mg = await metagovInfo(c, pc, p.id);
-      if (!wc) continue;
-      if (block < mg.deadline) await submitPending(c, pc, wc, store, String(p.id), inflight);
-      else await maybeExecute(c, pc, wc, store, p, block, mg, inflight);
-    } catch (e) {
-      console.error(`[worker] prop ${p.id} error:`, e.shortMessage || e.message);
+  const store = makeStore(env.STATE, storeNs(c));
+  try {
+    if (Date.now() - lastBalanceCheck > 10 * 60 * 1000) { lastBalanceCheck = Date.now(); try { await checkBalance(c, pc, wc, store); } catch (e) { console.warn("[worker] balance check failed", e.message); } }
+    const { block, proposals } = await recentProposals(c, pc);
+    await reconcileRecent(c, pc, wc, store, proposals);
+    for (const p of proposals) {
+      if (p.state !== 0 && p.state !== 1) continue;
+      try {
+        if (c.announce) await announceNew(c, pc, store, p, block);
+        const mg = await metagovInfo(c, pc, p.id);
+        if (!wc) continue;
+        if (block < mg.deadline) await submitPending(c, pc, wc, store, String(p.id));
+        else await maybeExecute(c, pc, wc, store, p, block, mg);
+      } catch (e) {
+        await notifyError(c, `worker prop ${p.id}`, e);
+      }
     }
+  } catch (e) {
+    await notifyError(c, "worker tick", e);
   }
-  // 回復: 30 tick に 1 回、直近提案のサマリー(get)に txStatus:sent が残っていれば inflight に戻す(単一キー消失対策)
-  if (tickCount % 30 === 0) {
-    for (const p of proposals.slice(0, 10)) {
-      const sm = await store.getSummary(p.id);
-      const ex = await store.getExecuted(p.id);
-      if (sm.some((v) => v.txStatus === "sent") || (ex && ex.pending)) inflight.add(String(p.id));
-    }
-  }
-  const after = [...inflight].sort();
-  if (JSON.stringify(after) !== JSON.stringify([...inflightBefore.map(String)].sort())) await store.putInflight(after); // 1 tick 1 回だけ書く
 }
 export { notify };

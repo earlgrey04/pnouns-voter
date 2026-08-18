@@ -92,7 +92,7 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - ローカル systemd 版(`relayer/`)は Worker 版に一本化したため **無効化済み**(`systemctl --user disable`)。緊急時のフォールバックとして残置
 
 ## 監査(2026-08-18、Codex)
-第 1 回 High 3 / Medium 8、第 2 回 High 1 / Medium 5 / Low 4、第 3 回 High 2 / Medium 1 / Low 1 → すべて対応済み。Cloudflare 無料枠(KV 書込み・list 1,000/日、サブリクエスト 50/呼び出し)を意識した設計(list はワーカーの dirty 提案のみ、公開 API は get のみ、Cache API)。**mainnet 本番では Workers Paid($5/月)を推奨**(上限到達時に受付が止まるリスクをゼロにするため)。詳細は `docs/AUDIT-BRIEF.md`(依頼)と `docs/AUDIT-RESPONSE-2026-08-18.md`(対応)。
+第 1 回 High 3 / Medium 8、第 2 回 High 1 / Medium 5 / Low 4、第 3 回 High 2 / Medium 1 / Low 1 → すべて対応済み。Cloudflare 無料枠(KV 書込み・list 1,000/日、サブリクエスト 50/呼び出し)を意識した設計(list はワーカーの dirty 提案のみ、公開 API は get のみ、Cache API)。運用は**無料枠で開始し、KV エラー時の Discord ⚠️ 警告と Cloudflare の KV Metrics を見て必要なら Workers Paid($5/月)へ**(プラン変更は再デプロイ不要・無停止)。注: 1 呼び出しあたり KV 1,000 操作の上限は Paid でも同じなので、設計側で list を metadata のみ・get を投函対象のみに抑えている。詳細は `docs/AUDIT-BRIEF.md`(依頼)と `docs/AUDIT-RESPONSE-2026-08-18.md`(対応)。
 - 委任の切り戻しは**以後の提案から**有効(Nouns は提案作成時点の委任票を使う)。進行中提案の緊急停止は `setLiveMode(false)`
 - シャドー運用の execute は確定しない(後から本投票可)
 

@@ -1,38 +1,38 @@
-// KV ストア — Cloudflare 無料枠(書込み 1,000/日、list 1,000/日、読取 100,000/日、サブリクエスト 50/呼び出し)に収める設計
-//  - 票: vote:{pid}:{voter}(本文)。list は **ワーカーだけ** が、しかも dirty フラグが立っている提案だけ実行する
-//  - 集計サマリー: sum:{pid}(単一 JSON、ワーカーが list 結果から生成)。公開 API は get だけで応答する
-//  - dirty:{pid}: API が署名を受け付けたときに立てる(1 write)。ワーカーが list 後に消す
-//  - inflight: 送信中 tx を持つ提案 ID の集合(単一キー、ワーカーが tick 末尾に 1 回だけ書く)
-export function makeStore(kv) {
-  const voteKey = (pid, voter) => `vote:${pid}:${voter.toLowerCase()}`;
-  const summarize = (voter, rec) => ({ voter, support: rec.support, tokenCount: rec.tokenIds.length, tx: rec.tx || undefined, txStatus: rec.txStatus || undefined, dropped: rec.dropped ? true : undefined, receivedAt: rec.receivedAt, sentAt: rec.sentAt || undefined });
+// KV ストア(Cloudflare 無料枠: 書込み 1,000/日、list 1,000/日、読取 100,000/日、1 呼び出し 1,000 操作)
+//  - 全キーは "<chainId>:<voter>:" で名前空間化(コントラクト再デプロイで混ざらない)
+//  - 票: vote:{pid}:{voter}。値=本文(署名)、metadata=要約。一覧は list の metadata だけで作る(get は投函対象 ≤ MAX_BATCH 件のみ)
+//  - サマリー sum:{pid}: ワーカーが list 結果から書く(listedAt 付き)。公開 API は get のみ
+//  - dirty:{pid}: API が署名受付時に受付時刻を書く。ワーカーは「dirty > 前回 listedAt」なら再 list(削除しないので競合しない)
+//  - inflight キーは持たない: 送信中は sum の txStatus:"sent" / executed.pending から毎 tick 検出
+export function makeStore(kv, ns) {
+  const P = ns ? `${ns}:` : "";
+  const voteKey = (pid, voter) => `${P}vote:${pid}:${voter.toLowerCase()}`;
+  const meta = (rec) => ({ s: rec.support, n: rec.tokenIds.length, tx: rec.tx || null, st: rec.txStatus || null, d: rec.dropped ? 1 : 0, at: rec.receivedAt, sa: rec.sentAt || null });
+  const fromMeta = (voter, m) => ({ voter, support: m.s, tokenCount: m.n, tx: m.tx || undefined, txStatus: m.st || undefined, dropped: m.d ? true : undefined, receivedAt: m.at, sentAt: m.sa || undefined });
   return {
-    kvRaw: kv,
+    kvRaw: kv, prefix: P,
     async getVote(pid, voter) { return kv.get(voteKey(pid, voter), "json"); },
-    async putVote(pid, voter, rec) { await kv.put(voteKey(pid, voter), JSON.stringify(rec)); },
-    /// list(高コスト)。ワーカー専用
-    async listVotesFull(pid) {
+    async putVote(pid, voter, rec) { await kv.put(voteKey(pid, voter), JSON.stringify(rec), { metadata: meta(rec) }); },
+    /// list(metadata のみ、get なし)。ワーカー専用
+    async listVoteSummaries(pid) {
       const out = []; let cursor;
       do {
-        const r = await kv.list({ prefix: `vote:${pid}:`, cursor });
-        for (const k of r.keys) { const v = await kv.get(k.name, "json"); if (v) out.push({ voter: k.name.split(":")[2], ...v }); }
+        const r = await kv.list({ prefix: `${P}vote:${pid}:`, cursor });
+        for (const k of r.keys) if (k.metadata) out.push(fromMeta(k.name.split(":").pop(), k.metadata));
         cursor = r.list_complete ? undefined : r.cursor;
       } while (cursor);
       return out;
     },
-    summarize,
-    async getSummary(pid) { return (await kv.get(`sum:${pid}`, "json")) || []; },
-    async putSummary(pid, list) { await kv.put(`sum:${pid}`, JSON.stringify(list)); },
-    async markDirty(pid) { await kv.put(`dirty:${pid}`, "1", { expirationTtl: 86400 * 7 }); },
-    async isDirty(pid) { return !!(await kv.get(`dirty:${pid}`)); },
-    async clearDirty(pid) { await kv.delete(`dirty:${pid}`); },
-    async getExecuted(pid) { return kv.get(`executed:${pid}`, "json"); },
-    async putExecuted(pid, rec) { if (rec === null) return kv.delete(`executed:${pid}`); await kv.put(`executed:${pid}`, JSON.stringify(rec)); },
-    async getAnnounced(pid) { return kv.get(`announced:${pid}`); },
-    async putAnnounced(pid, v) { await kv.put(`announced:${pid}`, v); },
-    async getInflight() { return (await kv.get("inflight", "json")) || []; },
-    async putInflight(list) { await kv.put("inflight", JSON.stringify(list)); },
-    async getFlag(k) { return kv.get(`flag:${k}`); },
-    async setFlag(k, ttl) { await kv.put(`flag:${k}`, "1", { expirationTtl: Math.max(60, ttl) }); },
+    summarize(voter, rec) { return fromMeta(voter, meta(rec)); },
+    async getSummary(pid) { return (await kv.get(`${P}sum:${pid}`, "json")) || { listedAt: 0, votes: [] }; },
+    async putSummary(pid, votes, listedAt) { await kv.put(`${P}sum:${pid}`, JSON.stringify({ listedAt, votes })); },
+    async markDirty(pid) { await kv.put(`${P}dirty:${pid}`, String(Date.now()), { expirationTtl: 86400 * 7 }); },
+    async dirtyAt(pid) { return Number(await kv.get(`${P}dirty:${pid}`)) || 0; },
+    async getExecuted(pid) { return kv.get(`${P}executed:${pid}`, "json"); },
+    async putExecuted(pid, rec) { if (rec === null) return kv.delete(`${P}executed:${pid}`); await kv.put(`${P}executed:${pid}`, JSON.stringify(rec)); },
+    async getAnnounced(pid) { return kv.get(`${P}announced:${pid}`); },
+    async putAnnounced(pid, v) { await kv.put(`${P}announced:${pid}`, v); },
+    async getFlag(k) { return kv.get(`${P}flag:${k}`); },
+    async setFlag(k, ttl) { await kv.put(`${P}flag:${k}`, "1", { expirationTtl: Math.max(60, ttl) }); },
   };
 }

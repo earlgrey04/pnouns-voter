@@ -1,9 +1,9 @@
 // Cloudflare Worker: Hono API + cron(scheduled)。静的 dApp は wrangler の assets で配信(public/_headers で CSP)。
 import { Hono } from "hono";
 import { recoverTypedDataAddress, encodeFunctionData } from "viem";
-import { cfg, clients, domain, VOTE_TYPES, tokensOf, allOwners, recentProposals, proposalTitle, metagovInfo, getAddress, METAGOV_ABI, DAO_ABI } from "./chain.js";
+import { cfg, clients, domain, VOTE_TYPES, tokensOf, allOwners, recentProposals, proposalTitle, metagovInfo, getAddress, METAGOV_ABI, DAO_ABI, storeNs } from "./chain.js";
 import { makeStore } from "./store.js";
-import { tick } from "./worker.js";
+import { tick, notifyError } from "./worker.js";
 
 const app = new Hono();
 
@@ -30,13 +30,14 @@ app.get("/api/proposals", async (ctx) => {
   const hit = await cache.match(cacheKey);
   if (hit) return hit;
   const { publicClient: pc } = clients(c);
-  const store = makeStore(ctx.env.STATE);
+  const store = makeStore(ctx.env.STATE, storeNs(c));
   const { block, proposals } = await recentProposals(c, pc);
   const wanted = proposals.filter((p) => p.state === 0 || p.state === 1 || closedN);
   const limited = closedN ? wanted.slice(0, closedN) : wanted;
   const list = await Promise.all(limited.map(async (p) => {
     const votable = p.state === 0 || p.state === 1;
-    const [title, mg, votes, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.getSummary(p.id), store.getExecuted(p.id)]);
+    const [title, mg, sum, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.getSummary(p.id), store.getExecuted(p.id)]);
+    const votes = sum.votes;
     return { ...p, title, metagov: mg, votable: votable && block < mg.deadline, pendingSignatures: votes.filter((v) => !v.tx && !v.dropped).length, submittedVoters: votes.filter((v) => v.tx).length, executed };
   }));
   const res = ctx.json({ block, proposals: list });
@@ -48,7 +49,7 @@ app.get("/api/proposals", async (ctx) => {
 app.get("/api/tokens/:address", async (ctx) => {
   const c = cfg(ctx.env);
   const { publicClient: pc } = clients(c);
-  const store = makeStore(ctx.env.STATE);
+  const store = makeStore(ctx.env.STATE, storeNs(c));
   const address = getAddress(ctx.req.param("address"));
   const ids = await tokensOf(c, pc, address);
   const proposalId = ctx.req.query("proposalId");
@@ -86,7 +87,7 @@ async function readJsonLimited(req, limit = 65536) {
 app.post("/api/vote", async (ctx) => {
   const c = cfg(ctx.env);
   const { publicClient: pc } = clients(c);
-  const store = makeStore(ctx.env.STATE);
+  const store = makeStore(ctx.env.STATE, storeNs(c));
   let body;
   try { body = await readJsonLimited(ctx.req.raw); } catch (e) { return ctx.json({ error: e.message === "payload too large" ? "payload too large" : "bad json" }, e.message === "payload too large" ? 413 : 400); }
   const { proposalId, support, tokenIds, signature } = body || {};
@@ -133,10 +134,10 @@ app.post("/api/vote", async (ctx) => {
 app.get("/api/signatures/:id", async (ctx) => {
   const c = cfg(ctx.env);
   const { publicClient: pc, account } = clients(c);
-  const store = makeStore(ctx.env.STATE);
+  const store = makeStore(ctx.env.STATE, storeNs(c));
   if (!/^\d{1,10}$/.test(ctx.req.param("id"))) return ctx.json({ error: "bad id" }, 400);
   const id = BigInt(ctx.req.param("id")).toString();
-  const summaries = await store.getSummary(id); // 公開 API は list しない(サマリーはワーカーが更新)
+  const summaries = (await store.getSummary(id)).votes; // 公開 API は list しない(サマリーはワーカーが更新)
   const out = { proposalId: id, contract: c.metagov, chainId: c.chainId, domain: domain(c), types: VOTE_TYPES,
     pending: summaries.filter((v) => !v.tx && !v.dropped), submitted: summaries.filter((v) => v.tx), dropped: summaries.filter((v) => v.dropped) };
   if (ctx.req.query("calldata") && out.pending.length) {
@@ -163,11 +164,11 @@ app.get("/api/signatures/:id", async (ctx) => {
 app.get("/api/proposal/:id", async (ctx) => {
   const c = cfg(ctx.env);
   const { publicClient: pc } = clients(c);
-  const store = makeStore(ctx.env.STATE);
+  const store = makeStore(ctx.env.STATE, storeNs(c));
   if (!/^\d{1,10}$/.test(ctx.req.param("id"))) return ctx.json({ error: "bad id" }, 400);
   const id = Number(ctx.req.param("id"));
-  const [mg, votes, executed] = await Promise.all([metagovInfo(c, pc, id), store.getSummary(String(id)), store.getExecuted(id)]);
-  return ctx.json({ id, metagov: mg, votes, executed });
+  const [mg, sum, executed] = await Promise.all([metagovInfo(c, pc, id), store.getSummary(String(id)), store.getExecuted(id)]);
+  return ctx.json({ id, metagov: mg, votes: sum.votes, executed });
 });
 
 // 手動トリガ(TICK_TOKEN 設定時のみ有効)
@@ -178,7 +179,11 @@ app.post("/api/tick", async (ctx) => {
   return ctx.json({ ok: true });
 });
 
-app.onError((e, ctx) => { console.error(e); return ctx.json({ error: e.shortMessage || e.message }, 500); });
+app.onError((e, ctx) => {
+  console.error(e);
+  try { const c = cfg(ctx.env); ctx.executionCtx.waitUntil(notifyError(c, `api ${new URL(ctx.req.url).pathname}`, e)); } catch {}
+  return ctx.json({ error: e.shortMessage || e.message }, 500);
+});
 
 export default {
   fetch: app.fetch,

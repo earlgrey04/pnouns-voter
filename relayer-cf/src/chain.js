@@ -51,6 +51,7 @@ export function cfg(env) {
     lowBalanceEth: env.LOW_BALANCE_ETH || (env.NETWORK === "mainnet" ? "0.01" : "0.02"),
   };
 }
+export const storeNs = (c) => `${c.chainId}:${c.metagov.toLowerCase()}`;
 export function clients(c) {
   const publicClient = createPublicClient({ chain: c.chain, transport: http(c.rpcUrl, { batch: true }) });
   const account = c.relayerKey ? privateKeyToAccount(c.relayerKey) : null;
