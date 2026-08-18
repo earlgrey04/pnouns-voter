@@ -25,7 +25,10 @@ interface INounsDAO {
  *  - 締切(Nouns の endBlock − marginBlocks)を過ぎたら誰でも execute でき、
  *    tokens 最多 → 同数なら voters 最多 → それも同数なら棄権、を Nouns DAO に castRefundableVoteWithReason する。
  *    票がひとつもない提案は execute できない(NoVotes)= Nouns DAO には投票しない。
- *  - liveMode=false のあいだは Nouns DAO を呼ばず結果イベントだけ出す(シャドー運用用)。
+ *  - liveMode=false のあいだは Nouns DAO を呼ばず結果イベントだけ出す(シャドー運用用。executed は立てないので、
+ *    後で liveMode=true にすれば同じ提案を本投票できる)。
+ *  - 注意: Nouns の投票力は提案作成時点の委任で決まるため、委任を戻しても進行中の提案には効かない。
+ *    緊急停止は setLiveMode(false)。
  *  - ガス払い戻し(案 B): 本コントラクトに預けられた ETH から、castVotesBySig / castVote の実行者(tx.origin)へ
  *    使ったガス代を同一 tx 内で返す(Nouns DAO の _refundGas と同じ方式)。単価・量・提案ごとの上限あり。
  *    残高が無ければ返金をスキップし、投票自体は成立させる。返金は best effort(送金失敗でも revert しない)。
@@ -113,6 +116,7 @@ contract PNounsVoter is EIP712, Ownable {
     error NothingCounted();
     error AlreadyExecuted();
     error NoVotes();
+    error MixedProposals();
 
     constructor(
         address pnouns_,
@@ -186,16 +190,22 @@ contract PNounsVoter is EIP712, Ownable {
         return (_votedBitmap[proposalId][tokenId >> 8] >> (tokenId & 0xff)) & 1 == 1;
     }
 
-    /// @notice Nouns 側の endBlock
+    /// @notice Nouns 側の endBlock。proposals() の返り値(ProposalCondensedV2、15 word)を型付きで decode し、
+    ///         id の一致と startBlock < endBlock を検証する(Nouns DAO のアップグレードでレイアウトが変わった場合に誤読しないため)。
     function nounsEndBlock(uint256 proposalId) public view returns (uint256) {
         (bool ok, bytes memory data) = address(nounsDAO).staticcall(
             abi.encodeWithSelector(INounsDAO.proposals.selector, proposalId)
         );
-        require(ok && data.length >= 15 * 32, "proposals() failed");
+        require(ok && data.length == 15 * 32, "proposals() layout mismatch");
+        uint256 id;
+        uint256 startBlock;
         uint256 endBlock;
         assembly {
-            endBlock := mload(add(data, 0xe0)) // 7 番目の word (0x20 * 7)
+            id := mload(add(data, 0x20)) // word 0: id
+            startBlock := mload(add(data, 0xc0)) // word 5: startBlock
+            endBlock := mload(add(data, 0xe0)) // word 6: endBlock
         }
+        require(id == proposalId && endBlock > startBlock, "proposals() sanity check failed");
         return endBlock;
     }
 
@@ -235,6 +245,7 @@ contract PNounsVoter is EIP712, Ownable {
         uint256 startGas = gasleft();
         for (uint256 i = 0; i < votes.length; i++) {
             VoteSig calldata v = votes[i];
+            if (v.proposalId != votes[0].proposalId) revert MixedProposals(); // 返金の提案別会計のため 1 バッチ = 1 提案
             address voter = ECDSA.recover(hashVote(v.proposalId, v.support, v.tokenIds), v.signature);
             _castVote(voter, v.proposalId, v.support, v.tokenIds);
         }
@@ -321,13 +332,15 @@ contract PNounsVoter is EIP712, Ownable {
         (uint256[3] memory tokens, uint256[3] memory voters) = _arrays(t);
         if (tokens[0] + tokens[1] + tokens[2] == 0) revert NoVotes(); // 票ゼロ → 投票しない
         uint8 support = _decide(tokens, voters);
+        if (!liveMode) {
+            // シャドー運用: 結果イベントだけ出し、executed は立てない(後で liveMode=true にすれば本投票できる)
+            emit Executed(proposalId, support, tokens, voters, false);
+            return;
+        }
         t.executed = true;
         t.result = support;
-
-        if (liveMode) {
-            nounsDAO.castRefundableVoteWithReason(proposalId, support, _reason(tokens, voters, support));
-        }
-        emit Executed(proposalId, support, tokens, voters, liveMode);
+        nounsDAO.castRefundableVoteWithReason(proposalId, support, _reason(tokens, voters, support));
+        emit Executed(proposalId, support, tokens, voters, true);
     }
 
     function _decide(uint256[3] memory tokens, uint256[3] memory voters) internal pure returns (uint8) {

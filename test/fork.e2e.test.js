@@ -269,8 +269,21 @@ describe("PNounsVoter (mainnet fork E2E)", function () {
     const dl = await metagov.voteDeadline(proposalId);
     await mine(dl - BigInt(await ethers.provider.getBlockNumber()));
     await expect(metagov.connect(executor).execute(proposalId)).to.emit(metagov, "Executed").withArgs(proposalId, 1, [0n, 2n, 0n], [0n, 1n, 0n], false);
-    const receipt = await dao.getReceipt(proposalId, await metagov.getAddress());
+    let receipt = await dao.getReceipt(proposalId, await metagov.getAddress());
     expect(receipt.hasVoted).to.equal(false);
+    expect((await metagov.tally(proposalId)).executed).to.equal(false); // シャドーでは確定しない
+    // liveMode に戻せば同じ提案を本投票できる
+    await metagov.setLiveMode(true);
+    await metagov.connect(executor).execute(proposalId);
+    receipt = await dao.getReceipt(proposalId, await metagov.getAddress());
+    expect(receipt.hasVoted).to.equal(true);
+    expect(receipt.support).to.equal(1n);
+  });
+
+  it("1 バッチに複数提案を混ぜると MixedProposals", async function () {
+    const a = await signVote(alice, metagov, proposalId, 1, alice.tokenIds);
+    const b = await signVote(bob, metagov, proposalId + 1n, 1, bob.tokenIds);
+    await expect(metagov.castVotesBySig([a, b])).to.be.revertedWithCustomError(metagov, "MixedProposals");
   });
 
   it("本人が自分でガスを払って castVote できる(リレイヤー不要の退路)", async function () {

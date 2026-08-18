@@ -11,6 +11,8 @@ export const DAO_ABI = parseAbi([
   "function proposals(uint256) view returns (uint256 id,address proposer,uint256 proposalThreshold,uint256 quorumVotes,uint256 eta,uint256 startBlock,uint256 endBlock,uint256 forVotes,uint256 againstVotes,uint256 abstainVotes,bool canceled,bool vetoed,bool executed,uint256 totalSupply,uint256 creationBlock)",
   "event ProposalCreated(uint256 id, address proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 startBlock, uint256 endBlock, string description)",
   "event ProposalCreatedWithRequirements(uint256 id, address proposer, address[] signers, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, uint256 startBlock, uint256 endBlock, uint256 updatePeriodEndBlock, uint256 proposalThreshold, uint256 quorumVotes, string description)",
+  "event ProposalUpdated(uint256 indexed id, address indexed proposer, address[] targets, uint256[] values, string[] signatures, bytes[] calldatas, string description, string updateMessage)",
+  "event ProposalDescriptionUpdated(uint256 indexed id, address indexed proposer, string description, string updateMessage)",
 ]);
 export const NOUNS_ABI = parseAbi(["function getCurrentVotes(address) view returns (uint96)"]);
 export const PNOUNS_ABI = parseAbi(["function ownerOf(uint256) view returns (address)", "function totalSupply() view returns (uint256)"]);
@@ -35,6 +37,7 @@ export function cfg(env) {
     scanProposals: Number(env.SCAN_PROPOSALS || 30),
     executeGasMult: Number(env.EXECUTE_GAS_MULT || 1.3),
     minPendingAgeSec: Number(env.MIN_PENDING_AGE_SEC || 20),
+    maxBatch: Number(env.MAX_BATCH || 25), // M-03: 1 tx にまとめる署名数の上限
     announce: env.ANNOUNCE !== "0",
     discordWebhook: env.DISCORD_WEBHOOK_URL || null,
     relayerKey: env.RELAYER_PRIVATE_KEY || null,
@@ -96,21 +99,26 @@ export async function recentProposals(c, pc) {
   });
   return { block: Number(block), proposals: out };
 }
-export async function proposalTitle(c, pc, kv, id, creationBlock) {
+// H-03: 提案は Updatable 期間中に本文が更新されうる。作成イベントに加えて更新イベント(ProposalUpdated / ProposalDescriptionUpdated)も
+//        読み、最新の description を使う。Updatable(state 10)の間は永続キャッシュしない(短い TTL)。
+export async function proposalTitle(c, pc, kv, id, creationBlock, state) {
   const key = `title:${id}`;
   const cached = kv ? await kv.get(key) : null;
   if (cached) return cached;
   let title = `Proposal ${id}`;
   try {
-    const logs = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: BigInt(creationBlock), events: DAO_ABI.filter((x) => x.type === "event") });
-    for (const l of logs) {
-      if (l.eventName && l.eventName.startsWith("ProposalCreated") && Number(l.args.id) === id) {
-        const first = String(l.args.description || "").split("\n").find((x) => x.trim()) || "";
-        title = first.replace(/^#+\s*/, "").trim() || title;
-      }
-    }
+    const events = DAO_ABI.filter((x) => x.type === "event");
+    const latest = await pc.getBlockNumber();
+    const created = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: BigInt(creationBlock), events });
+    const updates = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: latest, events: events.filter((e) => e.name === "ProposalUpdated" || e.name === "ProposalDescriptionUpdated"), args: { id: BigInt(id) } });
+    let desc = "";
+    for (const l of created) if (l.eventName && l.eventName.startsWith("ProposalCreated") && Number(l.args.id) === id) desc = String(l.args.description || "");
+    for (const l of updates) if (Number(l.args.id) === id) desc = String(l.args.description || desc);
+    const first = desc.split("\n").find((x) => x.trim()) || "";
+    title = first.replace(/^#+\s*/, "").trim() || title;
+    if (updates.length) title += " (更新あり)";
   } catch (e) { /* タイトルは必須でない */ }
-  if (kv) await kv.put(key, title, { expirationTtl: 86400 * 30 });
+  if (kv) await kv.put(key, title, { expirationTtl: state === 10 ? 60 : 86400 * 30 }); // Updatable 中は 60 秒だけ
   return title;
 }
 export async function metagovInfo(c, pc, proposalId) {

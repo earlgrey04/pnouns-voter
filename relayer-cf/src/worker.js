@@ -14,7 +14,7 @@ async function announceNew(c, pc, store, kv, p, block) {
   if (await store.getAnnounced(p.id)) return;
   const mg = await metagovInfo(c, pc, p.id);
   if (mg.deadline && block >= mg.deadline) { await store.putAnnounced(p.id, "late"); return; }
-  const title = await proposalTitle(c, pc, kv, p.id, p.creationBlock);
+  const title = await proposalTitle(c, pc, kv, p.id, p.creationBlock, p.state);
   const deadlineBlock = mg.deadline || p.endBlock;
   const minutes = Math.max(0, Math.round((deadlineBlock - block) * 12 / 60));
   const jst = new Date(Date.now() + minutes * 60000).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -28,9 +28,39 @@ async function announceNew(c, pc, store, kv, p, block) {
   ].join("\n"));
 }
 
+function isContractRevert(e) {
+  // viem: ContractFunctionExecutionError → cause ContractFunctionRevertedError / 明示的な revert のみ「無効な署名」とみなす
+  let x = e;
+  for (let i = 0; i < 6 && x; i++) { if (x.name === "ContractFunctionRevertedError" || x.name === "ContractFunctionZeroDataError") return true; x = x.cause; }
+  return false;
+}
+
+// H-02: 送信済み(tx あり・未確定)の記録を receipt で確定させる。receipt が取れず一定時間経過なら on-chain 状態で判断して戻す
+async function reconcileSent(c, pc, store, proposalId, all) {
+  for (const v of all) {
+    if (!v.tx || v.tx === "external" || v.txStatus === "success" || v.txStatus === "reverted") continue;
+    let rc = null;
+    try { rc = await pc.getTransactionReceipt({ hash: v.tx }); } catch { rc = null; }
+    if (rc) {
+      if (rc.status === "success") { await store.putVote(proposalId, v.voter, { ...v, voter: undefined, txStatus: "success" }); continue; }
+      const already = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), v.voter] });
+      await store.putVote(proposalId, v.voter, { ...v, voter: undefined, tx: already ? "external" : undefined, txStatus: undefined, sentAt: undefined });
+      continue;
+    }
+    // receipt なし: 10 分以上たっていれば on-chain 状態で判断(投票済みなら external、未投票なら再投函へ戻す)
+    if (Date.now() - Date.parse(v.sentAt || v.receivedAt) > 10 * 60 * 1000) {
+      const already = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), v.voter] });
+      await store.putVote(proposalId, v.voter, { ...v, voter: undefined, tx: already ? "external" : undefined, txStatus: undefined, sentAt: undefined });
+      console.warn(`[worker] prop ${proposalId} ${v.voter}: tx ${v.tx} not mined in 10 min → ${already ? "external" : "requeue"}`);
+    }
+  }
+}
+
 async function submitPending(c, pc, wc, store, proposalId) {
   const all = await store.listVotes(proposalId);
-  const pending = all.filter((v) => !v.tx && !v.dropped && Date.now() - Date.parse(v.receivedAt) >= c.minPendingAgeSec * 1000);
+  await reconcileSent(c, pc, store, proposalId, all);
+  const fresh = await store.listVotes(proposalId);
+  const pending = fresh.filter((v) => !v.tx && !v.dropped && Date.now() - Date.parse(v.receivedAt) >= c.minPendingAgeSec * 1000).slice(0, c.maxBatch);
   if (!pending.length) return;
   const good = [];
   for (const v of pending) {
@@ -43,29 +73,36 @@ async function submitPending(c, pc, wc, store, proposalId) {
       good.push({ v, arg });
     } catch (e) {
       const reason = (e.shortMessage || e.message || "").slice(0, 200);
-      await store.putVote(proposalId, v.voter, { ...v, voter: undefined, dropped: reason });
-      await store.log({ at: new Date().toISOString(), type: "drop", proposalId, voter: v.voter, reason });
-      console.warn(`[worker] drop vote prop ${proposalId} ${v.voter}: ${reason}`);
+      if (isContractRevert(e)) { // M-02: コントラクトの revert だけ永久 drop。RPC 障害は次回再試行
+        await store.putVote(proposalId, v.voter, { ...v, voter: undefined, dropped: reason });
+        await store.log({ at: new Date().toISOString(), type: "drop", proposalId, voter: v.voter, reason });
+        console.warn(`[worker] drop vote prop ${proposalId} ${v.voter}: ${reason}`);
+      } else {
+        console.warn(`[worker] simulate transient error prop ${proposalId} ${v.voter}: ${reason} (will retry)`);
+      }
     }
   }
   if (!good.length) return;
   const args = good.map((g) => g.arg);
   const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], account: wc.account });
-  const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], gas: (gas * 12n) / 10n });
+  const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], gas: (gas * 13n) / 10n });
   console.log(`[worker] castVotesBySig prop ${proposalId} ${args.length} votes tx ${hash}`);
-  // 先に tx を記録(二重投函防止)、その後 receipt を待つ
-  for (const g of good) await store.putVote(proposalId, g.v.voter, { ...g.v, voter: undefined, tx: hash });
-  const rc = await pc.waitForTransactionReceipt({ hash, timeout: 60000 });
+  // 先に tx を「送信済み(未確定)」として記録。確定は receipt で(取れなければ次回 reconcileSent が処理)
+  const sentAt = new Date().toISOString();
+  for (const g of good) await store.putVote(proposalId, g.v.voter, { ...g.v, voter: undefined, tx: hash, txStatus: "sent", sentAt });
+  let rc;
+  try { rc = await pc.waitForTransactionReceipt({ hash, timeout: 60000 }); }
+  catch (e) { console.warn(`[worker] receipt wait failed for ${hash}: ${e.shortMessage || e.message} (reconcile later)`); return; }
   await store.log({ at: new Date().toISOString(), type: "submit", proposalId, voters: good.map((g) => g.v.voter), tx: hash, gasUsed: String(rc.gasUsed), status: rc.status });
   if (rc.status !== "success") {
-    // 誰でも投函できるため、同時に他者が投函して revert することがある。記録を戻し、on-chain 済みなら external に
     for (const g of good) {
       const already = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), g.v.voter] });
-      await store.putVote(proposalId, g.v.voter, { ...g.v, voter: undefined, tx: already ? "external" : undefined });
+      await store.putVote(proposalId, g.v.voter, { ...g.v, voter: undefined, tx: already ? "external" : undefined, txStatus: undefined, sentAt: undefined });
     }
     console.warn(`[worker] castVotesBySig prop ${proposalId} reverted (${hash}); re-evaluated ${good.length} votes`);
     return;
   }
+  for (const g of good) await store.putVote(proposalId, g.v.voter, { ...g.v, voter: undefined, tx: hash, txStatus: "success", sentAt });
   const mg = await metagovInfo(c, pc, proposalId);
   await notify(c, [
     `🗳️ Prop ${proposalId}: ${args.length} 票を pNouns Voter に投函しました (gas ${rc.gasUsed})。`,
@@ -75,7 +112,20 @@ async function submitPending(c, pc, wc, store, proposalId) {
 }
 
 async function maybeExecute(c, pc, wc, store, p, block) {
-  if (await store.getExecuted(p.id)) return;
+  const ex = await store.getExecuted(p.id);
+  if (ex && ex.pending && ex.tx) {
+    // H-02: 送信済み・未確定の execute を確定させる
+    let rc = null;
+    try { rc = await pc.getTransactionReceipt({ hash: ex.tx }); } catch { rc = null; }
+    const info = await metagovInfo(c, pc, p.id);
+    if (rc && rc.status === "success") { await store.putExecuted(p.id, { ...ex, pending: false, status: "success", result: info.result, nounsReceipt: info.nounsReceipt }); return; }
+    if (rc || Date.now() - Date.parse(ex.at) > 10 * 60 * 1000) {
+      if (info.executed) await store.putExecuted(p.id, { external: true, revertedTx: ex.tx });
+      else await store.putExecuted(p.id, null); // 未実行のまま → 再試行
+    }
+    return;
+  }
+  if (ex) return;
   const mg = await metagovInfo(c, pc, p.id);
   if (mg.executed) { await store.putExecuted(p.id, { external: true }); return; }
   if (mg.deadline === 0 || block < mg.deadline) return;
@@ -90,7 +140,9 @@ async function maybeExecute(c, pc, wc, store, p, block) {
   const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "execute", args: [BigInt(p.id)], gas: gasLimit });
   console.log(`[worker] execute prop ${p.id} tx ${hash} (est ${gas}, limit ${gasLimit})`);
   await store.putExecuted(p.id, { tx: hash, pending: true, at: new Date().toISOString() });
-  const rc = await pc.waitForTransactionReceipt({ hash, timeout: 60000 });
+  let rc;
+  try { rc = await pc.waitForTransactionReceipt({ hash, timeout: 60000 }); }
+  catch (e) { console.warn(`[worker] execute receipt wait failed for ${hash}: ${e.shortMessage || e.message} (reconcile later)`); return; }
   const after = await metagovInfo(c, pc, p.id);
   if (rc.status !== "success") {
     // 他者が先に execute した等。on-chain 済みなら external、そうでなければ記録を消して次回再試行

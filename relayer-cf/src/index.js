@@ -22,7 +22,7 @@ app.get("/api/proposals", async (ctx) => {
   const limited = closedN ? wanted.slice(0, closedN) : wanted;
   const list = await Promise.all(limited.map(async (p) => {
     const votable = p.state === 0 || p.state === 1;
-    const [title, mg, votes, executed] = await Promise.all([proposalTitle(c, pc, ctx.env.STATE, p.id, p.creationBlock), metagovInfo(c, pc, p.id), store.listVotes(p.id), store.getExecuted(p.id)]);
+    const [title, mg, votes, executed] = await Promise.all([proposalTitle(c, pc, ctx.env.STATE, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.listVotes(p.id), store.getExecuted(p.id)]);
     return { ...p, title, metagov: mg, votable: votable && block < mg.deadline, pendingSignatures: votes.filter((v) => !v.tx && !v.dropped).length, submittedVoters: votes.filter((v) => v.tx).length, executed };
   }));
   return ctx.json({ block, proposals: list });
@@ -53,16 +53,28 @@ app.post("/api/vote", async (ctx) => {
   const c = cfg(ctx.env);
   const { publicClient: pc } = clients(c);
   const store = makeStore(ctx.env.STATE);
+  if (Number(ctx.req.header("content-length") || 0) > 65536) return ctx.json({ error: "payload too large" }, 413); // M-01
   let body;
   try { body = await ctx.req.json(); } catch { return ctx.json({ error: "bad json" }, 400); }
   const { proposalId, support, tokenIds, signature } = body || {};
-  if (!proposalId || ![0, 1, 2].includes(Number(support)) || !Array.isArray(tokenIds) || !tokenIds.length || typeof signature !== "string") return ctx.json({ error: "bad request" }, 400);
+  if (!proposalId || !/^\d{1,10}$/.test(String(proposalId)) || ![0, 1, 2].includes(Number(support)) || !Array.isArray(tokenIds) || !tokenIds.length || typeof signature !== "string" || !/^0x[0-9a-fA-F]{130}$/.test(signature)) return ctx.json({ error: "bad request" }, 400);
+  // M-01: tokenIds は 1..2100 の整数、重複なし、最大 300 件
+  if (tokenIds.length > 300) return ctx.json({ error: "too many tokenIds" }, 400);
+  const seen = new Set();
+  for (const x of tokenIds) {
+    if (!/^\d{1,5}$/.test(String(x)) || Number(x) < 1 || Number(x) > 2100 || seen.has(String(x))) return ctx.json({ error: `invalid or duplicate tokenId ${x}` }, 400);
+    seen.add(String(x));
+  }
   const pid = BigInt(proposalId);
   const ids = tokenIds.map((x) => BigInt(x));
   // 署名者を復元 → 所有・除外・重複・状態・締切をコントラクトと同条件で事前チェック
   let voter;
   try { voter = await recoverTypedDataAddress({ domain: domain(c), types: VOTE_TYPES, primaryType: "Vote", message: { proposalId: pid, support: Number(support), tokenIds: ids }, signature }); }
   catch { return ctx.json({ error: "invalid signature" }, 400); }
+  // M-01: 署名者ごとの簡易レート制限(10 秒に 1 回)
+  const rl = `rl:${voter.toLowerCase()}`;
+  if (await ctx.env.STATE.get(rl)) return ctx.json({ error: "too many requests, retry in 10s" }, 429);
+  await ctx.env.STATE.put(rl, "1", { expirationTtl: 60 }); // KV の最小 TTL は 60 秒
   const owners = await allOwners(c, pc, ctx.env.STATE);
   for (const id of ids) if (owners[Number(id)] !== voter.toLowerCase()) return ctx.json({ error: `token ${id} is not owned by ${voter}` }, 400);
   const [state, block, deadline, hasVoted, excluded] = await pc.multicall({ contracts: [
@@ -101,9 +113,17 @@ app.get("/api/signatures/:id", async (ctx) => {
       try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [[arg]] }); good.push(arg); }
       catch (e) { /* いま通らない署名(所有者変更など)は除外 */ }
     }
-    out.submittable = good.length;
-    out.calldata = good.length ? encodeFunctionData({ abi: METAGOV_ABI, functionName: "castVotesBySig", args: [good] }) : null;
-    out.gasHint = good.length ? 200000 + 60000 * good.length : 0;
+    const chunk = good.slice(0, Number(ctx.env.MAX_BATCH || 25)); // M-03: 1 tx の上限
+    out.submittable = chunk.length;
+    out.remaining = good.length - chunk.length;
+    out.calldata = chunk.length ? encodeFunctionData({ abi: METAGOV_ABI, functionName: "castVotesBySig", args: [chunk] }) : null;
+    if (chunk.length) {
+      try {
+        const { account } = clients(c);
+        const est = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [chunk], account: account || undefined });
+        out.gasHint = Number((est * 14n) / 10n); // 実見積り ×1.4(返金の送金分は見積りに乗らない)
+      } catch { out.gasHint = 200000 + 80000 * chunk.length + 8000 * chunk.reduce((a, v) => a + v.tokenIds.length, 0); }
+    } else out.gasHint = 0;
   }
   return ctx.json(out);
 });
@@ -119,7 +139,9 @@ app.get("/api/proposal/:id", async (ctx) => {
 
 // 手動トリガ(デバッグ用。cron と同じ処理)
 app.post("/api/tick", async (ctx) => {
-  if (ctx.env.TICK_TOKEN && ctx.req.header("x-tick-token") !== ctx.env.TICK_TOKEN) return ctx.json({ error: "forbidden" }, 403);
+  // H-01: TICK_TOKEN 未設定なら無効(公開トリガを許さない)。設定時もトークン一致が必須
+  if (!ctx.env.TICK_TOKEN) return ctx.json({ error: "disabled" }, 404);
+  if (ctx.req.header("x-tick-token") !== ctx.env.TICK_TOKEN) return ctx.json({ error: "forbidden" }, 403);
   await tick(ctx.env);
   return ctx.json({ ok: true });
 });

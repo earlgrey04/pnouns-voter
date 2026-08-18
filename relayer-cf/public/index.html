@@ -53,7 +53,7 @@ let CONFIG = null, account = null, tokensCache = {};
 //     announce されたプロバイダー一覧から選ばせ、選択(rdns)を記憶する。
 const providers = new Map(); // rdns -> { info, provider }
 let selectedProvider = null;
-window.addEventListener("eip6963:announceProvider", (ev) => { const { info, provider } = ev.detail; providers.set(info.rdns, { info, provider }); });
+window.addEventListener("eip6963:announceProvider", (ev) => { const { info, provider } = ev.detail; const key = `${info.rdns}|${info.uuid || ""}`; if (!providers.has(key)) providers.set(key, { info: { ...info, key }, provider }); }); // M-08: rdns は自己申告なので uuid も含めて識別
 window.dispatchEvent(new Event("eip6963:requestProvider"));
 function providerList() {
   const list = [...providers.values()];
@@ -67,7 +67,7 @@ function chooseProvider(silent) {
   const list = providerList();
   if (!list.length) return null;
   const remembered = localStorage.getItem("pnouns-voter-wallet");
-  const hit = list.find((x) => x.info.rdns === remembered);
+  const hit = list.find((x) => (x.info.key || x.info.rdns) === remembered);
   if (hit) return hit;
   if (list.length === 1) return list[0];
   if (silent) return null;
@@ -76,7 +76,7 @@ function chooseProvider(silent) {
     box.className = "card";
     box.style.cssText = "position:fixed;top:70px;right:20px;z-index:10;box-shadow:0 8px 30px rgba(0,0,0,.15);min-width:240px";
     box.innerHTML = `<div style="font-weight:600;margin-bottom:8px">接続するウォレットを選択</div>` +
-      list.map((x, i) => `<button data-i="${i}" style="display:flex;align-items:center;gap:8px;width:100%;margin:4px 0;text-align:left">${x.info.icon ? `<img src="${x.info.icon}" width="20" height="20" alt="">` : ""}${escapeHtml(x.info.name)}</button>`).join("") +
+      list.map((x, i) => `<button data-i="${i}" style="display:flex;align-items:center;gap:8px;width:100%;margin:4px 0;text-align:left">${safeIcon(x.info.icon) ? `<img src="${escapeHtml(x.info.icon)}" width="20" height="20" alt="">` : ""}${escapeHtml(x.info.name)}</button>`).join("") +
       `<button data-i="-1" style="width:100%;margin-top:6px;color:var(--muted)">キャンセル</button>`;
     document.body.appendChild(box);
     box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { box.remove(); const i = Number(b.dataset.i); resolve(i >= 0 ? list[i] : null); }));
@@ -103,7 +103,7 @@ function setAccount(a) {
 }
 async function connect(silent) {
   const chosen = await chooseProvider(silent);
-  if (chosen) { selectedProvider = chosen.provider; localStorage.setItem("pnouns-voter-wallet", chosen.info.rdns); bindProviderEvents(); }
+  if (chosen) { selectedProvider = chosen.provider; localStorage.setItem("pnouns-voter-wallet", chosen.info.key || chosen.info.rdns); bindProviderEvents(); }
   else if (!silent) { if (!providerList().length) msg("MetaMask 等のウォレット拡張が見つかりません", true); return; }
   if (!eth()) return;
   // silent: 既に承認済みの接続を無プロンプトで復元(eth_accounts)。手動: eth_requestAccounts
@@ -236,12 +236,14 @@ async function manualSubmit(proposalId) {
     if (!(await ensureChain())) return;
     const r = await api(`/api/signatures/${proposalId}?calldata=1`);
     if (!r.calldata) return msg("いま投函できる署名がありません(既に投函済み、または無効化)。", true);
-    msg(`${r.submittable} 件の署名を投函します。ウォレットで承認してください…`);
+    msg(`${r.submittable} 件の署名を投函します${r.remaining ? `(残り ${r.remaining} 件は次回)` : ""}。ウォレットで承認してください…`);
     const hash = await eth().request({ method: "eth_sendTransaction", params: [{ from: account, to: CONFIG.metagov, data: r.calldata, gas: "0x" + r.gasHint.toString(16) }] });
     msg(`送信しました: ${CONFIG.explorer}/tx/${hash}\n数十秒後に集計へ反映されます。`);
     setTimeout(render, 20000);
   } catch (e) { msg("エラー: " + (e.message || e), true); }
 }
+// M-08: EIP-6963 の icon は data:image/* の URI だけ許可(自己申告値を無検証で属性に入れない)
+function safeIcon(u) { return typeof u === "string" && /^data:image\/(png|svg\+xml|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(u) && u.length < 200000; }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 (async () => {
   CONFIG = await api("/api/config");
