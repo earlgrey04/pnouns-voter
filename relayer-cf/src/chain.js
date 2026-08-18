@@ -20,7 +20,14 @@ export const STATE_NAMES = ["Pending", "Active", "Canceled", "Defeated", "Succee
 export const VOTE_TYPES = { Vote: [{ name: "proposalId", type: "uint256" }, { name: "support", type: "uint8" }, { name: "tokenIds", type: "uint256[]" }] };
 
 export function cfg(env) {
+  if (env.NETWORK !== "mainnet" && env.NETWORK !== "sepolia") throw new Error(`NETWORK must be "mainnet" or "sepolia" (got ${JSON.stringify(env.NETWORK)})`); // M-09: fail-closed
   const chain = env.NETWORK === "mainnet" ? mainnet : sepolia;
+  if (env.NETWORK === "mainnet") {
+    if (env.ONLY_PROPOSER) throw new Error("ONLY_PROPOSER must not be set on mainnet");
+    if (!env.RPC_URL) throw new Error("RPC_URL secret is required");
+    for (const k of ["VOTER", "PNOUNS", "NOUNS_DAO", "NOUNS_TOKEN"]) if (!env[k]) throw new Error(`${k} is required`);
+    if (getAddress(env.PNOUNS) !== "0x4bE962499cE295b1ed180F923bf9c73b6357DE80" || getAddress(env.NOUNS_DAO) !== "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d" || getAddress(env.NOUNS_TOKEN) !== "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03") throw new Error("mainnet addresses mismatch");
+  }
   return {
     network: env.NETWORK || "sepolia",
     chain,
@@ -52,10 +59,10 @@ export function clients(c) {
 }
 export const domain = (c) => ({ name: "pNouns Voter", version: "1", chainId: c.chainId, verifyingContract: c.metagov });
 
-// pNouns 全 tokenId の所有者(multicall)。KV に 60 秒キャッシュ
-export async function allOwners(c, pc, kv) {
-  const cached = kv ? await kv.get("owners", "json") : null;
-  if (cached && Date.now() - cached.at < 60000) return cached.owners;
+// pNouns 全 tokenId の所有者(multicall)。メモリに 60 秒キャッシュ
+let ownersCache = { at: 0, owners: [] };
+export async function allOwners(c, pc) {
+  if (ownersCache.owners.length && Date.now() - ownersCache.at < 60000) return ownersCache.owners;
   const total = Number(await pc.readContract({ address: c.pnouns, abi: PNOUNS_ABI, functionName: "totalSupply" }));
   const owners = [];
   const CH = 500;
@@ -65,11 +72,11 @@ export async function allOwners(c, pc, kv) {
     const res = await pc.multicall({ contracts: ids.map((id) => ({ address: c.pnouns, abi: PNOUNS_ABI, functionName: "ownerOf", args: [BigInt(id)] })), allowFailure: true });
     res.forEach((r, i) => { owners[ids[i]] = r.status === "success" ? r.result.toLowerCase() : null; });
   }
-  if (kv) await kv.put("owners", JSON.stringify({ at: Date.now(), owners }), { expirationTtl: 300 });
+  ownersCache = { at: Date.now(), owners };
   return owners;
 }
-export async function tokensOf(c, pc, kv, address) {
-  const owners = await allOwners(c, pc, kv);
+export async function tokensOf(c, pc, address) {
+  const owners = await allOwners(c, pc);
   const a = address.toLowerCase();
   const out = [];
   for (let id = 1; id < owners.length; id++) if (owners[id] === a) out.push(id);
@@ -99,12 +106,16 @@ export async function recentProposals(c, pc) {
   });
   return { block: Number(block), proposals: out };
 }
-// H-03: 提案は Updatable 期間中に本文が更新されうる。作成イベントに加えて更新イベント(ProposalUpdated / ProposalDescriptionUpdated)も
-//        読み、最新の description を使う。Updatable(state 10)の間は永続キャッシュしない(短い TTL)。
-export async function proposalTitle(c, pc, kv, id, creationBlock, state) {
-  const key = `title:${id}`;
-  const cached = kv ? await kv.get(key) : null;
-  if (cached) return cached;
+// H-03/H-03R: 提案本文は Updatable 期間中に更新されうる。作成イベント + 更新イベントから最新タイトルを組み立てる。
+//  - Pending/Active(本文凍結後)に初めて取得したときだけ KV(title:{id}:final)に保存(書込み 1 回/提案)
+//  - Updatable 中はメモリ内キャッシュ 30 秒のみ(KV に書かない)
+const titleMem = new Map();
+export async function proposalTitle(c, pc, store, id, creationBlock, state) {
+  const frozen = state === 0 || state === 1;
+  const kv = store ? store.kvRaw : null;
+  if (frozen && kv) { const f = await kv.get(`title:${id}:final`); if (f) return f; }
+  const m = titleMem.get(id);
+  if (!frozen && m && Date.now() - m.at < 30000) return m.title;
   let title = `Proposal ${id}`;
   try {
     const events = DAO_ABI.filter((x) => x.type === "event");
@@ -118,27 +129,32 @@ export async function proposalTitle(c, pc, kv, id, creationBlock, state) {
     title = first.replace(/^#+\s*/, "").trim() || title;
     if (updates.length) title += " (更新あり)";
   } catch (e) { /* タイトルは必須でない */ }
-  if (kv) await kv.put(key, title, { expirationTtl: state === 10 ? 60 : 86400 * 30 }); // Updatable 中は 60 秒だけ
+  if (frozen && kv) await kv.put(`title:${id}:final`, title, { expirationTtl: 86400 * 30 });
+  else titleMem.set(id, { at: Date.now(), title });
   return title;
 }
+// pNouns 所有者キャッシュはメモリ(isolate 内)+ 60 秒。KV には書かない
 export async function metagovInfo(c, pc, proposalId) {
   const pid = BigInt(proposalId);
-  const [t, deadline, votes, cur, rcpt] = await pc.multicall({
+  const t0 = await pc.multicall({
     contracts: [
       { address: c.metagov, abi: METAGOV_ABI, functionName: "tally", args: [pid] },
       { address: c.metagov, abi: METAGOV_ABI, functionName: "voteDeadline", args: [pid] },
       { address: c.nounsToken, abi: NOUNS_ABI, functionName: "getCurrentVotes", args: [c.metagov] },
       { address: c.metagov, abi: METAGOV_ABI, functionName: "currentResult", args: [pid] },
       { address: c.nounsDAO, abi: DAO_ABI, functionName: "getReceipt", args: [pid, c.metagov] },
+      { address: c.metagov, abi: METAGOV_ABI, functionName: "liveMode" },
     ],
     allowFailure: true,
   }).then((r) => r.map((x) => (x.status === "success" ? x.result : null)));
+  const [t, deadline, votes, cur, rcpt, live] = [t0[0], t0[1], t0[2], t0[3], t0[4], t0[5]];
   const tally = t || [[0n, 0n, 0n], [0n, 0n, 0n], false, 0];
   const [tokens, voters, executed, result] = tally;
   return {
     tokens: tokens.map(Number), voters: voters.map(Number), executed, result: Number(executed ? result : cur ?? 2),
     deadline: Number(deadline || 0n), metagovVotes: Number(votes || 0n),
     nounsReceipt: rcpt ? { hasVoted: rcpt.hasVoted, support: Number(rcpt.support), votes: Number(rcpt.votes) } : null,
+    liveMode: !!live,
   };
 }
 export { verifyTypedData, getAddress, METAGOV_ABI };

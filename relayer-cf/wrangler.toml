@@ -16,7 +16,7 @@ id = "4c2f1c683fe94191b456e0c1fc70cc2f"
 
 [vars]
 NETWORK = "sepolia"
-VOTER = "0xcCB00a9ede365458f301455089C8e36Ce6B32D1F"
+VOTER = "0x5f719325b376EfB0be0A322A697B1c75382A7f1A"
 PNOUNS = "0x2dc16A3EC98A825e731b09512B602fDDC5246Ad6"
 NOUNS_DAO = "0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57"
 NOUNS_TOKEN = "0x4C4674bb72a096855496a7204962297bd7e12b85"
@@ -24,6 +24,32 @@ EXPLORER = "https://sepolia.etherscan.io"
 BLOCKSCOUT = "https://eth-sepolia.blockscout.com"
 ONLY_PROPOSER = "0x10849D31FfEaEca7727af6711A8D1b0a9b738925"
 MIN_PENDING_AGE_SEC = "20"
+MAX_BATCH = "10"
 EXECUTE_GAS_MULT = "1.3"
 # secrets(wrangler secret put): RPC_URL, RELAYER_PRIVATE_KEY, DISCORD_WEBHOOK_URL, (任意) TICK_TOKEN
 PUBLIC_URL = "https://pnouns-voter.x402-adsb-worker.workers.dev"
+
+# ---- mainnet(別 Worker として `wrangler deploy --env mainnet`)。vars は継承されないので必要な値をすべて明示。ONLY_PROPOSER は置かない ----
+[env.mainnet]
+name = "pnouns-voter-mainnet"
+[env.mainnet.assets]
+directory = "./public"
+[env.mainnet.triggers]
+crons = ["*/2 * * * *"]
+[[env.mainnet.kv_namespaces]]
+binding = "STATE"
+id = "REPLACE_WITH_MAINNET_KV_ID"
+[env.mainnet.vars]
+NETWORK = "mainnet"
+VOTER = "REPLACE_AFTER_MAINNET_DEPLOY"
+PNOUNS = "0x4bE962499cE295b1ed180F923bf9c73b6357DE80"
+NOUNS_DAO = "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d"
+NOUNS_TOKEN = "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03"
+EXPLORER = "https://etherscan.io"
+BLOCKSCOUT = "https://eth.blockscout.com"
+MIN_PENDING_AGE_SEC = "120"
+MAX_BATCH = "10"
+EXECUTE_GAS_MULT = "1.3"
+LOW_BALANCE_ETH = "0.01"
+PUBLIC_URL = "https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev"
+# secrets(--env mainnet で put): RPC_URL, RELAYER_PRIVATE_KEY, DISCORD_WEBHOOK_URL

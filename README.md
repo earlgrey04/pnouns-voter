@@ -56,7 +56,6 @@ npx hardhat test
 Nouns 側は **公式 Sepolia デプロイ**(DAO `0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57` / Token `0x4C4674bb72a096855496a7204962297bd7e12b85`、
 ロジックは mainnet と同一ソース。`scripts/compare-chains.js` で差分表を出せる)、pNouns 側は **本物ソースの複製**(`contracts/vendor/pnouns`、無改変)。
 - pNouns clone: `0x2dc16A3EC98A825e731b09512B602fDDC5246Ad6`(voter A 3枚 / B 2枚 / C 1枚 / deployer 4枚 = tokenId 101..110)
-- pNouns Voter: `0x41Bcc06ed7E11b845f953Efce7134A8aD58Da635`(margin=5 ブロック、liveMode=true、Sourcify/Blockscout 検証済み)。旧 pNouns Voter: `0x09Ba…4d19`
 - delegator `0x5Da7…659e` が Nouns 2 枚(オークション落札)を pNouns Voter に委任
 - 提案 #497: A 賛成(3枚) / B 反対(2枚) / C 反対(1枚) → tokens 3:3 → voters 1:2 → **反対**
   - castVotesBySig(3票) gas 266,882 / execute gas 156,762 / Nouns DAO receipt: hasVoted=true support=0 votes=2
@@ -79,7 +78,7 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - 新提案が Pending/Active になると 📢 告知(締切 JST・dApp URL・nouns.wtf リンク)。`ANNOUNCE=0` で無効
 - 常駐: `deploy/pnouns-metagov-relayer.service`(systemd user unit。`~/.config/systemd/user/` にコピーして enable。2026-08-18 から Sepolia で稼働中)
 - Discord 通知は一文ごとに改行。✅ には Blockscout のイベントログ URL(Nouns DAO の `VoteCast` の reason に集計文が入る)を添付
-- 検証: pNouns Voter(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0xcCB00a9ede365458f301455089C8e36Ce6B32D1F (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
+- 検証: pNouns Voter(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0x5f719325b376EfB0be0A322A697B1c75382A7f1A (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
 - 手動テスト: `TO=0x… N=3 npx hardhat --network sepolia run scripts/sepolia/08-mint-to.js` で MetaMask アドレスに pNouns 複製を配り、`06-propose.js` で提案を出して 5 分以内に dApp で署名
 
 ## Cloudflare Workers 版リレイヤー(`relayer-cf/`、2026-08-18 デプロイ・クラウドのみで通し成功)
@@ -93,7 +92,7 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - ローカル systemd 版(`relayer/`)は Worker 版に一本化したため **無効化済み**(`systemctl --user disable`)。緊急時のフォールバックとして残置
 
 ## 監査(2026-08-18、Codex)
-High 3 / Medium 8 → すべて対応済み。詳細は `docs/AUDIT-BRIEF.md`(依頼)と `docs/AUDIT-RESPONSE-2026-08-18.md`(対応)。
+第 1 回 High 3 / Medium 8、第 2 回 High 1 / Medium 5 / Low 4 → すべて対応済み。Cloudflare 無料枠(KV 書込み 1,000/日、サブリクエスト 50/呼び出し)に収まる設計に再構成。詳細は `docs/AUDIT-BRIEF.md`(依頼)と `docs/AUDIT-RESPONSE-2026-08-18.md`(対応)。
 - 委任の切り戻しは**以後の提案から**有効(Nouns は提案作成時点の委任票を使う)。進行中提案の緊急停止は `setLiveMode(false)`
 - シャドー運用の execute は確定しない(後から本投票可)
 

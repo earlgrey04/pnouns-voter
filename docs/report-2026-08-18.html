@@ -108,11 +108,11 @@
   <tr><td>1</td><td>メインネットのフォーク（本物の状態のコピー、ローカル）</td><td>本物の pNouns NFT・Nouns DAO に対して、委任 → 署名 → 投函 → 締切 → execute → Nouns DAO に 2 票記録まで。8 テスト（同数タイブレーク、票ゼロ、他人の token・二重投票・署名改ざんの拒否 等）すべて通過</td></tr>
   <tr><td>2</td><td>Sepolia テストネット（Nouns 公式のテスト版 DAO。本番と同一コード）</td><td>提案 #496〜#507 で繰り返し実施。MetaMask での実署名、Discord 通知、Cloudflare 上の無人運用まで通し。Nouns DAO のイベントに pNouns Voter の投票と集計理由が記録されることを Blockscout で確認</td></tr>
 </table></div>
-<p>2026年8月18日に第三者（Codex）による監査を実施。重大（Critical）の指摘なし、High 3 件・Medium 8 件はすべて修正・再検証済み（リレイヤーの障害復旧、提案本文の更新追従、入力検証、バッチ分割、返金会計、シャドー運用の扱い など）。</p>
+<p>2026年8月18日に第三者（Codex）による監査を実施。重大（Critical）の指摘なし。2 回の監査で指摘された High 4 件・Medium 13 件・Low 4 件はすべて修正・再検証済み（リレイヤーの障害復旧、提案本文の更新追従、入力検証、バッチ分割、返金会計、シャドー運用の扱い など）。</p>
 <div class="card">
   <dl class="kv">
     <dt>投票ページ（Sepolia）</dt><dd><a href="https://pnouns-voter.x402-adsb-worker.workers.dev">pnouns-voter.x402-adsb-worker.workers.dev</a></dd>
-    <dt>pNouns Voter（Sepolia）</dt><dd><span class="mono">0xcCB00a9ede365458f301455089C8e36Ce6B32D1F</span> — <a href="https://eth-sepolia.blockscout.com/address/0xcCB00a9ede365458f301455089C8e36Ce6B32D1F">検証済みソース</a></dd>
+    <dt>pNouns Voter（Sepolia）</dt><dd><span class="mono">0x5f719325b376EfB0be0A322A697B1c75382A7f1A</span> — <a href="https://eth-sepolia.blockscout.com/address/0x5f719325b376EfB0be0A322A697B1c75382A7f1A">検証済みソース</a></dd>
     <dt>実例</dt><dd><a href="https://eth-sepolia.blockscout.com/tx/0x13f600016bdb2afff341f4dfb21f57d90f6a5c2282d96a4318e02242a8c5f3ac?tab=logs">Prop 507 の execute tx</a>（Nouns DAO の VoteCast イベントに「賛成 2 票、reason: pNouns holders voted on-chain via pNouns Voter: FOR (tokens 3/2/1, voters 1/1/1)」）</dd>
   </dl>
 </div>

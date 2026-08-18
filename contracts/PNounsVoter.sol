@@ -266,8 +266,8 @@ contract PNounsVoter is EIP712, Ownable {
             uint256 gasUsed = _min(startGas - gasleft() + REFUND_BASE_GAS, MAX_REFUND_GAS_BASE + MAX_REFUND_GAS_PER_VOTE * voteCount);
             uint256 refundAmount = _min(_min(gasPrice * gasUsed, balance), remainingCap);
             if (refundAmount == 0) return;
-            refundedForProposal[proposalId] += refundAmount;
             (bool refundSent, ) = tx.origin.call{value: refundAmount}("");
+            if (refundSent) refundedForProposal[proposalId] += refundAmount; // 送金成功時だけ枠を消費(失敗で枠を潰させない)
             emit RefundableVote(tx.origin, refundAmount, refundSent);
         }
     }
