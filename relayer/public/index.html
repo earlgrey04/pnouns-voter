@@ -119,11 +119,14 @@ async function render() {
     el.innerHTML = `<b>最近の結果</b>` + closed.map((p) => {
       const mg = p.metagov, ex = p.executed;
       const nr = mg.nounsReceipt;
+      const canExecute = !mg.executed && mg.deadline && block >= mg.deadline && (p.stateName === "Active" || p.stateName === "Pending");
       const r = mg.executed ? `MetaGov → Nouns DAO: <b>${SUPPORT[mg.result]}</b>${ex && ex.tx ? ` <a href="${CONFIG.explorer}/tx/${ex.tx}" target="_blank">tx</a>${CONFIG.blockscout ? ` / <a href="${CONFIG.blockscout}/tx/${ex.tx}?tab=logs" target="_blank">イベント</a>` : ""}` : ""}` : (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] ? "未実行" : "投票なし");
       const nouns = nr && nr.hasVoted ? `<br><span style="color:var(--for)">✔ Nouns DAO 側の記録: MetaGov が「${SUPPORT[nr.support]}」${nr.votes} 票(提案全体: 賛成 ${p.forVotes} / 反対 ${p.againstVotes} / 棄権 ${p.abstainVotes})</span>` : "";
-      return `<div class="muted" style="margin-top:6px">Prop ${p.id} ${escapeHtml(p.title)} — 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]}(投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]}) ・ ${r} ・ Nouns: ${p.stateName}${nouns}</div>`;
+      const exec = canExecute ? `<br><button class="exec" data-p="${p.id}" style="margin-top:4px">締切済み — 手動で execute する(誰でも可、ガスは Nouns DAO から払い戻し)</button>` : "";
+      return `<div class="muted" style="margin-top:6px">Prop ${p.id} ${escapeHtml(p.title)} — 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]}(投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]}) ・ ${r} ・ Nouns: ${p.stateName}${nouns}${exec}</div>`;
     }).join("");
     root.appendChild(el);
+    el.querySelectorAll("button.exec").forEach((b) => b.addEventListener("click", () => manualExecute(Number(b.dataset.p))));
   }
   msg(`更新: block ${block}`);
 }
@@ -161,6 +164,19 @@ async function vote(proposalId, support) {
     const r = await api("/api/vote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ proposalId: String(proposalId), support, tokenIds, signature }) });
     msg(`受け付けました: Prop ${r.proposalId} ${SUPPORT[r.support]} (${r.tokenIds.length} 枚)。リレイヤーが投函するとここに反映されます。`);
     await render();
+  } catch (e) { msg("エラー: " + (e.message || e), true); }
+}
+// 手動 execute: MetaGov.execute(uint256) を接続中ウォレットから直接送る(リレイヤー停止時の保険)。
+// selector 0xfe0d94c1 = keccak256("execute(uint256)")[:4]。ガスは Nouns の refund が見積りに乗らないため固定で多めに指定。
+async function manualExecute(proposalId) {
+  try {
+    if (!account) { await connect(false); if (!account) return; }
+    if (!(await ensureChain())) return;
+    const data = "0xfe0d94c1" + BigInt(proposalId).toString(16).padStart(64, "0");
+    msg(`Prop ${proposalId} の execute をウォレットから送信します。承認してください…`);
+    const hash = await eth().request({ method: "eth_sendTransaction", params: [{ from: account, to: CONFIG.metagov, data, gas: "0x" + (300000).toString(16) }] });
+    msg(`送信しました: ${CONFIG.explorer}/tx/${hash}\n数十秒後に「最近の結果」に反映されます。`);
+    setTimeout(render, 20000);
   } catch (e) { msg("エラー: " + (e.message || e), true); }
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }

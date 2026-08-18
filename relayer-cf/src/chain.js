@@ -38,6 +38,7 @@ export function cfg(env) {
     announce: env.ANNOUNCE !== "0",
     discordWebhook: env.DISCORD_WEBHOOK_URL || null,
     relayerKey: env.RELAYER_PRIVATE_KEY || null,
+    lowBalanceEth: env.LOW_BALANCE_ETH || (env.NETWORK === "mainnet" ? "0.01" : "0.02"),
   };
 }
 export function clients(c) {

@@ -87,12 +87,29 @@ async function maybeExecute(c, pc, wc, store, p, block) {
   ].filter(Boolean).join("\n"));
 }
 
+// リレイヤー残高が閾値未満なら 1 日 1 回 Discord に警告
+async function checkBalance(c, pc, wc, kv) {
+  if (!wc) return;
+  const bal = await pc.getBalance({ address: wc.account.address });
+  const eth = Number(bal) / 1e18;
+  const threshold = Number(c.lowBalanceEth);
+  if (eth >= threshold) { await kv.delete("lowbal"); return; }
+  if (await kv.get("lowbal")) return; // 警告済み(24h)
+  await kv.put("lowbal", new Date().toISOString(), { expirationTtl: 86400 });
+  await notify(c, [
+    `⚠️ リレイヤー残高が少なくなっています: ${eth.toFixed(5)} ETH (閾値 ${threshold} ETH)`,
+    `アドレス: ${wc.account.address} (${c.network})`,
+    `投函・execute が止まらないよう補充してください。締切後の execute は誰でも(dApp の手動ボタンからも)実行できます。`,
+  ].join("\n"));
+}
+
 export async function tick(env) {
   const c = cfg(env);
   const { publicClient: pc, walletClient: wc } = clients(c);
   const store = makeStore(env.STATE);
   if (!(await store.lock("tick", 60))) { console.log("[worker] tick skipped (locked)"); return; }
   try {
+    try { await checkBalance(c, pc, wc, env.STATE); } catch (e) { console.warn("[worker] balance check failed", e.message); }
     const { block, proposals } = await recentProposals(c, pc);
     for (const p of proposals) {
       if (p.state !== 0 && p.state !== 1) continue;
