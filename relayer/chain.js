@@ -1,7 +1,7 @@
 // RPC フォールバック付き provider・コントラクト・補助関数
 const { ethers } = require("ethers");
 const cfg = require("./config");
-const metagovArtifact = require("../artifacts/contracts/PNounsMetaGov.sol/PNounsMetaGov.json");
+const metagovArtifact = require("../artifacts/contracts/PNounsVoter.sol/PNounsVoter.json");
 
 const DAO_ABI = [
   "function proposalCount() view returns (uint256)",
@@ -52,7 +52,7 @@ function contracts(signerOrProvider = provider) {
   };
 }
 
-const eip712Domain = () => ({ name: "pNouns MetaGov", version: "1", chainId: cfg.chainId, verifyingContract: cfg.metagov });
+const eip712Domain = () => ({ name: "pNouns Voter", version: "1", chainId: cfg.chainId, verifyingContract: cfg.metagov });
 const VOTE_TYPES = { Vote: [{ name: "proposalId", type: "uint256" }, { name: "support", type: "uint8" }, { name: "tokenIds", type: "uint256[]" }] };
 
 // pNouns 全 tokenId の所有者を multicall で取得(2100 件でも数回の呼び出し)
@@ -139,7 +139,7 @@ async function metagovInfo(proposalId) {
   return withFallback(async (p) => {
     const c = contracts(p);
     const [t, deadline, votes, cur, rcpt] = await Promise.all([c.metagov.tally(proposalId), c.metagov.voteDeadline(proposalId).catch(() => 0n), c.nouns.getCurrentVotes(cfg.metagov), c.metagov.currentResult(proposalId), c.dao.getReceipt(proposalId, cfg.metagov)]);
-    // 未実行のあいだは currentResult(現時点の判定)、実行後は確定した result。nounsReceipt = Nouns DAO 側に記録された MetaGov の投票
+    // 未実行のあいだは currentResult(現時点の判定)、実行後は確定した result。nounsReceipt = Nouns DAO 側に記録された pNouns Voter の投票
     return { tokens: t.tokens.map(Number), voters: t.voters.map(Number), executed: t.executed, result: Number(t.executed ? t.result : cur), deadline: Number(deadline), metagovVotes: Number(votes), nounsReceipt: { hasVoted: rcpt.hasVoted, support: Number(rcpt.support), votes: Number(rcpt.votes) } };
   });
 }

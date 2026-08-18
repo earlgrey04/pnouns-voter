@@ -4,7 +4,7 @@ const { SEPOLIA, DAO_ABI } = require("./lib");
 async function main() {
   const [deployer] = await ethers.getSigners();
   const dao = new ethers.Contract(SEPOLIA.NOUNS_DAO, DAO_ABI, deployer);
-  const tx = await dao.propose([deployer.address], [0], [""], ["0x"], `# pNouns MetaGov relayer test ${new Date().toISOString()}\nno-op`);
+  const tx = await dao.propose([deployer.address], [0], [""], ["0x"], `# pNouns Voter relayer test ${new Date().toISOString()}\nno-op`);
   await tx.wait();
   const id = await dao.proposalCount();
   const pr = await dao.proposals(id);

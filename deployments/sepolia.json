@@ -3,5 +3,7 @@
   "pnounsDeployBlock": 11511735,
   "metagov": "0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19",
   "metagovDeployBlock": 11511807,
-  "marginBlocks": 5
+  "marginBlocks": 5,
+  "voter": "0x41Bcc06ed7E11b845f953Efce7134A8aD58Da635",
+  "voterDeployBlock": 11513359
 }

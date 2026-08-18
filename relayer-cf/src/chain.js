@@ -24,7 +24,7 @@ export function cfg(env) {
     chain,
     chainId: chain.id,
     rpcUrl: env.RPC_URL, // secret(Alchemy 等)
-    metagov: getAddress(env.METAGOV),
+    metagov: getAddress(env.VOTER),
     pnouns: getAddress(env.PNOUNS),
     nounsDAO: getAddress(env.NOUNS_DAO),
     nounsToken: getAddress(env.NOUNS_TOKEN),
@@ -47,7 +47,7 @@ export function clients(c) {
   const walletClient = account ? createWalletClient({ account, chain: c.chain, transport: http(c.rpcUrl) }) : null;
   return { publicClient, walletClient, account };
 }
-export const domain = (c) => ({ name: "pNouns MetaGov", version: "1", chainId: c.chainId, verifyingContract: c.metagov });
+export const domain = (c) => ({ name: "pNouns Voter", version: "1", chainId: c.chainId, verifyingContract: c.metagov });
 
 // pNouns 全 tokenId の所有者(multicall)。KV に 60 秒キャッシュ
 export async function allOwners(c, pc, kv) {

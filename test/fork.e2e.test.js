@@ -71,7 +71,7 @@ async function collectPNouns(pnouns, assignments, startId = 1) {
 
 async function signVote(signer, metagov, proposalId, support, tokenIds) {
   const domain = {
-    name: "pNouns MetaGov",
+    name: "pNouns Voter",
     version: "1",
     chainId: (await ethers.provider.getNetwork()).chainId,
     verifyingContract: await metagov.getAddress(),
@@ -88,7 +88,7 @@ async function signVote(signer, metagov, proposalId, support, tokenIds) {
   return { proposalId, support, tokenIds, signature };
 }
 
-describe("PNounsMetaGov (mainnet fork E2E)", function () {
+describe("PNounsVoter (mainnet fork E2E)", function () {
   let deployer, relayer, alice, bob, carol, executor;
   let metagov, dao, nouns, pnouns, proposalId, snapshotId;
 
@@ -98,26 +98,26 @@ describe("PNounsMetaGov (mainnet fork E2E)", function () {
     nouns = new ethers.Contract(NOUNS_TOKEN, NOUNS_ABI, ethers.provider);
     pnouns = new ethers.Contract(PNOUNS, ERC721_ABI, ethers.provider);
 
-    // 1. MetaGov デプロイ(owner=deployer、トレジャリー除外、締切余裕 3600 ブロック)
-    const F = await ethers.getContractFactory("PNounsMetaGov");
+    // 1. pNouns Voter デプロイ(owner=deployer、トレジャリー除外、締切余裕 3600 ブロック)
+    const F = await ethers.getContractFactory("PNounsVoter");
     metagov = await F.deploy(PNOUNS, NOUNS_DAO, deployer.address, [PNOUNS_TREASURY], MARGIN);
     await metagov.waitForDeployment();
     await metagov.setLiveMode(true);
-    console.log("      MetaGov:", await metagov.getAddress());
+    console.log("      pNouns Voter:", await metagov.getAddress());
 
-    // 2. Nouns 2 枚ホルダー(マルチシグ代役)が MetaGov に委任
+    // 2. Nouns 2 枚ホルダー(マルチシグ代役)が pNouns Voter に委任
     const holder = await impersonate(NOUN_HOLDER_2);
     expect(await nouns.balanceOf(NOUN_HOLDER_2)).to.equal(2n);
     await nouns.connect(holder).delegate(await metagov.getAddress());
     expect(await nouns.getCurrentVotes(await metagov.getAddress())).to.equal(2n);
     await mine(1);
 
-    // 3. 大口 delegate になりすまして提案を作る(委任の後に作成 → creationBlock 時点で MetaGov が 2 票持つ)
+    // 3. 大口 delegate になりすまして提案を作る(委任の後に作成 → creationBlock 時点で pNouns Voter が 2 票持つ)
     let created = false;
     for (const p of PROPOSER_CANDIDATES) {
       try {
         const s = await impersonate(p);
-        await dao.connect(s).propose([NOUN_HOLDER_2], [0], [""], ["0x"], "# pNouns MetaGov fork test\nno-op");
+        await dao.connect(s).propose([NOUN_HOLDER_2], [0], [""], ["0x"], "# pNouns Voter fork test\nno-op");
         created = true;
         console.log("      proposer:", p);
         break;

@@ -22,9 +22,9 @@ async function main() {
   const dao = new ethers.Contract(SEPOLIA.NOUNS_DAO, DAO_ABI, deployer);
   const nouns = new ethers.Contract(SEPOLIA.NOUNS_TOKEN, NOUNS_ABI, ethers.provider);
   const pnouns = new ethers.Contract(dep.pnouns, PNOUNS_ABI, ethers.provider);
-  const metagov = await ethers.getContractAt("PNounsMetaGov", dep.metagov, deployer);
+  const metagov = await ethers.getContractAt("PNounsVoter", dep.voter, deployer);
 
-  console.log("MetaGov votes:", String(await nouns.getCurrentVotes(dep.metagov)), "| deployer Nouns:", String(await nouns.balanceOf(deployer.address)), "threshold:", String(await dao.proposalThreshold()));
+  console.log("pNouns Voter votes:", String(await nouns.getCurrentVotes(dep.voter)), "| deployer Nouns:", String(await nouns.balanceOf(deployer.address)), "threshold:", String(await dao.proposalThreshold()));
 
   // 1. 提案作成(no-op)
   const supportPlan = { A: Number(process.env.A ?? 1), B: Number(process.env.B ?? 0), C: Number(process.env.C ?? 0) };
@@ -32,7 +32,7 @@ async function main() {
   if (process.env.PROPOSAL_ID) {
     proposalId = BigInt(process.env.PROPOSAL_ID); // 既存提案を再利用
   } else {
-    const tx = await dao.propose([deployer.address], [0], [""], ["0x"], `# pNouns MetaGov Sepolia E2E\nplan A=${supportPlan.A} B=${supportPlan.B} C=${supportPlan.C}`);
+    const tx = await dao.propose([deployer.address], [0], [""], ["0x"], `# pNouns Voter Sepolia E2E\nplan A=${supportPlan.A} B=${supportPlan.B} C=${supportPlan.C}`);
     console.log("propose tx:", tx.hash);
     await tx.wait();
     proposalId = await dao.proposalCount();
@@ -42,12 +42,12 @@ async function main() {
 
   // 2. Active まで待つ
   await waitForBlock(Number(pr.startBlock) + 1, "waiting Active");
-  console.log("\n  MetaGov prior votes @creation:", String(await nouns.getPriorVotes(dep.metagov, pr.creationBlock)));
+  console.log("\n  pNouns Voter prior votes @creation:", String(await nouns.getPriorVotes(dep.voter, pr.creationBlock)));
   console.log("\n  state:", String(await dao.state(proposalId)), "deadline:", String(await metagov.voteDeadline(proposalId)));
 
   // 3. 署名(投票者はガス不要)
   const total = Number(await pnouns.totalSupply());
-  const domain = { name: "pNouns MetaGov", version: "1", chainId: 11155111, verifyingContract: dep.metagov };
+  const domain = { name: "pNouns Voter", version: "1", chainId: 11155111, verifyingContract: dep.voter };
   const types = { Vote: [{ name: "proposalId", type: "uint256" }, { name: "support", type: "uint8" }, { name: "tokenIds", type: "uint256[]" }] };
   const votes = [];
   for (const [s, sup] of [[voterA, supportPlan.A], [voterB, supportPlan.B], [voterC, supportPlan.C]]) {
@@ -76,8 +76,8 @@ async function main() {
   const rc3 = await tx3.wait();
   const bal1 = await ethers.provider.getBalance(deployer.address);
   console.log("  gasUsed:", String(rc3.gasUsed), "executor ETH delta:", ethers.formatEther(bal1 - bal0));
-  const r = await dao.getReceipt(proposalId, dep.metagov);
-  console.log(`  Nouns DAO receipt for MetaGov: hasVoted=${r.hasVoted} support=${r.support} votes=${r.votes}`);
+  const r = await dao.getReceipt(proposalId, dep.voter);
+  console.log(`  Nouns DAO receipt for pNouns Voter: hasVoted=${r.hasVoted} support=${r.support} votes=${r.votes}`);
   console.log(`  https://sepolia.etherscan.io/tx/${tx3.hash}`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });

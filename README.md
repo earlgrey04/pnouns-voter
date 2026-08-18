@@ -1,8 +1,10 @@
-# pNouns MetaGov — pNouns 保有者の署名投票をオンチェーン集計して Nouns DAO に投票する
+# pNouns Voter — pNouns 保有者の署名投票をオンチェーン集計して Nouns DAO に投票する
+
+> 2026-08-18 改名: 旧称 pNouns Voter → **pNouns Voter**(コントラクト `PNounsVoter`、EIP-712 ドメイン "pNouns Voter"、Worker `pnouns-voter`)。Sepolia の旧 pNouns Voter(0x09Ba…4d19)は履歴として残るが未使用。
 
 pNouns の Snapshot 投票結果を人手で Nouns DAO に反映している現状を、
-「保有者は EIP-712 署名だけ(ガス0) → リレイヤーが mainnet の MetaGov に一括投函 → 締切後に誰でも execute →
-MetaGov が Nouns DAO に castRefundableVoteWithReason」で無人化するためのコントラクトと、
+「保有者は EIP-712 署名だけ(ガス0) → リレイヤーが mainnet の pNouns Voter に一括投函 → 締切後に誰でも execute →
+pNouns Voter が Nouns DAO に castRefundableVoteWithReason」で無人化するためのコントラクトと、
 mainnet フォーク上の E2E テスト(段階1)。
 
 ## 決定事項(2026-08-18 アールグレイ)
@@ -17,8 +19,8 @@ mainnet フォーク上の E2E テスト(段階1)。
 - Enumerable なし / Votes(チェックポイント)なし → 「投票時の `ownerOf` ＋ tokenId 単位のビットマップで二重投票防止」方式
 - Snapshot 空間 `pnounsdao.eth` は `erc20-balance-of`(=balanceOf)、quorum 210、48h
 
-## コントラクト `contracts/PNounsMetaGov.sol`
-- `castVotesBySig(VoteSig[])` 誰でも投函可。署名 = `Vote(uint256 proposalId,uint8 support,uint256[] tokenIds)`(EIP-712 domain: `pNouns MetaGov` / `1`)
+## コントラクト `contracts/PNounsVoter.sol`
+- `castVotesBySig(VoteSig[])` 誰でも投函可。署名 = `Vote(uint256 proposalId,uint8 support,uint256[] tokenIds)`(EIP-712 domain: `pNouns Voter` / `1`)
 - `castVote(...)` 本人が自分でガスを払う退路
 - `execute(proposalId)` 締切後に誰でも。`liveMode=false` なら Nouns を呼ばずイベントのみ(シャドー運用)
 - 投票受付は Nouns 側 state が Pending / Active のときだけ(Updatable 中・取消済みは不可)
@@ -32,10 +34,10 @@ npm install
 npx hardhat test
 ```
 `test/fork.e2e.test.js` は本物の pNouns / Nouns DAO / Nouns Token を使い:
-1. Nouns 2 枚の自己委任ホルダーになりすまし → MetaGov に delegate
-2. 大口 delegate になりすまし → 提案作成(委任後なので creationBlock で MetaGov は 2 票)
+1. Nouns 2 枚の自己委任ホルダーになりすまし → pNouns Voter に delegate
+2. 大口 delegate になりすまし → 提案作成(委任後なので creationBlock で pNouns Voter は 2 票)
 3. 実 pNouns 保有者から hardhat 署名者へ token を移し、EIP-712 署名 → リレイヤーが 1 tx で投函
-4. 締切までマイニング → 第三者が execute → `getReceipt` で MetaGov 名義 2 票を確認、Nouns の refund が executor に届く
+4. 締切までマイニング → 第三者が execute → `getReceipt` で pNouns Voter 名義 2 票を確認、Nouns の refund が executor に届く
 5. 不正系(他人の token / 二重投票 / 除外アドレス / 移転後の再投票 / 署名改ざん)、同数タイブレーク、票ゼロ、シャドー運用、自己投函
 
 ### ガス実測(2026-08-18、fork 上)
@@ -52,8 +54,8 @@ npx hardhat test
 Nouns 側は **公式 Sepolia デプロイ**(DAO `0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57` / Token `0x4C4674bb72a096855496a7204962297bd7e12b85`、
 ロジックは mainnet と同一ソース。`scripts/compare-chains.js` で差分表を出せる)、pNouns 側は **本物ソースの複製**(`contracts/vendor/pnouns`、無改変)。
 - pNouns clone: `0x2dc16A3EC98A825e731b09512B602fDDC5246Ad6`(voter A 3枚 / B 2枚 / C 1枚 / deployer 4枚 = tokenId 101..110)
-- MetaGov: `0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19`(margin=5 ブロック、liveMode=true)
-- delegator `0x5Da7…659e` が Nouns 2 枚(オークション落札)を MetaGov に委任
+- pNouns Voter: `0x41Bcc06ed7E11b845f953Efce7134A8aD58Da635`(margin=5 ブロック、liveMode=true、Sourcify/Blockscout 検証済み)。旧 pNouns Voter: `0x09Ba…4d19`
+- delegator `0x5Da7…659e` が Nouns 2 枚(オークション落札)を pNouns Voter に委任
 - 提案 #497: A 賛成(3枚) / B 反対(2枚) / C 反対(1枚) → tokens 3:3 → voters 1:2 → **反対**
   - castVotesBySig(3票) gas 266,882 / execute gas 156,762 / Nouns DAO receipt: hasVoted=true support=0 votes=2
   - https://sepolia.etherscan.io/tx/0x62869635c17fe81beec59b1219c35f7106bd775ffed8e72e1d97fea0a02d7d1c
@@ -67,20 +69,20 @@ Nouns 側は **公式 Sepolia デプロイ**(DAO `0x35d2670d7C8931AACdd37C89Ddcb
 NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet は NETWORK=mainnet METAGOV_ADDRESS=...)
 ```
 - `relayer/config.js` env で切替: NETWORK / RPC_URLS(カンマ区切り、既定にフォールバック追加)/ RELAYER_PRIVATE_KEY(なければ SEPOLIA_MNEMONIC #0)/ DISCORD_WEBHOOK_URL / PORT / DATA_DIR / SUBMIT_INTERVAL_SEC / MIN_PENDING_AGE_SEC / EXECUTE_GAS_MULT(1.3)/ ONLY_PROPOSER(テスト用)
-- API: `GET /api/config`(EIP-712 domain/types)、`GET /api/proposals[?closed=N]`(Pending/Active の Nouns 提案 + MetaGov 集計 + タイトル)、`GET /api/tokens/:addr?proposalId=`(保有 tokenId と投票済み)、`POST /api/vote`(署名検証・所有/除外/重複/状態/締切を事前チェックして保管)
+- API: `GET /api/config`(EIP-712 domain/types)、`GET /api/proposals[?closed=N]`(Pending/Active の Nouns 提案 + pNouns Voter 集計 + タイトル)、`GET /api/tokens/:addr?proposalId=`(保有 tokenId と投票済み)、`POST /api/vote`(署名検証・所有/除外/重複/状態/締切を事前チェックして保管)
 - ワーカー: 15〜30 秒ごとに (1) 保留署名を個別 staticCall で検証 → 通るものだけ 1 tx で `castVotesBySig`、(2) 締切後の提案を `execute`(gasLimit = 見積 ×1.3)、Discord webhook 通知。状態は `~/.config/pnouns-metagov/<network>/votes.json`
 - dApp `relayer/public/index.html`: ライブラリなし。MetaMask の `eth_signTypedData_v4` で署名 → POST。受付中提案・集計・自分の pNouns(投票済みは打消線)・最近の結果を表示
 - Sepolia 実績: Prop 498 = API 受付 3 票 → 投函(gas 266,957)→ execute → Nouns DAO に賛成 2 票(全自動)
 - 新提案が Pending/Active になると 📢 告知(締切 JST・dApp URL・nouns.wtf リンク)。`ANNOUNCE=0` で無効
 - 常駐: `deploy/pnouns-metagov-relayer.service`(systemd user unit。`~/.config/systemd/user/` にコピーして enable。2026-08-18 から Sepolia で稼働中)
 - Discord 通知は一文ごとに改行。✅ には Blockscout のイベントログ URL(Nouns DAO の `VoteCast` の reason に集計文が入る)を添付
-- 検証: MetaGov(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19 (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
+- 検証: pNouns Voter(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0x41Bcc06ed7E11b845f953Efce7134A8aD58Da635 (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
 - 手動テスト: `TO=0x… N=3 npx hardhat --network sepolia run scripts/sepolia/08-mint-to.js` で MetaMask アドレスに pNouns 複製を配り、`06-propose.js` で提案を出して 5 分以内に dApp で署名
 
 ## Cloudflare Workers 版リレイヤー(`relayer-cf/`、2026-08-18 デプロイ・クラウドのみで通し成功)
 ローカル版と同じロジックを Hono + viem に移植。**Worker 1 つ**に API・毎分 cron ワーカー・静的 dApp を同梱、状態は KV(1 票 = 1 キーで競合回避)。無料枠で稼働。
-- 公開 URL: https://pnouns-metagov-relayer.x402-adsb-worker.workers.dev (Sepolia)
-- `wrangler.toml`: vars(NETWORK/METAGOV/PNOUNS/NOUNS_DAO/NOUNS_TOKEN/EXPLORER/BLOCKSCOUT/ONLY_PROPOSER/PUBLIC_URL…)、KV `STATE`(id 838d35dd…)、cron `* * * * *`
+- 公開 URL: https://pnouns-voter.x402-adsb-worker.workers.dev (Sepolia)。旧 `pnouns-metagov-relayer` Worker は削除済み
+- `wrangler.toml`: vars(NETWORK/VOTER/PNOUNS/NOUNS_DAO/NOUNS_TOKEN/EXPLORER/BLOCKSCOUT/ONLY_PROPOSER/PUBLIC_URL…)、KV `STATE`(id 4c2f1c68…、旧 838d35dd… は未使用)、cron `* * * * *`
 - secrets(`wrangler secret put`): `RPC_URL`(Alchemy Sepolia)、`RELAYER_PRIVATE_KEY`(Sepolia ニーモニック #0)、`DISCORD_WEBHOOK_URL`。任意 `TICK_TOKEN`(POST /api/tick 用)
 - ローカル開発: `.dev.vars`(600、git 管理外)+ `npx wrangler dev --port 8791 --test-scheduled`(cron は `curl localhost:8791/__scheduled?cron=*+*+*+*+*` で手動発火)
 - 実績: Prop 505 = 📢 告知 → 3 票投函 → execute → Nouns DAO に賛成 2 票、すべて Cloudflare 上の cron で実行(ローカルは停止状態)
@@ -89,6 +91,6 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 
 ## 次の段階
 - 段階2 残り: dApp の「手動 execute」ボタン(ワーカー停止時の保険)、残高警告、日本語要約の表示(任意)、独自ドメイン
-- MetaGov 方式では Snapshot への「起案」工程(pnouns-mirror の drafts→PR→publish)は不要。Nouns 提案は自動で受付対象になる
+- pNouns Voter 方式では Snapshot への「起案」工程(pnouns-mirror の drafts→PR→publish)は不要。Nouns 提案は自動で受付対象になる
 - 段階3: mainnet に `liveMode=false` でデプロイし Snapshot と並走 → 一致を確認 → マルチシグが委任先を切替、`liveMode=true`
 - 未決: 票ゼロ時の挙動(棄権 or 投票しない)、`marginBlocks` の値、owner をどのマルチシグにするか

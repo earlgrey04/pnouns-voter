@@ -56,7 +56,7 @@ async function submitPending(c, pc, wc, store, proposalId) {
   await store.log({ at: new Date().toISOString(), type: "submit", proposalId, voters: good.map((g) => g.v.voter), tx: hash, gasUsed: String(rc.gasUsed), status: rc.status });
   const mg = await metagovInfo(c, pc, proposalId);
   await notify(c, [
-    `🗳️ Prop ${proposalId}: ${args.length} 票を MetaGov に投函しました (gas ${rc.gasUsed})。`,
+    `🗳️ Prop ${proposalId}: ${args.length} 票を pNouns Voter に投函しました (gas ${rc.gasUsed})。`,
     `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
     `tx: ${explorerTx(c, hash)}`,
   ].join("\n"));

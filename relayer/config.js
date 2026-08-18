@@ -19,7 +19,7 @@ const PRESETS = {
     nounsDAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d",
     nounsToken: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03",
     pnouns: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
-    metagov: process.env.METAGOV_ADDRESS, // mainnet デプロイ後に設定
+    voter: process.env.VOTER_ADDRESS, // mainnet デプロイ後に設定
     explorer: "https://etherscan.io",
     blockscout: "https://eth.blockscout.com",
   },
@@ -36,7 +36,7 @@ module.exports = {
   nounsDAO: process.env.NOUNS_DAO_ADDRESS || preset.nounsDAO,
   nounsToken: process.env.NOUNS_TOKEN_ADDRESS || preset.nounsToken,
   pnouns: process.env.PNOUNS_ADDRESS || preset.pnouns,
-  metagov: process.env.METAGOV_ADDRESS || preset.metagov,
+  voter: process.env.VOTER_ADDRESS || preset.voter,
   explorer: preset.explorer,
   blockscout: preset.blockscout,
   // 署名鍵: RELAYER_PRIVATE_KEY 優先、なければ SEPOLIA_MNEMONIC の #0

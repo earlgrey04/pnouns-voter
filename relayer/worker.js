@@ -38,7 +38,7 @@ async function submitPending(db, proposalId) {
   store.save(db);
   const mg = await metagovInfo(proposalId);
   await notify([
-    `🗳️ Prop ${proposalId}: ${args.length} 票を MetaGov に投函しました (gas ${rc.gasUsed})。`,
+    `🗳️ Prop ${proposalId}: ${args.length} 票を pNouns Voter に投函しました (gas ${rc.gasUsed})。`,
     `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
     `tx: ${explorerTx(tx.hash)}`,
   ].join("\n"));

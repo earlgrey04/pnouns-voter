@@ -1,6 +1,6 @@
 // 役割別アカウントと残高を表示。deployer に十分あれば他アカウントへ配る(--fund)
 const { ethers } = require("hardhat");
-const ROLES = ["deployer/proposer/relayer", "delegator(Nouns→MetaGov 委任)", "voter A", "voter B", "voter C"];
+const ROLES = ["deployer/proposer/relayer", "delegator(Nouns→pNouns Voter 委任)", "voter A", "voter B", "voter C"];
 async function main() {
   const signers = await ethers.getSigners();
   for (let i = 0; i < signers.length; i++) {

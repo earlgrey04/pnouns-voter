@@ -16,7 +16,7 @@ interface INounsDAO {
 }
 
 /**
- * @title pNouns MetaGov
+ * @title pNouns Voter
  * @notice pNouns NFT 保有者の署名付き投票をオンチェーンで集計し、その結果で Nouns DAO に投票するコントラクト。
  *
  *  - 投票者は EIP-712 で「提案ID / 賛否 / 自分の tokenId 群」に署名するだけ(ガス不要)。
@@ -28,7 +28,7 @@ interface INounsDAO {
  *
  *  Nouns 側の前提: この Nouns 保有ウォレット(マルチシグ)が本コントラクトに delegate() 済みであること。
  */
-contract PNounsMetaGov is EIP712, Ownable {
+contract PNounsVoter is EIP712, Ownable {
     using Strings for uint256;
 
     // ---- 定数 -------------------------------------------------------------
@@ -99,7 +99,7 @@ contract PNounsMetaGov is EIP712, Ownable {
         address owner_,
         address[] memory excluded_,
         uint256 marginBlocks_
-    ) EIP712("pNouns MetaGov", "1") Ownable(owner_) {
+    ) EIP712("pNouns Voter", "1") Ownable(owner_) {
         pnouns = IERC721(pnouns_);
         nounsDAO = INounsDAO(nounsDAO_);
         marginBlocks = marginBlocks_;
@@ -168,7 +168,7 @@ contract PNounsMetaGov is EIP712, Ownable {
         return endBlock;
     }
 
-    /// @notice この提案の MetaGov 側締切ブロック。これ以降は投票不可・execute 可。
+    /// @notice この提案の pNouns Voter 側締切ブロック。これ以降は投票不可・execute 可。
     function voteDeadline(uint256 proposalId) public view returns (uint256) {
         uint256 endBlock = nounsEndBlock(proposalId);
         return endBlock > marginBlocks ? endBlock - marginBlocks : 0;
@@ -298,7 +298,7 @@ contract PNounsMetaGov is EIP712, Ownable {
     function _reason(uint256[3] memory tokens, uint256[3] memory voters, uint8 support) internal pure returns (string memory) {
         string memory word = support == FOR ? "FOR" : support == AGAINST ? "AGAINST" : "ABSTAIN";
         return string.concat(
-            "pNouns holders voted on-chain via pNouns MetaGov: ", word,
+            "pNouns holders voted on-chain via pNouns Voter: ", word,
             " (tokens for/against/abstain = ", tokens[1].toString(), "/", tokens[0].toString(), "/", tokens[2].toString(),
             ", voters = ", voters[1].toString(), "/", voters[0].toString(), "/", voters[2].toString(), ")"
         );

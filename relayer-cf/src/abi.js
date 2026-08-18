@@ -1,4 +1,4 @@
-// PNounsMetaGov の必要最小限 ABI(artifacts から抽出)
+// PNounsVoter の必要最小限 ABI(artifacts から抽出)
 export const METAGOV_ABI = [
  {
   "anonymous": false,
@@ -99,7 +99,7 @@ export const METAGOV_ABI = [
       "type": "bytes"
      }
     ],
-    "internalType": "struct PNounsMetaGov.VoteSig[]",
+    "internalType": "struct PNounsVoter.VoteSig[]",
     "name": "votes",
     "type": "tuple[]"
    }
