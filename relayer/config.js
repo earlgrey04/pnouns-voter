@@ -47,5 +47,7 @@ module.exports = {
   scanProposals: Number(process.env.SCAN_PROPOSALS || 30), // proposalCount から遡って見る本数
   onlyProposer: process.env.ONLY_PROPOSER ? process.env.ONLY_PROPOSER.toLowerCase() : null, // テスト用: この提案者の提案だけ扱う
   cacheSec: Number(process.env.CACHE_SEC || 10),
+  publicUrl: process.env.PUBLIC_URL || `http://localhost:${Number(process.env.PORT || 8790)}`, // 告知に載せる dApp の URL
+  announce: process.env.ANNOUNCE !== "0", // 新提案の受付開始を Discord に告知
   minPendingAgeSec: Number(process.env.MIN_PENDING_AGE_SEC || 20), // 受付から投函までの最短待ち(まとめ効率のため)
 };

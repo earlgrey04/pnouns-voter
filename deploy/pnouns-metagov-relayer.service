@@ -1,0 +1,21 @@
+# ~/.config/systemd/user/pnouns-metagov-relayer.service
+# systemctl --user daemon-reload && systemctl --user enable --now pnouns-metagov-relayer
+[Unit]
+Description=pNouns MetaGov relayer (API + worker)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/mnt/data/pnouns-metagov
+# 鍵や webhook は /mnt/data/pnouns-metagov/.env(600)から読む。ここではネットワークと運用パラメータのみ
+Environment=NETWORK=sepolia
+Environment=PORT=8790
+Environment=SUBMIT_INTERVAL_SEC=30
+Environment=MIN_PENDING_AGE_SEC=20
+Environment=ONLY_PROPOSER=0x10849D31FfEaEca7727af6711A8D1b0a9b738925
+Environment=PUBLIC_URL=http://[redacted-host]:8790
+ExecStart=/usr/bin/env node relayer/index.js
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

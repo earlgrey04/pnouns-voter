@@ -71,9 +71,12 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - ワーカー: 15〜30 秒ごとに (1) 保留署名を個別 staticCall で検証 → 通るものだけ 1 tx で `castVotesBySig`、(2) 締切後の提案を `execute`(gasLimit = 見積 ×1.3)、Discord webhook 通知。状態は `~/.config/pnouns-metagov/<network>/votes.json`
 - dApp `relayer/public/index.html`: ライブラリなし。MetaMask の `eth_signTypedData_v4` で署名 → POST。受付中提案・集計・自分の pNouns(投票済みは打消線)・最近の結果を表示
 - Sepolia 実績: Prop 498 = API 受付 3 票 → 投函(gas 266,957)→ execute → Nouns DAO に賛成 2 票(全自動)
+- 新提案が Pending/Active になると 📢 告知(締切 JST・dApp URL・nouns.wtf リンク)。`ANNOUNCE=0` で無効
+- 常駐: `deploy/pnouns-metagov-relayer.service`(systemd user unit。`~/.config/systemd/user/` にコピーして enable。2026-08-18 から Sepolia で稼働中)
 - 手動テスト: `TO=0x… N=3 npx hardhat --network sepolia run scripts/sepolia/08-mint-to.js` で MetaMask アドレスに pNouns 複製を配り、`06-propose.js` で提案を出して 5 分以内に dApp で署名
 
 ## 次の段階
-- 段階2 残り: MetaMask での手動署名リハーサル(dApp は稼働済み)、リレイヤーの常駐化(systemd)、pnouns-mirror の Discord 告知フローとの接続
+- 段階2 残り: Discord webhook の接続(DISCORD_WEBHOOK_URL)、pNouns メンバー向け公開方法(Tailscale/Cloudflare Tunnel or Vercel)、日本語要約の表示(任意)
+- MetaGov 方式では Snapshot への「起案」工程(pnouns-mirror の drafts→PR→publish)は不要。Nouns 提案は自動で受付対象になる
 - 段階3: mainnet に `liveMode=false` でデプロイし Snapshot と並走 → 一致を確認 → マルチシグが委任先を切替、`liveMode=true`
 - 未決: 票ゼロ時の挙動(棄権 or 投票しない)、`marginBlocks` の値、owner をどのマルチシグにするか

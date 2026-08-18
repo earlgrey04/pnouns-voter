@@ -1,5 +1,5 @@
 // ワーカー: 保留中の署名をまとめて castVotesBySig、締切後の提案を execute。Discord webhook で通知。
-const { cfg, ethers, contracts, relayerWallet, recentProposals, metagovInfo, withFallback, getProvider } = require("./chain");
+const { cfg, ethers, contracts, relayerWallet, recentProposals, metagovInfo, proposalTitle, withFallback, getProvider } = require("./chain");
 const store = require("./store");
 
 async function notify(text) {
@@ -63,12 +63,30 @@ async function maybeExecute(db, p, block) {
   await notify(`✅ Prop ${p.id} を Nouns DAO に **${word}** で投票しました (${receipt.votes} 票、tokens 賛成 ${after.tokens[1]} / 反対 ${after.tokens[0]} / 棄権 ${after.tokens[2]}) ${explorerTx(tx.hash)}`);
 }
 
+// 新しく投票可能(Pending/Active)になった提案を告知
+async function announceNew(db, p, block) {
+  db.announced ||= {};
+  if (db.announced[p.id]) return;
+  const mg = await metagovInfo(p.id);
+  if (mg.deadline && block >= mg.deadline) { db.announced[p.id] = "late"; store.save(db); return; }
+  const title = await proposalTitle(p.id, p.creationBlock);
+  const endBlock = p.endBlock;
+  const deadlineBlock = mg.deadline || endBlock - 0; // 初回投票前は voteDeadline が endBlock-margin を返す
+  const minutes = Math.max(0, Math.round((deadlineBlock - block) * 12 / 60));
+  const eta = new Date(Date.now() + minutes * 60000);
+  const jst = eta.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+  db.announced[p.id] = new Date().toISOString();
+  store.save(db);
+  await notify(`📢 Nouns Prop ${p.id}「${title}」の投票受付を開始しました。pNouns 保有者は署名だけで投票できます(ガス不要)。締切: ${jst} ごろ (block ${deadlineBlock}) → ${cfg.publicUrl}  / https://nouns.wtf/vote/${p.id}`);
+}
+
 async function tick() {
   const db = store.load();
   const { block, proposals } = await recentProposals();
   for (const p of proposals) {
     try {
       if (p.state === 0 || p.state === 1) {
+        if (cfg.announce) await announceNew(db, p, block);
         const mg = await metagovInfo(p.id);
         if (block < mg.deadline) await submitPending(db, String(p.id));
         else await maybeExecute(db, p, block);
