@@ -46,10 +46,23 @@ export function cfg(env) {
     minPendingAgeSec: Number(env.MIN_PENDING_AGE_SEC || 20),
     maxBatch: (() => { const n = Number(env.MAX_BATCH || 10); if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("MAX_BATCH must be 1..10"); return n; })(), // 1 tx にまとめる署名数の上限
     announce: env.ANNOUNCE !== "0",
+    cronSec: Number(env.CRON_SEC || (env.NETWORK === "mainnet" ? 120 : 60)), // cron 間隔(秒)。署名受付締切の計算に使う
+    submitBufferSec: Number(env.SUBMIT_BUFFER_SEC || 120), // KV 反映・送信・採掘の余裕
     discordWebhook: env.DISCORD_WEBHOOK_URL || null,
     relayerKey: env.RELAYER_PRIVATE_KEY || null,
     lowBalanceEth: env.LOW_BALANCE_ETH || (env.NETWORK === "mainnet" ? "0.01" : "0.02"),
   };
+}
+// M-14: 署名受付締切 = オンチェーン締切 − (最小待機 + cron 間隔 + 余裕)。この境界より後に受け付けた署名は通常運用で投函できないので API で拒否する
+export function acceptMarginBlocks(c) {
+  return Math.ceil((c.minPendingAgeSec + c.cronSec + c.submitBufferSec) / 12);
+}
+export function acceptDeadline(c, onchainDeadline) {
+  return Math.max(0, Number(onchainDeadline) - acceptMarginBlocks(c));
+}
+// ワーカー側: 受付締切を過ぎたら最小待機を無視して即時投函(境界の票を取り残さない)
+export function shouldRushSubmit(c, block, onchainDeadline) {
+  return Number(block) >= acceptDeadline(c, onchainDeadline);
 }
 export const storeNs = (c) => `${c.chainId}:${c.metagov.toLowerCase()}`;
 export function clients(c) {

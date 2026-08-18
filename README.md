@@ -75,6 +75,7 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - dApp `relayer/public/index.html`: ライブラリなし。MetaMask の `eth_signTypedData_v4` で署名 → POST。受付中提案・集計・自分の pNouns(投票済みは打消線)・最近の結果を表示
 - Sepolia 実績: Prop 498 = API 受付 3 票 → 投函(gas 266,957)→ execute → Nouns DAO に賛成 2 票(全自動)
 - **署名の公開・誰でも投函**(2026-08-18): `GET /api/signatures/:id` で投函待ち/投函済み署名を公開、`?calldata=1` でいま on-chain で通る署名だけを `castVotesBySig` の calldata にして返す。dApp に「投函待ちの署名を自分で投函する(誰でも可・ガス自己負担)」ボタン。ワーカーは他者投函済み(on-chain hasVoted)を `tx:"external"` と記録し、自分の tx が revert したら記録を戻す(Prop 509 で実証: voter A が先に投函 → リレイヤー tx は revert → 集計 3 票)
+- **署名受付締切**(M-14): オンチェーン締切の (MIN_PENDING_AGE + cron + 120s)/12 ブロック前(mainnet 30 ブロック)で API 受付を終了。以後はワーカーが即時投函モード、メンバーは自分で投函/castVote 可。dApp に両方の締切を表示
 - 新提案が Pending/Active になると 📢 告知(締切 JST・dApp URL・nouns.wtf リンク)。`ANNOUNCE=0` で無効
 - 常駐: `deploy/pnouns-metagov-relayer.service`(systemd user unit。`~/.config/systemd/user/` にコピーして enable。2026-08-18 から Sepolia で稼働中)
 - Discord 通知は一文ごとに改行。✅ には Blockscout のイベントログ URL(Nouns DAO の `VoteCast` の reason に集計文が入る)を添付
@@ -92,7 +93,7 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - ローカル systemd 版(`relayer/`)は Worker 版に一本化したため **無効化済み**(`systemctl --user disable`)。緊急時のフォールバックとして残置
 
 ## 監査(2026-08-18、Codex)
-第 1 回 High 3 / Medium 8、第 2 回 High 1 / Medium 5 / Low 4、第 3 回 High 2 / Medium 1 / Low 1 → すべて対応済み。Cloudflare 無料枠(KV 書込み・list 1,000/日、サブリクエスト 50/呼び出し)を意識した設計(list はワーカーの dirty 提案のみ、公開 API は get のみ、Cache API)。運用は**無料枠で開始し、KV エラー時の Discord ⚠️ 警告と Cloudflare の KV Metrics を見て必要なら Workers Paid($5/月)へ**(プラン変更は再デプロイ不要・無停止)。注: 1 呼び出しあたり KV 1,000 操作の上限は Paid でも同じなので、設計側で list を metadata のみ・get を投函対象のみに抑えている。詳細は `docs/AUDIT-BRIEF.md`(依頼)と `docs/AUDIT-RESPONSE-2026-08-18.md`(対応)。
+第 1 回 High 3 / Medium 8、第 2 回 High 1 / Medium 5 / Low 4、第 3 回 High 2 / Medium 1 / Low 1、第 4 回 Medium 3 / Low 1、第 5 回 Medium 1 / Low 1 → すべて対応済み(第 5 回で「M-14 修正後は mainnet 移行可」の判定)。Cloudflare 無料枠(KV 書込み・list 1,000/日、サブリクエスト 50/呼び出し)を意識した設計(list はワーカーの dirty 提案のみ、公開 API は get のみ、Cache API)。運用は**無料枠で開始し、KV エラー時の Discord ⚠️ 警告と Cloudflare の KV Metrics を見て必要なら Workers Paid($5/月)へ**(プラン変更は再デプロイ不要・無停止)。注: 1 呼び出しあたり KV 1,000 操作の上限は Paid でも同じなので、設計側で list を metadata のみ・get を投函対象のみに抑えている。詳細は `docs/AUDIT-BRIEF.md`(依頼)と `docs/AUDIT-RESPONSE-2026-08-18.md`(対応)。
 - 委任の切り戻しは**以後の提案から**有効(Nouns は提案作成時点の委任票を使う)。進行中提案の緊急停止は `setLiveMode(false)`
 - シャドー運用の execute は確定しない(後から本投票可)
 

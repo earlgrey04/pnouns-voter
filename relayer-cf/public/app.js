@@ -82,7 +82,7 @@ async function render() {
   if (!proposals.length) root.innerHTML = `<div class="card">現在、投票受付中の Nouns 提案はありません。(block ${block})</div>`;
   for (const p of proposals) {
     const mg = p.metagov;
-    const blocksLeft = mg.deadline - block;
+    const blocksLeft = (mg.acceptDeadline || mg.deadline) - block; // 署名受付の残り
     const el = document.createElement("div");
     el.className = "card";
     el.innerHTML = `
@@ -90,7 +90,7 @@ async function render() {
         <div><b>Prop ${p.id}</b> ${escapeHtml(p.title)}</div>
         <span class="badge ${p.votable ? "active" : ""}">${p.votable ? "受付中" : "締切"} / Nouns: ${p.stateName}</span>
       </div>
-      <div class="muted">pNouns Voter 締切: block ${mg.deadline}(残り約 ${blocksLeft > 0 ? Math.round(blocksLeft * 12 / 60) : 0} 分, ${blocksLeft} ブロック) ・ 投函待ち署名 ${p.pendingSignatures} 件 ・ 投函済み ${p.submittedVoters} 名 ・ pNouns Voter の Nouns 投票力 ${mg.metagovVotes}
+      <div class="muted">署名受付締切: block ${mg.acceptDeadline || mg.deadline}(残り約 ${blocksLeft > 0 ? Math.round(blocksLeft * 12 / 60) : 0} 分, ${blocksLeft} ブロック) ・ オンチェーン締切: block ${mg.deadline}(この間は自分で投函する場合のみ可) ・ 投函待ち署名 ${p.pendingSignatures} 件 ・ 投函済み ${p.submittedVoters} 名 ・ pNouns Voter の Nouns 投票力 ${mg.metagovVotes}
         <a href="https://nouns.wtf/vote/${p.id}" target="_blank" rel="noopener">nouns.wtf</a></div>
       <div class="tally">
         <div class="for">賛成 ${mg.tokens[1]} <small>(${mg.voters[1]}名)</small></div>

@@ -1,7 +1,7 @@
 // Cloudflare Worker: Hono API + cron(scheduled)。静的 dApp は wrangler の assets で配信(public/_headers で CSP)。
 import { Hono } from "hono";
 import { recoverTypedDataAddress, encodeFunctionData } from "viem";
-import { cfg, clients, domain, VOTE_TYPES, tokensOf, allOwners, recentProposals, proposalTitle, metagovInfo, getAddress, METAGOV_ABI, DAO_ABI, storeNs } from "./chain.js";
+import { cfg, clients, domain, VOTE_TYPES, tokensOf, allOwners, recentProposals, proposalTitle, metagovInfo, getAddress, METAGOV_ABI, DAO_ABI, storeNs, acceptDeadline } from "./chain.js";
 import { makeStore } from "./store.js";
 import { tick, notifyError } from "./worker.js";
 
@@ -38,7 +38,8 @@ app.get("/api/proposals", async (ctx) => {
     const votable = p.state === 0 || p.state === 1;
     const [title, mg, sum, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.getSummary(p.id), store.getExecuted(p.id)]);
     const votes = sum.votes;
-    return { ...p, title, metagov: mg, votable: votable && block < mg.deadline, pendingSignatures: votes.filter((v) => !v.tx && !v.dropped).length, submittedVoters: votes.filter((v) => v.tx).length, executed };
+    const acceptUntil = mg.deadline ? acceptDeadline(c, mg.deadline) : 0;
+    return { ...p, title, metagov: { ...mg, acceptDeadline: acceptUntil }, votable: votable && block < acceptUntil, pendingSignatures: votes.filter((v) => !v.tx && !v.dropped).length, submittedVoters: votes.filter((v) => v.tx).length, executed };
   }));
   const res = ctx.json({ block, proposals: list });
   const toCache = new Response(res.body, res); toCache.headers.set("Cache-Control", "public, max-age=30");
@@ -50,6 +51,7 @@ app.get("/api/tokens/:address", async (ctx) => {
   const c = cfg(ctx.env);
   const { publicClient: pc } = clients(c);
   const store = makeStore(ctx.env.STATE, storeNs(c));
+  if (!/^0x[0-9a-fA-F]{40}$/.test(ctx.req.param("address"))) return ctx.json({ error: "bad address" }, 400); // L-08: 入力エラーは 400、障害通知しない
   const address = getAddress(ctx.req.param("address"));
   const ids = await tokensOf(c, pc, address);
   const proposalId = ctx.req.query("proposalId");
@@ -121,6 +123,7 @@ app.post("/api/vote", async (ctx) => {
   if (hasVoted) return ctx.json({ error: "already voted on-chain" }, 400);
   if (state !== 0 && state !== 1) return ctx.json({ error: `proposal not votable (state ${state})` }, 400);
   if (block >= deadline) return ctx.json({ error: "voting closed" }, 400);
+  if (block >= acceptDeadline(c, deadline)) return ctx.json({ error: "signature acceptance closed (too close to the on-chain deadline); submit on-chain yourself via castVote or the manual submit button", code: "accept_closed", acceptDeadline: acceptDeadline(c, deadline), deadline }, 400); // M-14
   const existing = await store.getVote(pidKey, voter);
   if (existing && existing.tx) return ctx.json({ error: "already submitted" }, 400);
   await store.setFlag(`rl:${voter.toLowerCase()}`, 60);
@@ -179,9 +182,14 @@ app.post("/api/tick", async (ctx) => {
   return ctx.json({ ok: true });
 });
 
+// L-08: 内部障害(KV / RPC / 送信)だけ Discord 通知。入力起因の例外は 400 で返し通知しない
+const INTERNAL_ERR = new Set(["HttpRequestError", "TimeoutError", "RpcRequestError", "InternalRpcError", "LimitExceededRpcError", "ResourceUnavailableRpcError"]);
+function isInternalError(e) { return INTERNAL_ERR.has(e?.name) || /KV|Too many|limit|exceeded|network|fetch failed/i.test(e?.message || ""); }
+function isClientError(e) { return ["InvalidAddressError", "SyntaxError", "SizeExceedsPaddingSizeError", "InvalidHexValueError"].includes(e?.name) || /^Address ".*" is invalid/.test(e?.message || ""); }
 app.onError((e, ctx) => {
+  if (isClientError(e)) return ctx.json({ error: "bad request" }, 400);
   console.error(e);
-  try { const c = cfg(ctx.env); ctx.executionCtx.waitUntil(notifyError(c, `api ${new URL(ctx.req.url).pathname}`, e)); } catch {}
+  if (isInternalError(e)) { try { const c = cfg(ctx.env); ctx.executionCtx.waitUntil(notifyError(c, `api ${new URL(ctx.req.url).pathname}`, e)); } catch {} }
   return ctx.json({ error: e.shortMessage || e.message }, 500);
 });
 

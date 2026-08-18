@@ -56,3 +56,11 @@ Prop 511 でクラウド通し(3 票 → 投函 → execute → Nouns DAO 賛成
 | 追加 | — | KV/RPC 障害時に Discord ⚠️ 警告(1 時間に 1 回、メモリ内スロットル。ワーカー tick と API の onError) — 無料枠で運用開始する判断に伴う監視 |
 
 再検証: Worker 再デプロイ、Prop 516 でクラウド通し(📢→🗳️→✅、Nouns 賛成 2 票)。
+
+## 再監査(第 5 回)への対応
+| ID | 重大度 | 対応 |
+|---|---|---|
+| M-14 | Medium | **署名受付締切**を導入: `acceptDeadline = オンチェーン締切 − ceil((MIN_PENDING_AGE + cron 間隔 + 余裕 120s)/12)` ブロック(mainnet: 30 ブロック前)。API はこれ以降の署名を `accept_closed` で拒否(自分で投函する導線を案内)。ワーカーは受付締切以降は最小待機を無視して即時投函(境界の票を取り残さない)。dApp は「署名受付締切」と「オンチェーン締切」を分けて表示。`relayer-cf/test/accept-deadline.test.mjs` に境界テスト 4 本(`npm test`) |
+| L-08 | Low | 入力起因の例外(不正アドレス等)は 400 を返し通知しない。Discord 障害通知は KV / RPC / 送信などの内部エラーに限定(名前・メッセージで分類) |
+
+再検証: Prop 517 で通し(受付中 3 票 → ok、受付締切後の署名 → 400 accept_closed、execute → Nouns 反対 2 票)。境界テスト 4/4 通過。

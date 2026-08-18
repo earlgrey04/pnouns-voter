@@ -1,6 +1,6 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
-import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs } from "./chain.js";
+import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit } from "./chain.js";
 import { makeStore } from "./store.js";
 
 async function notify(c, text) {
@@ -98,10 +98,11 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
   return changed;
 }
 
-async function submitPending(c, pc, wc, store, proposalId) {
-  const { summaries } = await loadVotes(store, proposalId, false);
+async function submitPending(c, pc, wc, store, proposalId, block, onchainDeadline) {
+  const rush = shouldRushSubmit(c, block, onchainDeadline); // M-14: 受付締切を過ぎたら最小待機なしで即投函
+  const { summaries } = await loadVotes(store, proposalId, rush);
   if (summaries.some((v) => v.txStatus === "sent")) return; // 送信中は新規投函しない(確定は reconcile)
-  const pendingSummaries = summaries.filter((v) => !v.tx && !v.dropped && Date.now() - Date.parse(v.receivedAt) >= c.minPendingAgeSec * 1000).slice(0, c.maxBatch);
+  const pendingSummaries = summaries.filter((v) => !v.tx && !v.dropped && (rush || Date.now() - Date.parse(v.receivedAt) >= c.minPendingAgeSec * 1000)).slice(0, c.maxBatch);
   if (!pendingSummaries.length) return;
   // 本文(署名)は投函対象だけ get(≤ MAX_BATCH 件)
   const pending = [];
@@ -248,7 +249,7 @@ export async function tick(env) {
         if (c.announce) await announceNew(c, pc, store, p, block);
         const mg = await metagovInfo(c, pc, p.id);
         if (!wc) continue;
-        if (block < mg.deadline) await submitPending(c, pc, wc, store, String(p.id));
+        if (block < mg.deadline) await submitPending(c, pc, wc, store, String(p.id), block, mg.deadline);
         else await maybeExecute(c, pc, wc, store, p, block, mg);
       } catch (e) {
         await notifyError(c, `worker prop ${p.id}`, e);
