@@ -11,7 +11,7 @@ mainnet フォーク上の E2E テスト(段階1)。
 - pNouns トレジャリー `0x8ae80e0b44205904be18869240c2ec62d2342785` の保有分は投票権に含めない(`excluded`。owner が変更可)
 - 定足数なし
 - tokens 同数 → 投票者数が多い方 → それも同数なら棄権。**票ゼロは投票しない**(execute が NoVotes で拒否、リレイヤーは ℹ️ 通知のみ。2026-08-18 決定)
-- 締切 = Nouns の `endBlock − marginBlocks`(初期値 3600 ブロック ≒ 12h)。締切後に誰でも `execute`
+- 締切 = Nouns の `endBlock − marginBlocks`。**mainnet は 7200 ブロック ≒ 24h(2026-08-18 決定)**、Sepolia テストは 5。締切後に誰でも `execute`
 - チェーンは Ethereum mainnet(Nouns の委任先は mainnet アドレス必須。L2→L1 メッセージは Nouns の投票期間に間に合わない)
 
 ## 前提となる pNouns NFT の仕様(mainnet `0x4bE962499cE295b1ed180F923bf9c73b6357DE80`、Sourcify 検証済み)
@@ -93,4 +93,4 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - 段階2 残り: dApp の「手動 execute」ボタン(ワーカー停止時の保険)、残高警告、日本語要約の表示(任意)、独自ドメイン
 - pNouns Voter 方式では Snapshot への「起案」工程(pnouns-mirror の drafts→PR→publish)は不要。Nouns 提案は自動で受付対象になる
 - 段階3: mainnet に `liveMode=false` でデプロイし Snapshot と並走 → 一致を確認 → マルチシグが委任先を切替、`liveMode=true`
-- 未決: `marginBlocks` の値(12h 想定)、owner をどのマルチシグにするか、ガス代負担(案 A/B/C)
+- 決定(2026-08-18): mainnet 鍵は新規生成、margin 24h。未決: ガス代負担(案 A/B)、owner をどのマルチシグにするか。**mainnet デプロイは指示があるまで行わない**
