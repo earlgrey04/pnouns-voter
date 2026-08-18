@@ -1,0 +1,29 @@
+name = "pnouns-metagov-relayer"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+compatibility_flags = ["nodejs_compat"]
+
+# 静的 dApp(public/index.html)。/api/* は Worker が処理
+[assets]
+directory = "./public"
+
+[triggers]
+crons = ["* * * * *"]
+
+[[kv_namespaces]]
+binding = "STATE"
+id = "838d35dd5e684b8c9dd66aadb1b9a91c"
+
+[vars]
+NETWORK = "sepolia"
+METAGOV = "0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19"
+PNOUNS = "0x2dc16A3EC98A825e731b09512B602fDDC5246Ad6"
+NOUNS_DAO = "0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57"
+NOUNS_TOKEN = "0x4C4674bb72a096855496a7204962297bd7e12b85"
+EXPLORER = "https://sepolia.etherscan.io"
+BLOCKSCOUT = "https://eth-sepolia.blockscout.com"
+ONLY_PROPOSER = "0x10849D31FfEaEca7727af6711A8D1b0a9b738925"
+MIN_PENDING_AGE_SEC = "20"
+EXECUTE_GAS_MULT = "1.3"
+# secrets(wrangler secret put): RPC_URL, RELAYER_PRIVATE_KEY, DISCORD_WEBHOOK_URL, (任意) TICK_TOKEN
+PUBLIC_URL = "https://pnouns-metagov-relayer.x402-adsb-worker.workers.dev"

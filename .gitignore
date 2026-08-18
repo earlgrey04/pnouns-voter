@@ -4,3 +4,6 @@ cache
 artifacts
 typechain-types
 coverage
+relayer-cf/node_modules
+relayer-cf/.wrangler
+relayer-cf/.dev.vars

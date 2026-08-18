@@ -77,8 +77,18 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - 検証: MetaGov(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19 (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
 - 手動テスト: `TO=0x… N=3 npx hardhat --network sepolia run scripts/sepolia/08-mint-to.js` で MetaMask アドレスに pNouns 複製を配り、`06-propose.js` で提案を出して 5 分以内に dApp で署名
 
+## Cloudflare Workers 版リレイヤー(`relayer-cf/`、2026-08-18 デプロイ・クラウドのみで通し成功)
+ローカル版と同じロジックを Hono + viem に移植。**Worker 1 つ**に API・毎分 cron ワーカー・静的 dApp を同梱、状態は KV(1 票 = 1 キーで競合回避)。無料枠で稼働。
+- 公開 URL: https://pnouns-metagov-relayer.x402-adsb-worker.workers.dev (Sepolia)
+- `wrangler.toml`: vars(NETWORK/METAGOV/PNOUNS/NOUNS_DAO/NOUNS_TOKEN/EXPLORER/BLOCKSCOUT/ONLY_PROPOSER/PUBLIC_URL…)、KV `STATE`(id 838d35dd…)、cron `* * * * *`
+- secrets(`wrangler secret put`): `RPC_URL`(Alchemy Sepolia)、`RELAYER_PRIVATE_KEY`(Sepolia ニーモニック #0)、`DISCORD_WEBHOOK_URL`。任意 `TICK_TOKEN`(POST /api/tick 用)
+- ローカル開発: `.dev.vars`(600、git 管理外)+ `npx wrangler dev --port 8791 --test-scheduled`(cron は `curl localhost:8791/__scheduled?cron=*+*+*+*+*` で手動発火)
+- 実績: Prop 505 = 📢 告知 → 3 票投函 → execute → Nouns DAO に賛成 2 票、すべて Cloudflare 上の cron で実行(ローカルは停止状態)
+- mainnet 用は別 Worker(例: `wrangler deploy --name pnouns-metagov-relayer-mainnet` + vars/secrets 差し替え)で並走させる想定
+- ローカル systemd 版(`relayer/`)は Worker 版に一本化したため **無効化済み**(`systemctl --user disable`)。緊急時のフォールバックとして残置
+
 ## 次の段階
-- 段階2 残り: Discord webhook の接続(DISCORD_WEBHOOK_URL)、pNouns メンバー向け公開方法(Tailscale/Cloudflare Tunnel or Vercel)、日本語要約の表示(任意)
+- 段階2 残り: dApp の「手動 execute」ボタン(ワーカー停止時の保険)、残高警告、日本語要約の表示(任意)、独自ドメイン
 - MetaGov 方式では Snapshot への「起案」工程(pnouns-mirror の drafts→PR→publish)は不要。Nouns 提案は自動で受付対象になる
 - 段階3: mainnet に `liveMode=false` でデプロイし Snapshot と並走 → 一致を確認 → マルチシグが委任先を切替、`liveMode=true`
 - 未決: 票ゼロ時の挙動(棄権 or 投票しない)、`marginBlocks` の値、owner をどのマルチシグにするか

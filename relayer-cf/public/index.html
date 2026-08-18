@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pNouns MetaGov 投票</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚡</text></svg>">
+<style>
+  :root { --bg:#f7f7f5; --card:#fff; --fg:#1b1b1b; --muted:#666; --line:#e2e2df; --for:#1f8f4a; --against:#c8382e; --abstain:#6b6b6b; --accent:#d22209; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans JP", sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; align-items:center; justify-content:space-between; padding:14px 20px; background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; }
+  header h1 { font-size:18px; margin:0; }
+  header .net { font-size:12px; color:var(--muted); margin-left:8px; }
+  button { font: inherit; padding:8px 14px; border-radius:8px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  main { max-width:860px; margin:0 auto; padding:20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .muted { color:var(--muted); font-size:13px; }
+  .tally { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0; }
+  .tally div { border-radius:8px; padding:8px; text-align:center; color:#fff; font-weight:600; }
+  .tally .for{background:var(--for)} .tally .against{background:var(--against)} .tally .abstain{background:var(--abstain)}
+  .votebtns button { flex:1; font-weight:600; padding:12px; }
+  .votebtns .for{ border-color:var(--for); color:var(--for)} .votebtns .against{border-color:var(--against); color:var(--against)} .votebtns .abstain{border-color:var(--abstain); color:var(--abstain)}
+  .tokens span { display:inline-block; padding:2px 8px; border:1px solid var(--line); border-radius:999px; margin:2px; font-size:12px; }
+  .tokens span.voted { background:#eee; color:var(--muted); text-decoration:line-through; }
+  .badge { font-size:11px; padding:2px 8px; border-radius:999px; background:#eee; }
+  .badge.active{background:#e6f5ec;color:var(--for)} .badge.pending{background:#fff4e0;color:#9a6200}
+  #msg { white-space:pre-wrap; font-size:13px; }
+  #msg.err { color:var(--against); }
+  a { color:inherit; }
+</style>
+</head>
+<body>
+<header>
+  <div><h1 style="display:inline">⚡ pNouns MetaGov 投票</h1><span class="net" id="net"></span></div>
+  <div class="row"><span id="addr" class="muted"></span><button id="connect" class="primary">ウォレット接続</button><button id="disconnect" style="display:none">接続解除</button></div>
+</header>
+<main>
+  <div class="card muted">
+    pNouns 保有者は「署名するだけ」で投票できます(ガス代不要)。署名はリレイヤーがまとめてオンチェーンの MetaGov に投函し、締切後に MetaGov が結果を Nouns DAO に投票します。
+    重みは保有 pNouns 数(トレジャリー分は除外)。同数の場合は投票者数が多い方、それも同数なら棄権になります。
+  </div>
+  <div id="proposals"></div>
+  <div class="card"><div id="msg" class="muted">読み込み中…</div></div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+let CONFIG = null, account = null, tokensCache = {};
+const SUPPORT = { 0: "反対", 1: "賛成", 2: "棄権" };
+async function api(path, opt) { const r = await fetch(path, opt); const j = await r.json(); if (!r.ok) throw new Error(j.error || r.statusText); return j; }
+function msg(t, err) { $("#msg").textContent = t; $("#msg").className = err ? "err" : "muted"; }
+const eth = () => window.ethereum;
+
+async function ensureChain() {
+  const chainHex = "0x" + CONFIG.chainId.toString(16);
+  const cur = await eth().request({ method: "eth_chainId" });
+  if (cur === chainHex) return true;
+  try { await eth().request({ method: "wallet_switchEthereumChain", params: [{ chainId: chainHex }] }); return true; }
+  catch (e) { msg(`ウォレットのネットワークを ${CONFIG.network} (chainId ${CONFIG.chainId}) に切り替えてください`, true); return false; }
+}
+function setAccount(a) {
+  account = a || null;
+  $("#addr").textContent = account ? account.slice(0, 6) + "…" + account.slice(-4) : "";
+  $("#connect").style.display = account ? "none" : "";
+  $("#disconnect").style.display = account ? "" : "none";
+  localStorage.setItem("pnouns-metagov-connected", account ? "1" : "");
+}
+async function connect(silent) {
+  if (!eth()) { if (!silent) msg("MetaMask 等のウォレット拡張が見つかりません", true); return; }
+  // silent: 既に承認済みの接続を無プロンプトで復元(eth_accounts)。手動: eth_requestAccounts
+  const accs = await eth().request({ method: silent ? "eth_accounts" : "eth_requestAccounts" });
+  if (!accs || !accs.length) return;
+  setAccount(accs[0]);
+  if (!(await ensureChain())) return;
+  await render();
+}
+async function disconnect() {
+  try { await eth().request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }); } catch (e) { /* 未対応ウォレットはローカル状態のみ解除 */ }
+  setAccount(null);
+  await render();
+  msg("ウォレットの接続を解除しました。");
+}
+
+async function render() {
+  const { block, proposals: all } = await api("/api/proposals?closed=8");
+  const proposals = all.filter((p) => p.votable);
+  const closed = all.filter((p) => !p.votable);
+  const root = $("#proposals");
+  root.innerHTML = "";
+  if (!proposals.length) root.innerHTML = `<div class="card">現在、投票受付中の Nouns 提案はありません。(block ${block})</div>`;
+  for (const p of proposals) {
+    const mg = p.metagov;
+    const blocksLeft = mg.deadline - block;
+    const el = document.createElement("div");
+    el.className = "card";
+    el.innerHTML = `
+      <div class="row" style="justify-content:space-between">
+        <div><b>Prop ${p.id}</b> ${escapeHtml(p.title)}</div>
+        <span class="badge ${p.votable ? "active" : ""}">${p.votable ? "受付中" : "締切"} / Nouns: ${p.stateName}</span>
+      </div>
+      <div class="muted">MetaGov 締切: block ${mg.deadline}(残り約 ${blocksLeft > 0 ? Math.round(blocksLeft * 12 / 60) : 0} 分, ${blocksLeft} ブロック) ・ 投函待ち署名 ${p.pendingSignatures} 件 ・ 投函済み ${p.submittedVoters} 名 ・ MetaGov の Nouns 投票力 ${mg.metagovVotes}
+        <a href="https://nouns.wtf/vote/${p.id}" target="_blank" rel="noopener">nouns.wtf</a></div>
+      <div class="tally">
+        <div class="for">賛成 ${mg.tokens[1]} <small>(${mg.voters[1]}名)</small></div>
+        <div class="against">反対 ${mg.tokens[0]} <small>(${mg.voters[0]}名)</small></div>
+        <div class="abstain">棄権 ${mg.tokens[2]} <small>(${mg.voters[2]}名)</small></div>
+      </div>
+      <div class="muted">現時点の判定: <b>${mg.executed ? "確定 → " : ""}${SUPPORT[mg.result]}</b>${mg.executed ? "(Nouns DAO に投票済み)" : ""}</div>
+      <div id="my-${p.id}"></div>`;
+    root.appendChild(el);
+    if (account && p.votable) await renderMine(p);
+  }
+  if (closed.length) {
+    const el = document.createElement("div");
+    el.className = "card";
+    el.innerHTML = `<b>最近の結果</b>` + closed.map((p) => {
+      const mg = p.metagov, ex = p.executed;
+      const nr = mg.nounsReceipt;
+      const r = mg.executed ? `MetaGov → Nouns DAO: <b>${SUPPORT[mg.result]}</b>${ex && ex.tx ? ` <a href="${CONFIG.explorer}/tx/${ex.tx}" target="_blank">tx</a>${CONFIG.blockscout ? ` / <a href="${CONFIG.blockscout}/tx/${ex.tx}?tab=logs" target="_blank">イベント</a>` : ""}` : ""}` : (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] ? "未実行" : "投票なし");
+      const nouns = nr && nr.hasVoted ? `<br><span style="color:var(--for)">✔ Nouns DAO 側の記録: MetaGov が「${SUPPORT[nr.support]}」${nr.votes} 票(提案全体: 賛成 ${p.forVotes} / 反対 ${p.againstVotes} / 棄権 ${p.abstainVotes})</span>` : "";
+      return `<div class="muted" style="margin-top:6px">Prop ${p.id} ${escapeHtml(p.title)} — 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]}(投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]}) ・ ${r} ・ Nouns: ${p.stateName}${nouns}</div>`;
+    }).join("");
+    root.appendChild(el);
+  }
+  msg(`更新: block ${block}`);
+}
+async function renderMine(p) {
+  const box = $(`#my-${p.id}`);
+  const t = await api(`/api/tokens/${account}?proposalId=${p.id}`);
+  tokensCache[p.id] = t;
+  if (!t.tokenIds.length) { box.innerHTML = `<div class="muted" style="margin-top:8px">このアドレスは pNouns を保有していません。</div>`; return; }
+  const usable = t.tokenIds.filter((id) => !t.voted[id]);
+  const chips = t.tokenIds.map((id) => `<span class="${t.voted[id] ? "voted" : ""}">#${id}</span>`).join("");
+  let status = "";
+  if (t.hasVoted) status = `<div class="muted">この提案には投票済みです(オンチェーン)。</div>`;
+  else if (t.pending) status = `<div class="muted">署名受付済み: <b>${SUPPORT[t.pending.support]}</b>(${t.pending.tokenIds.length} 枚)。${t.pending.tx ? `投函済み <a href="${CONFIG.explorer}/tx/${t.pending.tx}" target="_blank">tx</a>` : "まもなくリレイヤーが投函します"}</div>`;
+  box.innerHTML = `
+    <div style="margin-top:10px">あなたの pNouns(${t.tokenIds.length} 枚、投票可能 ${usable.length} 枚): <span class="tokens">${chips}</span></div>
+    ${status}
+    ${!t.hasVoted && !t.pending && usable.length ? `<div class="row votebtns" style="margin-top:10px">
+      <button class="for" data-p="${p.id}" data-s="1">賛成</button>
+      <button class="against" data-p="${p.id}" data-s="0">反対</button>
+      <button class="abstain" data-p="${p.id}" data-s="2">棄権</button></div>` : ""}`;
+  box.querySelectorAll("button[data-s]").forEach((b) => b.addEventListener("click", () => vote(Number(b.dataset.p), Number(b.dataset.s))));
+}
+async function vote(proposalId, support) {
+  try {
+    const t = tokensCache[proposalId];
+    const tokenIds = t.tokenIds.filter((id) => !t.voted[id]).map(String);
+    const typed = {
+      types: { EIP712Domain: [{ name: "name", type: "string" }, { name: "version", type: "string" }, { name: "chainId", type: "uint256" }, { name: "verifyingContract", type: "address" }], ...CONFIG.types },
+      primaryType: "Vote",
+      domain: CONFIG.domain,
+      message: { proposalId: String(proposalId), support, tokenIds },
+    };
+    msg(`Prop ${proposalId} に「${SUPPORT[support]}」で署名します。ウォレットで承認してください…`);
+    const signature = await eth().request({ method: "eth_signTypedData_v4", params: [account, JSON.stringify(typed)] });
+    const r = await api("/api/vote", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ proposalId: String(proposalId), support, tokenIds, signature }) });
+    msg(`受け付けました: Prop ${r.proposalId} ${SUPPORT[r.support]} (${r.tokenIds.length} 枚)。リレイヤーが投函するとここに反映されます。`);
+    await render();
+  } catch (e) { msg("エラー: " + (e.message || e), true); }
+}
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+(async () => {
+  CONFIG = await api("/api/config");
+  $("#net").textContent = `${CONFIG.network} · MetaGov ${CONFIG.metagov.slice(0, 8)}…`;
+  $("#connect").addEventListener("click", () => connect(false));
+  $("#disconnect").addEventListener("click", disconnect);
+  if (eth()) {
+    // リロードせず状態だけ更新(接続を維持)
+    eth().on?.("accountsChanged", (accs) => { setAccount(accs && accs[0]); render(); });
+    eth().on?.("chainChanged", async () => { if (account && (await ensureChain())) render(); });
+    if (localStorage.getItem("pnouns-metagov-connected")) await connect(true); // 前回接続していれば自動復元
+  }
+  await render();
+  setInterval(render, 30000);
+})();
+</script>
+</body>
+</html>
