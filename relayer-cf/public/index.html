@@ -66,7 +66,7 @@ function providerList() {
 function chooseProvider(silent) {
   const list = providerList();
   if (!list.length) return null;
-  const remembered = localStorage.getItem("pnouns-metagov-wallet");
+  const remembered = localStorage.getItem("pnouns-voter-wallet");
   const hit = list.find((x) => x.info.rdns === remembered);
   if (hit) return hit;
   if (list.length === 1) return list[0];
@@ -99,11 +99,11 @@ function setAccount(a) {
   $("#addr").textContent = account ? account.slice(0, 6) + "…" + account.slice(-4) : "";
   $("#connect").style.display = account ? "none" : "";
   $("#disconnect").style.display = account ? "" : "none";
-  localStorage.setItem("pnouns-metagov-connected", account ? "1" : "");
+  localStorage.setItem("pnouns-voter-connected", account ? "1" : "");
 }
 async function connect(silent) {
   const chosen = await chooseProvider(silent);
-  if (chosen) { selectedProvider = chosen.provider; localStorage.setItem("pnouns-metagov-wallet", chosen.info.rdns); bindProviderEvents(); }
+  if (chosen) { selectedProvider = chosen.provider; localStorage.setItem("pnouns-voter-wallet", chosen.info.rdns); bindProviderEvents(); }
   else if (!silent) { if (!providerList().length) msg("MetaMask 等のウォレット拡張が見つかりません", true); return; }
   if (!eth()) return;
   // silent: 既に承認済みの接続を無プロンプトで復元(eth_accounts)。手動: eth_requestAccounts
@@ -115,7 +115,7 @@ async function connect(silent) {
 }
 async function disconnect() {
   try { await eth().request({ method: "wallet_revokePermissions", params: [{ eth_accounts: {} }] }); } catch (e) { /* 未対応ウォレットはローカル状態のみ解除 */ }
-  localStorage.removeItem("pnouns-metagov-wallet"); // 次回は選び直せる
+  localStorage.removeItem("pnouns-voter-wallet"); // 次回は選び直せる
   selectedProvider = null;
   setAccount(null);
   await render();
@@ -234,7 +234,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&am
   $("#disconnect").addEventListener("click", disconnect);
   // EIP-6963 の announce を少し待ってから自動復元
   await new Promise((r) => setTimeout(r, 300));
-  if (localStorage.getItem("pnouns-metagov-connected")) await connect(true); // 前回接続していれば自動復元
+  if (localStorage.getItem("pnouns-voter-connected")) await connect(true); // 前回接続していれば自動復元
   await render();
   setInterval(render, 30000);
 })();

@@ -43,7 +43,7 @@ module.exports = {
   relayerKey: process.env.RELAYER_PRIVATE_KEY || null,
   relayerMnemonic: process.env.SEPOLIA_MNEMONIC || null,
   port: Number(process.env.PORT || 8790),
-  dataDir: process.env.DATA_DIR || path.join(os.homedir(), ".config", "pnouns-metagov", network),
+  dataDir: process.env.DATA_DIR || path.join(os.homedir(), ".config", "pnouns-voter", network),
   discordWebhook: process.env.DISCORD_WEBHOOK_URL || null,
   submitIntervalSec: Number(process.env.SUBMIT_INTERVAL_SEC || 30),
   executeGasMult: Number(process.env.EXECUTE_GAS_MULT || 1.3),
