@@ -1,0 +1,156 @@
+<title>pNouns MetaGov 提案書</title>
+<style>
+  :root {
+    --ground: #f3f5f1;
+    --surface: #ffffff;
+    --ink: #172019;
+    --ink-2: #4c5750;
+    --line: #d9ded8;
+    --accent: #d22209;
+    --accent-soft: #fbe9e6;
+    --link: #1c5aa8;
+    --ok: #1f7a45;
+    --ok-soft: #e4f2e9;
+    --warn: #8a5a00;
+    --warn-soft: #fbf0d6;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #10161a; --surface: #182024; --ink: #e6ece8; --ink-2: #a9b4ad; --line: #2c363a;
+      --accent: #ff5a43; --accent-soft: #3a1c18; --link: #7fb0ff; --ok: #6ccb8f; --ok-soft: #173224; --warn: #f0c060; --warn-soft: #3a2f12;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #10161a; --surface: #182024; --ink: #e6ece8; --ink-2: #a9b4ad; --line: #2c363a;
+    --accent: #ff5a43; --accent-soft: #3a1c18; --link: #7fb0ff; --ok: #6ccb8f; --ok-soft: #173224; --warn: #f0c060; --warn-soft: #3a2f12;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font-family: var(--sans); line-height: 1.75; font-size: 16px; }
+  a { color: var(--link); }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 40px 20px 80px; }
+  header { border-bottom: 3px solid var(--accent); padding-bottom: 20px; margin-bottom: 36px; }
+  .eyebrow { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); font-weight: 600; }
+  h1 { font-size: 30px; line-height: 1.3; margin: 8px 0 10px; text-wrap: balance; letter-spacing: -.01em; }
+  .lede { color: var(--ink-2); margin: 0; font-size: 15px; }
+  h2 { font-size: 20px; margin: 44px 0 12px; padding-top: 6px; letter-spacing: -.005em; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  p { margin: 0 0 12px; }
+  ul, ol { margin: 0 0 12px; padding-left: 1.4em; }
+  li { margin: 2px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 14px 0; }
+  .card.ok { border-color: var(--ok); background: var(--ok-soft); }
+  .card.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .card.accent { border-left: 4px solid var(--accent); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); }
+  .tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; margin: 12px 0; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+  th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); background: var(--ground); }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code, .mono { font-family: var(--mono); font-size: 13px; }
+  code { background: var(--ground); padding: 1px 5px; border-radius: 4px; }
+  .flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; align-items: stretch; margin: 14px 0; }
+  @media (max-width: 640px) { .flow { grid-template-columns: 1fr; } }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 14px; position: relative; }
+  .step b { display: block; margin-bottom: 4px; }
+  .step small { color: var(--ink-2); display: block; }
+  .step .who { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  .kv { display: grid; grid-template-columns: 9em 1fr; gap: 4px 12px; font-size: 14px; }
+  .kv dt { color: var(--ink-2); }
+  .kv dd { margin: 0; }
+  .tag { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 13px; }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">pNouns ⚡ DAO — 運営からの提案</div>
+  <h1>Snapshot の結果を Nouns DAO に反映する作業を、署名だけで自動化する（pNouns MetaGov）</h1>
+  <p class="lede">2026年8月18日 ・ アールグレイ ・ テストネットで一気通貫の動作確認済み。メインネット移行の前に、仕組み・費用・進め方をメンバーの皆さんに共有し、判断をお願いしたい点をまとめました。</p>
+</header>
+
+<h2>1. いま何が課題か</h2>
+<p>現在 pNouns の意思決定は Snapshot で行い、その結果を <b>人が手動で</b> Nouns DAO に投票しています（Nouns NFT を持つマルチシグ → 委任先ウォレット → 手で castVote）。締切を見張り、結果を確認し、投票する、という工程に毎回人が入るため、遅れ・忘れ・鍵の扱いという運用リスクが残っています。</p>
+
+<h2>2. 提案する仕組み</h2>
+<div class="flow">
+  <div class="step"><span class="who">メンバー</span><b>署名するだけ</b><small>投票ページで「賛成／反対／棄権」を押し、ウォレットで署名。<b>ガス代 0 円</b>、トランザクションなし。</small></div>
+  <div class="step"><span class="who">リレイヤー</span><b>まとめて投函</b><small>集まった署名を 1 つの tx でチェーン上の MetaGov に届ける（ガスはリレイヤー負担）。</small></div>
+  <div class="step"><span class="who">MetaGov（コントラクト）</span><b>検証・集計</b><small>署名者が本当にその pNouns を持っているか確認し、tokenId ごとに二重投票を防いで集計。</small></div>
+  <div class="step"><span class="who">MetaGov → Nouns DAO</span><b>自動で投票</b><small>締切後に誰でも「execute」を呼べ、集計結果で Nouns DAO に投票。この tx のガスは Nouns DAO から払い戻される。</small></div>
+</div>
+<p>Snapshot と同じ「署名だけ」の体験のまま、<b>集計と Nouns への投票をコントラクトが行う</b>点が違いです。人が判断や操作を挟む工程はなくなります。Nouns の提案は自動的に投票対象になるので、「Snapshot に提案を立てる」作業も不要になります。</p>
+
+<h3>投票ルール（コントラクトに固定）</h3>
+<ul>
+  <li>重み＝保有 pNouns の枚数。<b>トレジャリー保有分（13枚）は除外</b>。</li>
+  <li>定足数なし。<b>枚数が同数なら投票者数の多い方</b>、それも同数なら棄権。</li>
+  <li>受付は Nouns 側の投票期間中、締切は <b>Nouns の締切の 12 時間前</b>（今の 48 時間より長く投票できます）。</li>
+  <li>投票は提案ごとに 1 回。NFT を移しても同じ token で再投票はできません。</li>
+</ul>
+
+<h2>3. 安全性 — 何を信頼し、何を信頼しなくてよいか</h2>
+<div class="grid2">
+  <div class="card ok"><b>誰も票を偽造できない</b><br>票はメンバー本人の署名だけから作られます。リレイヤーも運営も、内容を変えたり勝手に投票したりできません。</div>
+  <div class="card ok"><b>リレイヤーが止まっても投票は成立</b><br>リレイヤーにできるのは「投函しない」ことだけ。署名は本人が自分で送ることもでき、締切後の execute は誰でも（投票ページのボタンからも）実行できます。</div>
+  <div class="card ok"><b>コードは公開・検証済み、後から書き換え不可</b><br>アップグレード機能を意図的に付けていません（差し替え権限という新しい信頼点を作らないため）。変えたくなったら新版を出して委任先を切り替えるだけ。</div>
+  <div class="card ok"><b>いつでも元に戻せる</b><br>マルチシグの委任先を変えるだけで、従来の手動運用に 1 tx で戻せます。NFT や資産を預ける必要はありません。</div>
+</div>
+<p style="margin-top:12px">Nouns 側に残る記録は「MetaGov というアドレスが N 票を投じた」で、reason 欄に pNouns の集計（賛成/反対/棄権の枚数と人数）が人間可読で書き込まれます。</p>
+
+<h2>4. テストで確認したこと</h2>
+<div class="tbl"><table>
+  <tr><th>段階</th><th>環境</th><th>確認内容</th></tr>
+  <tr><td>1</td><td>メインネットのフォーク（本物の状態のコピー、ローカル）</td><td>本物の pNouns NFT・Nouns DAO に対して、委任 → 署名 → 投函 → 締切 → execute → Nouns DAO に 2 票記録まで。8 テスト（同数タイブレーク、票ゼロ、他人の token・二重投票・署名改ざんの拒否 等）すべて通過</td></tr>
+  <tr><td>2</td><td>Sepolia テストネット（Nouns 公式のテスト版 DAO。本番と同一コード）</td><td>提案 #496〜#506 で繰り返し実施。MetaMask での実署名、Discord 通知、Cloudflare 上の無人運用まで通し。Nouns DAO のイベントに MetaGov の投票と集計理由が記録されることを Blockscout で確認</td></tr>
+</table></div>
+<div class="card">
+  <dl class="kv">
+    <dt>投票ページ（Sepolia）</dt><dd><a href="https://pnouns-metagov-relayer.x402-adsb-worker.workers.dev">pnouns-metagov-relayer.x402-adsb-worker.workers.dev</a></dd>
+    <dt>MetaGov（Sepolia）</dt><dd><span class="mono">0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19</span> — <a href="https://eth-sepolia.blockscout.com/address/0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19">検証済みソース</a></dd>
+    <dt>実例</dt><dd><a href="https://eth-sepolia.blockscout.com/tx/0xb44ff9a927d26c2abea77eecb03608789e1daf2a09a216d1c9170e8dde0a4502?tab=logs">Prop 505 の execute tx</a>（Nouns DAO の VoteCast イベントに「賛成 2 票、reason: pNouns holders voted … tokens 5/1/0」）</dd>
+  </dl>
+</div>
+<p>メンバーの皆さんにも、Sepolia 版の投票ページで実際に「署名するだけ」の体験を試していただけます（テスト用の pNouns を配ります。お声がけください）。</p>
+
+<h2>5. 費用 — メインネットでいくらかかるか</h2>
+<p>投票者の負担は常に 0 円です。かかるのはリレイヤーが払う投函のガス代と、最初のデプロイ費だけ。<span class="tag">2026-08-18 実測</span> ETH ≒ ¥302,500、メインネットの gas ≒ 0.05 gwei で換算。</p>
+<div class="tbl"><table>
+  <tr><th>項目</th><th class="num">gas</th><th class="num">今の相場（0.05 gwei）</th><th class="num">1 gwei</th><th class="num">混雑時（5 gwei）</th></tr>
+  <tr><td>コントラクトのデプロイ（1 回）</td><td class="num">2,079,096</td><td class="num">約 31 円</td><td class="num">約 630 円</td><td class="num">約 3,100 円</td></tr>
+  <tr><td>1 票（2 票目以降・1 枚持ち）</td><td class="num">≈46,000</td><td class="num">約 0.7 円</td><td class="num">約 14 円</td><td class="num">約 70 円</td></tr>
+  <tr><td>提案 1 本（30 名が投票）</td><td class="num">≈1,600,000</td><td class="num">約 25 円</td><td class="num">約 480 円</td><td class="num">約 2,400 円</td></tr>
+  <tr><td>execute（Nouns への投票）</td><td class="num">≈157,000</td><td class="num" colspan="3">Nouns DAO から払い戻し（実質 0）</td></tr>
+</table></div>
+<p>月 8 提案なら <b>約 200 円〜4,000 円/月</b>。ガスが高い時間帯は締切前まで投函を待つ設定も入れられます。</p>
+
+<h3>ガス代を誰がどう負担するか（決めたい点）</h3>
+<div class="card accent">
+  <p><b>案 A（推奨・シンプル）</b> pNouns トレジャリーからリレイヤー用ウォレットに <b>0.05 ETH（約 15,000 円）</b> を入れる。今の相場なら 1 年以上、混雑が続いても半年程度もつ量。残高が減ると Discord に自動警告が出るので、そのとき補充する。支出はオンチェーンで誰でも確認できる。</p>
+  <p><b>案 B（トラスト最小化）</b> MetaGov 自体にガス補填機能を持たせ、トレジャリーが MetaGov に ETH を預け、投函した人に自動で払い戻す（Nouns DAO と同じ方式）。誰でもリレイヤーになれるが、コントラクトの変更が必要。メインネット前の今なら追加可能。</p>
+  <p style="margin:0"><b>案 C（保険のみ）</b> メンバー各自が自分の tx で投票（castVote）。ガスは自己負担。リレイヤー停止時の逃げ道として常に使えるが、通常運用には向かない。</p>
+</div>
+
+<h2>6. 進め方（メンバー合意なしに本番投票が始まることはありません）</h2>
+<ol>
+  <li><b>メインネットにデプロイ（シャドー運用）</b> — Nouns への委任はせず、Nouns DAO へは投票しないモードで置く。本物の Nouns 提案に対してメンバーが署名し、Snapshot の結果と突き合わせる（数提案）。</li>
+  <li><b>結果が一致することを確認 → メンバー合意</b>。</li>
+  <li><b>マルチシグが委任先を MetaGov に切り替え</b>、投票モードを有効化。以後は無人。</li>
+  <li>問題があれば委任先を戻すだけで従来運用に復帰。</li>
+</ol>
+
+<h2>7. 皆さんに決めていただきたいこと</h2>
+<div class="card warn">
+  <ol style="margin:0">
+    <li>この方向で進めてよいか（メインネットへのシャドー運用デプロイ）</li>
+    <li>ガス代の負担方法（案 A / B / C）</li>
+    <li>細部のルール: 票がゼロのときは「棄権」でよいか（現在の仮置き）／締切は Nouns の 12 時間前でよいか</li>
+  </ol>
+</div>
+
+<footer>コード・テスト・実測値はすべてリポジトリ <span class="mono">pnouns-metagov</span> の README に記録しています。質問・懸念は Discord の #🔥｜p⚡雑談 か、アールグレイまで。</footer>
+</div>
