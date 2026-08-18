@@ -73,6 +73,7 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - ワーカー: 15〜30 秒ごとに (1) 保留署名を個別 staticCall で検証 → 通るものだけ 1 tx で `castVotesBySig`、(2) 締切後の提案を `execute`(gasLimit = 見積 ×1.3)、Discord webhook 通知。状態は `~/.config/pnouns-metagov/<network>/votes.json`
 - dApp `relayer/public/index.html`: ライブラリなし。MetaMask の `eth_signTypedData_v4` で署名 → POST。受付中提案・集計・自分の pNouns(投票済みは打消線)・最近の結果を表示
 - Sepolia 実績: Prop 498 = API 受付 3 票 → 投函(gas 266,957)→ execute → Nouns DAO に賛成 2 票(全自動)
+- **署名の公開・誰でも投函**(2026-08-18): `GET /api/signatures/:id` で投函待ち/投函済み署名を公開、`?calldata=1` でいま on-chain で通る署名だけを `castVotesBySig` の calldata にして返す。dApp に「投函待ちの署名を自分で投函する(誰でも可・ガス自己負担)」ボタン。ワーカーは他者投函済み(on-chain hasVoted)を `tx:"external"` と記録し、自分の tx が revert したら記録を戻す(Prop 509 で実証: voter A が先に投函 → リレイヤー tx は revert → 集計 3 票)
 - 新提案が Pending/Active になると 📢 告知(締切 JST・dApp URL・nouns.wtf リンク)。`ANNOUNCE=0` で無効
 - 常駐: `deploy/pnouns-metagov-relayer.service`(systemd user unit。`~/.config/systemd/user/` にコピーして enable。2026-08-18 から Sepolia で稼働中)
 - Discord 通知は一文ごとに改行。✅ には Blockscout のイベントログ URL(Nouns DAO の `VoteCast` の reason に集計文が入る)を添付

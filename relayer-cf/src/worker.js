@@ -35,6 +35,9 @@ async function submitPending(c, pc, wc, store, proposalId) {
   const good = [];
   for (const v of pending) {
     const arg = { proposalId: BigInt(proposalId), support: v.support, tokenIds: v.tokenIds.map(BigInt), signature: v.signature };
+    // 署名は公開されており誰でも投函できる。既に他者が投函済み(on-chain hasVoted)なら external として記録
+    const already = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), v.voter] });
+    if (already) { await store.putVote(proposalId, v.voter, { ...v, voter: undefined, tx: "external" }); continue; }
     try {
       await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [[arg]], account: wc.account });
       good.push({ v, arg });
@@ -54,6 +57,15 @@ async function submitPending(c, pc, wc, store, proposalId) {
   for (const g of good) await store.putVote(proposalId, g.v.voter, { ...g.v, voter: undefined, tx: hash });
   const rc = await pc.waitForTransactionReceipt({ hash, timeout: 60000 });
   await store.log({ at: new Date().toISOString(), type: "submit", proposalId, voters: good.map((g) => g.v.voter), tx: hash, gasUsed: String(rc.gasUsed), status: rc.status });
+  if (rc.status !== "success") {
+    // 誰でも投函できるため、同時に他者が投函して revert することがある。記録を戻し、on-chain 済みなら external に
+    for (const g of good) {
+      const already = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), g.v.voter] });
+      await store.putVote(proposalId, g.v.voter, { ...g.v, voter: undefined, tx: already ? "external" : undefined });
+    }
+    console.warn(`[worker] castVotesBySig prop ${proposalId} reverted (${hash}); re-evaluated ${good.length} votes`);
+    return;
+  }
   const mg = await metagovInfo(c, pc, proposalId);
   await notify(c, [
     `🗳️ Prop ${proposalId}: ${args.length} 票を pNouns Voter に投函しました (gas ${rc.gasUsed})。`,
@@ -80,6 +92,13 @@ async function maybeExecute(c, pc, wc, store, p, block) {
   await store.putExecuted(p.id, { tx: hash, pending: true, at: new Date().toISOString() });
   const rc = await pc.waitForTransactionReceipt({ hash, timeout: 60000 });
   const after = await metagovInfo(c, pc, p.id);
+  if (rc.status !== "success") {
+    // 他者が先に execute した等。on-chain 済みなら external、そうでなければ記録を消して次回再試行
+    if (after.executed) await store.putExecuted(p.id, { external: true, revertedTx: hash });
+    else await store.putExecuted(p.id, null);
+    console.warn(`[worker] execute prop ${p.id} reverted (${hash})`);
+    return;
+  }
   const receipt = after.nounsReceipt || { hasVoted: false, support: 0, votes: 0 };
   await store.putExecuted(p.id, { tx: hash, status: rc.status, result: after.result, gasUsed: String(rc.gasUsed), nounsReceipt: receipt, at: new Date().toISOString() });
   const word = ["反対", "賛成", "棄権"][after.result];

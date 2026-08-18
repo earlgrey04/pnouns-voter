@@ -1,7 +1,7 @@
 // Cloudflare Worker: Hono API + cron(scheduled)。静的 dApp は wrangler の assets で配信。
 import { Hono } from "hono";
 import { cfg, clients, domain, VOTE_TYPES, tokensOf, allOwners, recentProposals, proposalTitle, metagovInfo, getAddress, METAGOV_ABI, DAO_ABI } from "./chain.js";
-import { recoverTypedDataAddress } from "viem";
+import { recoverTypedDataAddress, encodeFunctionData } from "viem";
 import { makeStore } from "./store.js";
 import { tick } from "./worker.js";
 
@@ -81,6 +81,31 @@ app.post("/api/vote", async (ctx) => {
   await store.log({ at: new Date().toISOString(), type: "vote", proposalId, voter, support: Number(support), tokenIds: ids.map(String) });
   console.log(`[api] vote received: prop ${proposalId} ${voter} support=${support} tokens=${ids.length}`);
   return ctx.json({ ok: true, voter, proposalId: String(proposalId), support: Number(support), tokenIds: ids.map(String) });
+});
+
+// 署名の公開: 提案ごとの署名一覧(投函待ち / 投函済み)。誰でも取得でき、誰でも投函できる。
+// ?calldata=1 で、投函待ちのうちいま on-chain で通る署名だけを castVotesBySig の calldata にして返す(そのまま eth_sendTransaction 可)。
+app.get("/api/signatures/:id", async (ctx) => {
+  const c = cfg(ctx.env);
+  const { publicClient: pc } = clients(c);
+  const store = makeStore(ctx.env.STATE);
+  const id = String(Number(ctx.req.param("id")));
+  const votes = await store.listVotes(id);
+  const pending = votes.filter((v) => !v.tx && !v.dropped);
+  const submitted = votes.filter((v) => v.tx);
+  const out = { proposalId: id, contract: c.metagov, chainId: c.chainId, domain: domain(c), types: VOTE_TYPES, pending, submitted, dropped: votes.filter((v) => v.dropped) };
+  if (ctx.req.query("calldata") && pending.length) {
+    const good = [];
+    for (const v of pending) {
+      const arg = { proposalId: BigInt(id), support: v.support, tokenIds: v.tokenIds.map(BigInt), signature: v.signature };
+      try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [[arg]] }); good.push(arg); }
+      catch (e) { /* いま通らない署名(所有者変更など)は除外 */ }
+    }
+    out.submittable = good.length;
+    out.calldata = good.length ? encodeFunctionData({ abi: METAGOV_ABI, functionName: "castVotesBySig", args: [good] }) : null;
+    out.gasHint = good.length ? 200000 + 60000 * good.length : 0;
+  }
+  return ctx.json(out);
 });
 
 app.get("/api/proposal/:id", async (ctx) => {

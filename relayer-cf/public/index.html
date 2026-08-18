@@ -40,7 +40,7 @@
 </header>
 <main>
   <div class="card muted">
-    pNouns 保有者は「署名するだけ」で投票できます(ガス代不要)。署名はリレイヤーがまとめてオンチェーンの pNouns Voter に投函し、締切後に pNouns Voter が結果を Nouns DAO に投票します。
+    pNouns 保有者は「署名するだけ」で投票できます(ガス代不要)。署名は公開され、リレイヤー(または誰でも)がまとめてオンチェーンの pNouns Voter に投函し、締切後に pNouns Voter が結果を Nouns DAO に投票します。
     重みは保有 pNouns 数(トレジャリー分は除外)。同数の場合は投票者数が多い方、それも同数なら棄権。誰も投票しなかった提案には投票しません。
   </div>
   <div id="proposals"></div>
@@ -146,9 +146,11 @@ async function render() {
         <div class="against">反対 ${mg.tokens[0]} <small>(${mg.voters[0]}名)</small></div>
         <div class="abstain">棄権 ${mg.tokens[2]} <small>(${mg.voters[2]}名)</small></div>
       </div>
+      ${p.pendingSignatures ? `<div class="row" style="margin-top:6px"><button class="submitall" data-p="${p.id}">投函待ちの署名 ${p.pendingSignatures} 件を自分で投函する(誰でも可・ガス自己負担)</button><a class="muted" href="/api/signatures/${p.id}" target="_blank">署名一覧(公開)</a></div>` : `<div class="muted"><a href="/api/signatures/${p.id}" target="_blank">署名一覧(公開)</a></div>`}
       <div class="muted">現時点の判定: <b>${mg.executed ? "確定 → " : ""}${mg.tokens[0] + mg.tokens[1] + mg.tokens[2] ? SUPPORT[mg.result] : "投票なし(このままなら Nouns DAO には投票しません)"}</b>${mg.executed ? "(Nouns DAO に投票済み)" : ""}</div>
       <div id="my-${p.id}"></div>`;
     root.appendChild(el);
+    el.querySelectorAll("button.submitall").forEach((b) => b.addEventListener("click", () => manualSubmit(Number(b.dataset.p))));
     if (account && p.votable) await renderMine(p);
   }
   if (closed.length) {
@@ -226,6 +228,19 @@ function bindProviderEvents() {
   // リロードせず状態だけ更新(接続を維持)
   p.on?.("accountsChanged", (accs) => { if (p !== eth()) return; setAccount(accs && accs[0]); render(); });
   p.on?.("chainChanged", async () => { if (p !== eth()) return; if (account && (await ensureChain())) render(); });
+}
+// 誰でも投函: 公開 API から「いま通る投函待ち署名」の calldata を取り、接続中ウォレットから castVotesBySig を送る(ガス自己負担)
+async function manualSubmit(proposalId) {
+  try {
+    if (!account) { await connect(false); if (!account) return; }
+    if (!(await ensureChain())) return;
+    const r = await api(`/api/signatures/${proposalId}?calldata=1`);
+    if (!r.calldata) return msg("いま投函できる署名がありません(既に投函済み、または無効化)。", true);
+    msg(`${r.submittable} 件の署名を投函します。ウォレットで承認してください…`);
+    const hash = await eth().request({ method: "eth_sendTransaction", params: [{ from: account, to: CONFIG.metagov, data: r.calldata, gas: "0x" + r.gasHint.toString(16) }] });
+    msg(`送信しました: ${CONFIG.explorer}/tx/${hash}\n数十秒後に集計へ反映されます。`);
+    setTimeout(render, 20000);
+  } catch (e) { msg("エラー: " + (e.message || e), true); }
 }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 (async () => {

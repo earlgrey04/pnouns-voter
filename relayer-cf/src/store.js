@@ -15,7 +15,7 @@ export function makeStore(kv) {
       return out;
     },
     async getExecuted(pid) { return kv.get(`executed:${pid}`, "json"); },
-    async putExecuted(pid, rec) { await kv.put(`executed:${pid}`, JSON.stringify(rec)); },
+    async putExecuted(pid, rec) { if (rec === null) return kv.delete(`executed:${pid}`); await kv.put(`executed:${pid}`, JSON.stringify(rec)); },
     async getAnnounced(pid) { return kv.get(`announced:${pid}`); },
     async putAnnounced(pid, v) { await kv.put(`announced:${pid}`, v); },
     async log(entry) { await kv.put(`log:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`, JSON.stringify(entry), { expirationTtl: 86400 * 90 }); },
