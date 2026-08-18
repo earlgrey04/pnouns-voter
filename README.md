@@ -62,7 +62,18 @@ Nouns 側は **公式 Sepolia デプロイ**(DAO `0x35d2670d7C8931AACdd37C89Ddcb
 **教訓(リレイヤー実装に必須)**: `execute` の `estimateGas` は Nouns の refund 送金(`tx.gasprice` 依存)を含まず約 1 万 gas 過小になり、
 実 tx が OOG で失敗した(#496)。**gasLimit は見積り ×1.3 以上**にすること。
 
+## リレイヤー + 署名 dApp(`relayer/`、2026-08-18 Sepolia で稼働確認)
+```
+NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet は NETWORK=mainnet METAGOV_ADDRESS=...)
+```
+- `relayer/config.js` env で切替: NETWORK / RPC_URLS(カンマ区切り、既定にフォールバック追加)/ RELAYER_PRIVATE_KEY(なければ SEPOLIA_MNEMONIC #0)/ DISCORD_WEBHOOK_URL / PORT / DATA_DIR / SUBMIT_INTERVAL_SEC / MIN_PENDING_AGE_SEC / EXECUTE_GAS_MULT(1.3)/ ONLY_PROPOSER(テスト用)
+- API: `GET /api/config`(EIP-712 domain/types)、`GET /api/proposals[?closed=N]`(Pending/Active の Nouns 提案 + MetaGov 集計 + タイトル)、`GET /api/tokens/:addr?proposalId=`(保有 tokenId と投票済み)、`POST /api/vote`(署名検証・所有/除外/重複/状態/締切を事前チェックして保管)
+- ワーカー: 15〜30 秒ごとに (1) 保留署名を個別 staticCall で検証 → 通るものだけ 1 tx で `castVotesBySig`、(2) 締切後の提案を `execute`(gasLimit = 見積 ×1.3)、Discord webhook 通知。状態は `~/.config/pnouns-metagov/<network>/votes.json`
+- dApp `relayer/public/index.html`: ライブラリなし。MetaMask の `eth_signTypedData_v4` で署名 → POST。受付中提案・集計・自分の pNouns(投票済みは打消線)・最近の結果を表示
+- Sepolia 実績: Prop 498 = API 受付 3 票 → 投函(gas 266,957)→ execute → Nouns DAO に賛成 2 票(全自動)
+- 手動テスト: `TO=0x… N=3 npx hardhat --network sepolia run scripts/sepolia/08-mint-to.js` で MetaMask アドレスに pNouns 複製を配り、`06-propose.js` で提案を出して 5 分以内に dApp で署名
+
 ## 次の段階
-- 段階2 残り: dApp(MetaMask 署名 → リレイヤー API)と pnouns-mirror bot を Sepolia の MetaGov に接続して人間の操作込みでリハーサル
+- 段階2 残り: MetaMask での手動署名リハーサル(dApp は稼働済み)、リレイヤーの常駐化(systemd)、pnouns-mirror の Discord 告知フローとの接続
 - 段階3: mainnet に `liveMode=false` でデプロイし Snapshot と並走 → 一致を確認 → マルチシグが委任先を切替、`liveMode=true`
 - 未決: 票ゼロ時の挙動(棄権 or 投票しない)、`marginBlocks` の値、owner をどのマルチシグにするか
