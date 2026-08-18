@@ -44,7 +44,7 @@ export function cfg(env) {
     scanProposals: Number(env.SCAN_PROPOSALS || 30),
     executeGasMult: Number(env.EXECUTE_GAS_MULT || 1.3),
     minPendingAgeSec: Number(env.MIN_PENDING_AGE_SEC || 20),
-    maxBatch: Number(env.MAX_BATCH || 25), // M-03: 1 tx にまとめる署名数の上限
+    maxBatch: (() => { const n = Number(env.MAX_BATCH || 10); if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("MAX_BATCH must be 1..10"); return n; })(), // 1 tx にまとめる署名数の上限
     announce: env.ANNOUNCE !== "0",
     discordWebhook: env.DISCORD_WEBHOOK_URL || null,
     relayerKey: env.RELAYER_PRIVATE_KEY || null,

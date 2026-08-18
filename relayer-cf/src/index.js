@@ -23,18 +23,26 @@ app.get("/api/config", (ctx) => {
 
 app.get("/api/proposals", async (ctx) => {
   const c = cfg(ctx.env);
+  // Cache API(コロ単位)で 30 秒キャッシュ。クエリ差でキャッシュを迂回されないよう closed は 0/8 に正規化してキーにする
+  const closedN = ctx.req.query("closed") ? 8 : 0;
+  const cache = caches.default;
+  const cacheKey = new Request(`https://cache.local/api/proposals?closed=${closedN}&n=${c.network}`);
+  const hit = await cache.match(cacheKey);
+  if (hit) return hit;
   const { publicClient: pc } = clients(c);
   const store = makeStore(ctx.env.STATE);
-  const closedN = Math.min(Number(ctx.req.query("closed") || 0), 10);
   const { block, proposals } = await recentProposals(c, pc);
   const wanted = proposals.filter((p) => p.state === 0 || p.state === 1 || closedN);
   const limited = closedN ? wanted.slice(0, closedN) : wanted;
   const list = await Promise.all(limited.map(async (p) => {
     const votable = p.state === 0 || p.state === 1;
-    const [title, mg, votes, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.listVotes(p.id), store.getExecuted(p.id)]);
+    const [title, mg, votes, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.getSummary(p.id), store.getExecuted(p.id)]);
     return { ...p, title, metagov: mg, votable: votable && block < mg.deadline, pendingSignatures: votes.filter((v) => !v.tx && !v.dropped).length, submittedVoters: votes.filter((v) => v.tx).length, executed };
   }));
-  return ctx.json({ block, proposals: list });
+  const res = ctx.json({ block, proposals: list });
+  const toCache = new Response(res.body, res); toCache.headers.set("Cache-Control", "public, max-age=30");
+  ctx.executionCtx.waitUntil(cache.put(cacheKey, toCache.clone()));
+  return toCache;
 });
 
 app.get("/api/tokens/:address", async (ctx) => {
@@ -116,6 +124,7 @@ app.post("/api/vote", async (ctx) => {
   if (existing && existing.tx) return ctx.json({ error: "already submitted" }, 400);
   await store.setFlag(`rl:${voter.toLowerCase()}`, 60);
   await store.putVote(pidKey, voter, { support: Number(support), tokenIds: ids.map(String), signature, receivedAt: new Date().toISOString() });
+  await store.markDirty(pidKey); // ワーカーが次回 tick で list → サマリー更新
   console.log(`[api] vote received: prop ${pidKey} ${voter} support=${support} tokens=${ids.length}`);
   return ctx.json({ ok: true, voter, proposalId: pidKey, support: Number(support), tokenIds: ids.map(String) });
 });
@@ -127,7 +136,7 @@ app.get("/api/signatures/:id", async (ctx) => {
   const store = makeStore(ctx.env.STATE);
   if (!/^\d{1,10}$/.test(ctx.req.param("id"))) return ctx.json({ error: "bad id" }, 400);
   const id = BigInt(ctx.req.param("id")).toString();
-  const summaries = await store.listVotes(id);
+  const summaries = await store.getSummary(id); // 公開 API は list しない(サマリーはワーカーが更新)
   const out = { proposalId: id, contract: c.metagov, chainId: c.chainId, domain: domain(c), types: VOTE_TYPES,
     pending: summaries.filter((v) => !v.tx && !v.dropped), submitted: summaries.filter((v) => v.tx), dropped: summaries.filter((v) => v.dropped) };
   if (ctx.req.query("calldata") && out.pending.length) {
@@ -146,8 +155,8 @@ app.get("/api/signatures/:id", async (ctx) => {
       catch { out.gasHint = 200000 + 80000 * good.length + 8000 * good.reduce((a, v) => a + v.tokenIds.length, 0); }
     } else out.gasHint = 0;
   }
-  // 署名本文も公開(誰でも投函できるように)
-  if (ctx.req.query("full")) out.pendingFull = await store.listVotes(id, { full: true, onlyPending: true });
+  // 署名本文も公開(誰でも投函できるように)。get のみ
+  if (ctx.req.query("full")) { out.pendingFull = []; for (const s of out.pending.slice(0, c.maxBatch)) { const v = await store.getVote(id, s.voter); if (v) out.pendingFull.push({ voter: s.voter, ...v }); } }
   return ctx.json(out);
 });
 
@@ -157,7 +166,7 @@ app.get("/api/proposal/:id", async (ctx) => {
   const store = makeStore(ctx.env.STATE);
   if (!/^\d{1,10}$/.test(ctx.req.param("id"))) return ctx.json({ error: "bad id" }, 400);
   const id = Number(ctx.req.param("id"));
-  const [mg, votes, executed] = await Promise.all([metagovInfo(c, pc, id), store.listVotes(String(id)), store.getExecuted(id)]);
+  const [mg, votes, executed] = await Promise.all([metagovInfo(c, pc, id), store.getSummary(String(id)), store.getExecuted(id)]);
   return ctx.json({ id, metagov: mg, votes, executed });
 });
 

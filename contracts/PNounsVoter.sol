@@ -6,6 +6,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @notice Nouns DAO の投票関数のうち、本コントラクトが使う最小限。
 interface INounsDAO {
@@ -32,10 +33,11 @@ interface INounsDAO {
  *  - ガス払い戻し(案 B): 本コントラクトに預けられた ETH から、castVotesBySig / castVote の実行者(tx.origin)へ
  *    使ったガス代を同一 tx 内で返す(Nouns DAO の _refundGas と同じ方式)。単価・量・提案ごとの上限あり。
  *    残高が無ければ返金をスキップし、投票自体は成立させる。返金は best effort(送金失敗でも revert しない)。
+ *    castVote / castVotesBySig / execute は nonReentrant(返金の外部呼び出しからの再入場を遮断)。
  *
  *  Nouns 側の前提: この Nouns 保有ウォレット(マルチシグ)が本コントラクトに delegate() 済みであること。
  */
-contract PNounsVoter is EIP712, Ownable {
+contract PNounsVoter is EIP712, Ownable, ReentrancyGuard {
     using Strings for uint256;
 
     // ---- 定数 -------------------------------------------------------------
@@ -234,14 +236,14 @@ contract PNounsVoter is EIP712, Ownable {
 
     // ---- 投票 -------------------------------------------------------------
     /// @notice 本人が自分で投票する(リレイヤーを介さない退路)。ガスは預け金から払い戻される。
-    function castVote(uint256 proposalId, uint8 support, uint256[] calldata tokenIds) external {
+    function castVote(uint256 proposalId, uint8 support, uint256[] calldata tokenIds) external nonReentrant {
         uint256 startGas = gasleft();
         _castVote(msg.sender, proposalId, support, tokenIds);
         _refundGas(startGas, 1, proposalId);
     }
 
     /// @notice 署名付き投票をまとめて投函する。誰でも呼べ、ガスは預け金から払い戻される。
-    function castVotesBySig(VoteSig[] calldata votes) external {
+    function castVotesBySig(VoteSig[] calldata votes) external nonReentrant {
         uint256 startGas = gasleft();
         for (uint256 i = 0; i < votes.length; i++) {
             VoteSig calldata v = votes[i];
@@ -266,8 +268,10 @@ contract PNounsVoter is EIP712, Ownable {
             uint256 gasUsed = _min(startGas - gasleft() + REFUND_BASE_GAS, MAX_REFUND_GAS_BASE + MAX_REFUND_GAS_PER_VOTE * voteCount);
             uint256 refundAmount = _min(_min(gasPrice * gasUsed, balance), remainingCap);
             if (refundAmount == 0) return;
+            // Checks-Effects-Interactions: 送金前に枠を予約し、失敗したときだけ戻す(EIP-7702 で EOA が再入場コードを持ちうるため)
+            refundedForProposal[proposalId] += refundAmount;
             (bool refundSent, ) = tx.origin.call{value: refundAmount}("");
-            if (refundSent) refundedForProposal[proposalId] += refundAmount; // 送金成功時だけ枠を消費(失敗で枠を潰させない)
+            if (!refundSent) refundedForProposal[proposalId] -= refundAmount;
             emit RefundableVote(tx.origin, refundAmount, refundSent);
         }
     }
@@ -323,7 +327,7 @@ contract PNounsVoter is EIP712, Ownable {
 
     // ---- 実行 -------------------------------------------------------------
     /// @notice 締切後に誰でも呼べる。結果を Nouns DAO に投票する(liveMode 時)。ガスは Nouns の refund で執行者に戻る。
-    function execute(uint256 proposalId) external {
+    function execute(uint256 proposalId) external nonReentrant {
         Tally storage t = _tallies[proposalId];
         if (t.executed) revert AlreadyExecuted();
         uint256 deadline = t.deadline == 0 ? voteDeadline(proposalId) : t.deadline;

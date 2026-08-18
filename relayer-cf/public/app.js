@@ -205,5 +205,5 @@ function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&am
   await new Promise((r) => setTimeout(r, 300));
   if (localStorage.getItem("pnouns-voter-connected")) await connect(true); // 前回接続していれば自動復元
   await render();
-  setInterval(render, 30000);
+  setInterval(render, 60000);
 })();

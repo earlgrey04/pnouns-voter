@@ -37,6 +37,23 @@ async function announceNew(c, pc, store, p, block) {
   ].join("\n"));
 }
 
+// 票一覧を取得。dirty(新規署名あり)または force のときだけ KV list を実行し、サマリーを書き直す。それ以外はサマリー(get 1 回)
+async function loadVotes(store, proposalId, force) {
+  const dirty = await store.isDirty(proposalId);
+  if (!dirty && !force) return { summaries: await store.getSummary(proposalId), fulls: null };
+  const fulls = await store.listVotesFull(proposalId);
+  const summaries = fulls.map((v) => store.summarize(v.voter, v));
+  await store.putSummary(proposalId, summaries);
+  if (dirty) await store.clearDirty(proposalId);
+  return { summaries, fulls };
+}
+async function saveVote(store, proposalId, voter, rec, summaries) {
+  await store.putVote(proposalId, voter, rec);
+  const i = summaries.findIndex((x) => x.voter.toLowerCase() === voter.toLowerCase());
+  const sm = store.summarize(voter, rec);
+  if (i >= 0) summaries[i] = sm; else summaries.push(sm);
+}
+
 // 送信済み(未確定)の投函を receipt で確定。取れないまま 10 分たてば on-chain 状態で判定して戻す
 async function reconcileSent(c, pc, store, proposalId, summaries) {
   const sent = summaries.filter((v) => v.tx && v.tx !== "external" && v.txStatus === "sent");
@@ -54,8 +71,8 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
       const v = vs[i];
       const full = await store.getVote(proposalId, v.voter);
       if (!full) continue;
-      if (rc && rc.status === "success") await store.putVote(proposalId, v.voter, { ...full, txStatus: "success" });
-      else await store.putVote(proposalId, v.voter, { ...full, tx: voted[i] ? "external" : undefined, txStatus: undefined, sentAt: undefined });
+      if (rc && rc.status === "success") await saveVote(store, proposalId, v.voter, { ...full, txStatus: "success" }, summaries);
+      else await saveVote(store, proposalId, v.voter, { ...full, tx: voted[i] ? "external" : undefined, txStatus: undefined, sentAt: undefined }, summaries);
     }
     changed = true;
     if (rc && rc.status === "success") {
@@ -71,25 +88,27 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
       console.warn(`[worker] prop ${proposalId} tx ${tx} ${rc ? "reverted" : "not mined in 10 min"} → re-evaluated ${vs.length} votes`);
     }
   }
+  if (changed) await store.putSummary(proposalId, summaries);
   return changed;
 }
 
-async function submitPending(c, pc, wc, store, proposalId) {
-  const summaries = await store.listVotes(proposalId);
-  if (summaries.some((v) => v.txStatus === "sent")) return; // 送信中の tx がある間は新規投函しない(確定は reconcileInflight が行う)
+async function submitPending(c, pc, wc, store, proposalId, inflight) {
+  const { summaries, fulls } = await loadVotes(store, proposalId, false);
+  if (summaries.some((v) => v.txStatus === "sent")) { if (!inflight.has(proposalId)) inflight.add(proposalId); return; } // 送信中は新規投函しない(確定は reconcileInflight)
   const pendingSummaries = summaries.filter((v) => !v.tx && !v.dropped && Date.now() - Date.parse(v.receivedAt) >= c.minPendingAgeSec * 1000).slice(0, c.maxBatch);
   if (!pendingSummaries.length) return;
-  // 本文(署名)を取得
+  // 本文(署名)を取得(list 済みならその結果を使う)
   const pending = [];
-  for (const s of pendingSummaries) { const v = await store.getVote(proposalId, s.voter); if (v) pending.push({ voter: s.voter, ...v }); }
+  for (const s of pendingSummaries) { const v = fulls ? fulls.find((f) => f.voter.toLowerCase() === s.voter.toLowerCase()) : await store.getVote(proposalId, s.voter); if (v) pending.push({ ...v, voter: s.voter }); }
   // 既に他者が投函済み(on-chain)のものは external に(multicall 1 回)
   const voted = await pc.multicall({ contracts: pending.map((v) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), v.voter] })), allowFailure: false });
   const cands = [];
+  let touched = false;
   for (let i = 0; i < pending.length; i++) {
-    if (voted[i]) { await store.putVote(proposalId, pending[i].voter, { ...pending[i], voter: undefined, tx: "external" }); continue; }
+    if (voted[i]) { await saveVote(store, proposalId, pending[i].voter, { ...pending[i], voter: undefined, tx: "external" }, summaries); touched = true; continue; }
     cands.push(pending[i]);
   }
-  if (!cands.length) return;
+  if (!cands.length) { if (touched) await store.putSummary(proposalId, summaries); return; }
   const toArg = (v) => ({ proposalId: BigInt(proposalId), support: v.support, tokenIds: v.tokenIds.map(BigInt), signature: v.signature });
   // バッチ全体を 1 回 simulate。失敗したら個別に切り分け(通常は起きない)
   let good = cands;
@@ -102,24 +121,25 @@ async function submitPending(c, pc, wc, store, proposalId) {
       catch (e2) {
         if (isContractRevert(e2)) {
           const reason = (e2.shortMessage || e2.message || "").slice(0, 200);
-          await store.putVote(proposalId, v.voter, { ...v, voter: undefined, dropped: reason });
+          await saveVote(store, proposalId, v.voter, { ...v, voter: undefined, dropped: reason }, summaries); touched = true;
           console.warn(`[worker] drop vote prop ${proposalId} ${v.voter}: ${reason}`);
         }
       }
     }
-    if (!good.length) return;
+    if (!good.length) { if (touched) await store.putSummary(proposalId, summaries); return; }
   }
   const args = good.map(toArg);
   const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], account: wc.account });
   const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], gas: (gas * 13n) / 10n });
   console.log(`[worker] castVotesBySig prop ${proposalId} ${args.length} votes tx ${hash}`);
   const sentAt = new Date().toISOString();
-  for (const v of good) await store.putVote(proposalId, v.voter, { ...v, voter: undefined, tx: hash, txStatus: "sent", sentAt });
-  await store.addInflight(proposalId);
+  for (const v of good) await saveVote(store, proposalId, v.voter, { ...v, voter: undefined, tx: hash, txStatus: "sent", sentAt }, summaries);
+  await store.putSummary(proposalId, summaries);
+  inflight.add(proposalId);
   // receipt は待たない(次回 tick の reconcileSent で確定・通知)
 }
 
-async function maybeExecute(c, pc, wc, store, p, block, mg) {
+async function maybeExecute(c, pc, wc, store, p, block, mg, inflight) {
   const ex = await store.getExecuted(p.id);
   if (ex && ex.pending && ex.tx) {
     // 送信済み・未確定の execute を確定
@@ -162,7 +182,7 @@ async function maybeExecute(c, pc, wc, store, p, block, mg) {
   const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "execute", args: [BigInt(p.id)], gas: gasLimit });
   console.log(`[worker] execute prop ${p.id} tx ${hash} (est ${gas}, limit ${gasLimit})`);
   await store.putExecuted(p.id, { tx: hash, pending: true, at: new Date().toISOString() });
-  await store.addInflight(p.id);
+  inflight.add(String(p.id));
 }
 
 // 残高警告(リレイヤー・返金プール)。1 日 1 回、閾値未満のときだけ KV に書く
@@ -180,22 +200,21 @@ async function checkBalance(c, pc, wc, store) {
   }
 }
 
-// 送信中 tx の確定処理(提案の Nouns 側 state に関係なく実行)
-async function reconcileInflight(c, pc, wc, store, proposalsById) {
-  const ids = await store.getInflight();
-  for (const pid of ids) {
+// 送信中 tx の確定処理(提案の Nouns 側 state に関係なく実行)。inflight はメモリで管理し tick 末尾に 1 回だけ書く
+async function reconcileInflight(c, pc, wc, store, proposalsById, inflight) {
+  for (const pid of [...inflight]) {
     try {
-      const summaries = await store.listVotes(pid);
+      const { summaries } = await loadVotes(store, pid, false);
       await reconcileSent(c, pc, store, pid, summaries);
       const p = proposalsById.get(Number(pid)) || { id: Number(pid), state: -1, stateName: "unknown", endBlock: 0 };
       const ex = await store.getExecuted(pid);
       if (ex && ex.pending && ex.tx) {
         const mg = await metagovInfo(c, pc, pid);
-        await maybeExecute(c, pc, wc, store, p, Number.MAX_SAFE_INTEGER, mg); // pending 分岐だけが走る
+        await maybeExecute(c, pc, wc, store, p, Number.MAX_SAFE_INTEGER, mg, inflight); // pending 分岐だけが走る
       }
-      const stillVotes = (await store.listVotes(pid)).some((v) => v.txStatus === "sent");
+      const stillVotes = (await store.getSummary(pid)).some((v) => v.txStatus === "sent");
       const ex2 = await store.getExecuted(pid);
-      if (!stillVotes && !(ex2 && ex2.pending)) await store.removeInflight(pid);
+      if (!stillVotes && !(ex2 && ex2.pending)) inflight.delete(pid);
     } catch (e) { console.error(`[worker] reconcile prop ${pid} error:`, e.shortMessage || e.message); }
   }
 }
@@ -208,18 +227,30 @@ export async function tick(env) {
   tickCount++;
   if (tickCount % 10 === 1) { try { await checkBalance(c, pc, wc, store); } catch (e) { console.warn("[worker] balance check failed", e.message); } }
   const { block, proposals } = await recentProposals(c, pc);
-  await reconcileInflight(c, pc, wc, store, new Map(proposals.map((p) => [p.id, p])));
+  const inflightBefore = await store.getInflight();
+  const inflight = new Set(inflightBefore.map(String));
+  await reconcileInflight(c, pc, wc, store, new Map(proposals.map((p) => [p.id, p])), inflight);
   for (const p of proposals) {
     if (p.state !== 0 && p.state !== 1) continue;
     try {
       if (c.announce) await announceNew(c, pc, store, p, block);
       const mg = await metagovInfo(c, pc, p.id);
       if (!wc) continue;
-      if (block < mg.deadline) await submitPending(c, pc, wc, store, String(p.id));
-      else await maybeExecute(c, pc, wc, store, p, block, mg);
+      if (block < mg.deadline) await submitPending(c, pc, wc, store, String(p.id), inflight);
+      else await maybeExecute(c, pc, wc, store, p, block, mg, inflight);
     } catch (e) {
       console.error(`[worker] prop ${p.id} error:`, e.shortMessage || e.message);
     }
   }
+  // 回復: 30 tick に 1 回、直近提案のサマリー(get)に txStatus:sent が残っていれば inflight に戻す(単一キー消失対策)
+  if (tickCount % 30 === 0) {
+    for (const p of proposals.slice(0, 10)) {
+      const sm = await store.getSummary(p.id);
+      const ex = await store.getExecuted(p.id);
+      if (sm.some((v) => v.txStatus === "sent") || (ex && ex.pending)) inflight.add(String(p.id));
+    }
+  }
+  const after = [...inflight].sort();
+  if (JSON.stringify(after) !== JSON.stringify([...inflightBefore.map(String)].sort())) await store.putInflight(after); // 1 tick 1 回だけ書く
 }
 export { notify };
