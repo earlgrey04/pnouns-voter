@@ -48,7 +48,21 @@ npx hardhat test
 
 目安: 30 名投票 ≒ 1.5M gas。mainnet gas 0.05 gwei なら 0.00008 ETH、2 gwei でも 0.003 ETH。
 
+## 段階2: Sepolia 通しテスト(2026-08-18 実施・成功)
+Nouns 側は **公式 Sepolia デプロイ**(DAO `0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57` / Token `0x4C4674bb72a096855496a7204962297bd7e12b85`、
+ロジックは mainnet と同一ソース。`scripts/compare-chains.js` で差分表を出せる)、pNouns 側は **本物ソースの複製**(`contracts/vendor/pnouns`、無改変)。
+- pNouns clone: `0x2dc16A3EC98A825e731b09512B602fDDC5246Ad6`(voter A 3枚 / B 2枚 / C 1枚 / deployer 4枚 = tokenId 101..110)
+- MetaGov: `0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19`(margin=5 ブロック、liveMode=true)
+- delegator `0x5Da7…659e` が Nouns 2 枚(オークション落札)を MetaGov に委任
+- 提案 #497: A 賛成(3枚) / B 反対(2枚) / C 反対(1枚) → tokens 3:3 → voters 1:2 → **反対**
+  - castVotesBySig(3票) gas 266,882 / execute gas 156,762 / Nouns DAO receipt: hasVoted=true support=0 votes=2
+  - https://sepolia.etherscan.io/tx/0x62869635c17fe81beec59b1219c35f7106bd775ffed8e72e1d97fea0a02d7d1c
+- 手順: `scripts/sepolia/00..05`(00 は `FUND=0.02` で配布、02 はオークション約 15 分、05 は約 7 分。`PROPOSAL_ID=` で既存提案を再利用、`A= B= C=` で賛否を指定)
+
+**教訓(リレイヤー実装に必須)**: `execute` の `estimateGas` は Nouns の refund 送金(`tx.gasprice` 依存)を含まず約 1 万 gas 過小になり、
+実 tx が OOG で失敗した(#496)。**gasLimit は見積り ×1.3 以上**にすること。
+
 ## 次の段階
-- 段階2: Sepolia に pNouns モック(ERC721A)+ Nouns DAO(モック or 公式 Sepolia)を置き、dApp(MetaMask 署名 → リレイヤー API)と pnouns-mirror bot を通しでリハーサル
+- 段階2 残り: dApp(MetaMask 署名 → リレイヤー API)と pnouns-mirror bot を Sepolia の MetaGov に接続して人間の操作込みでリハーサル
 - 段階3: mainnet に `liveMode=false` でデプロイし Snapshot と並走 → 一致を確認 → マルチシグが委任先を切替、`liveMode=true`
 - 未決: 票ゼロ時の挙動(棄権 or 投票しない)、`marginBlocks` の値、owner をどのマルチシグにするか

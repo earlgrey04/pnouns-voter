@@ -28,16 +28,21 @@ async function main() {
 
   // 1. 提案作成(no-op)
   const supportPlan = { A: Number(process.env.A ?? 1), B: Number(process.env.B ?? 0), C: Number(process.env.C ?? 0) };
-  const tx = await dao.propose([deployer.address], [0], [""], ["0x"], `# pNouns MetaGov Sepolia E2E\nplan A=${supportPlan.A} B=${supportPlan.B} C=${supportPlan.C}`);
-  console.log("propose tx:", tx.hash);
-  const rc = await tx.wait();
-  const proposalId = await dao.proposalCount();
+  let proposalId;
+  if (process.env.PROPOSAL_ID) {
+    proposalId = BigInt(process.env.PROPOSAL_ID); // 既存提案を再利用
+  } else {
+    const tx = await dao.propose([deployer.address], [0], [""], ["0x"], `# pNouns MetaGov Sepolia E2E\nplan A=${supportPlan.A} B=${supportPlan.B} C=${supportPlan.C}`);
+    console.log("propose tx:", tx.hash);
+    await tx.wait();
+    proposalId = await dao.proposalCount();
+  }
   const pr = await dao.proposals(proposalId);
   console.log(`proposal #${proposalId} creation=${pr.creationBlock} start=${pr.startBlock} end=${pr.endBlock}`);
-  console.log("MetaGov prior votes @creation:", String(await nouns.getPriorVotes(dep.metagov, pr.creationBlock)));
 
   // 2. Active まで待つ
   await waitForBlock(Number(pr.startBlock) + 1, "waiting Active");
+  console.log("\n  MetaGov prior votes @creation:", String(await nouns.getPriorVotes(dep.metagov, pr.creationBlock)));
   console.log("\n  state:", String(await dao.state(proposalId)), "deadline:", String(await metagov.voteDeadline(proposalId)));
 
   // 3. 署名(投票者はガス不要)
@@ -63,7 +68,10 @@ async function main() {
   const dl = await metagov.voteDeadline(proposalId);
   await waitForBlock(Number(dl), "waiting deadline");
   const bal0 = await ethers.provider.getBalance(deployer.address);
-  const tx3 = await metagov.execute(proposalId);
+  // Nouns の refund(tx.gasprice 依存)は estimateGas に反映されないので +30% の余裕を持たせる(実 tx で OOG になった実績あり)
+  const est = await metagov.execute.estimateGas(proposalId);
+  const tx3 = await metagov.execute(proposalId, { gasLimit: (est * 13n) / 10n });
+  console.log("\nexecute estimate:", String(est), "gasLimit:", String((est * 13n) / 10n));
   console.log("\nexecute tx:", tx3.hash);
   const rc3 = await tx3.wait();
   const bal1 = await ethers.provider.getBalance(deployer.address);
