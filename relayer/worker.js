@@ -37,7 +37,11 @@ async function submitPending(db, proposalId) {
   db.log.push({ at: new Date().toISOString(), type: "submit", proposalId, voters: good.map((g) => g.v.voter), tx: tx.hash, gasUsed: String(rc.gasUsed) });
   store.save(db);
   const mg = await metagovInfo(proposalId);
-  await notify(`🗳️ Prop ${proposalId}: ${args.length} 票を投函 (gas ${rc.gasUsed})。集計 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]}) ${explorerTx(tx.hash)}`);
+  await notify([
+    `🗳️ Prop ${proposalId}: ${args.length} 票を MetaGov に投函しました (gas ${rc.gasUsed})。`,
+    `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
+    `tx: ${explorerTx(tx.hash)}`,
+  ].join("\n"));
 }
 
 async function maybeExecute(db, p, block) {
@@ -60,7 +64,13 @@ async function maybeExecute(db, p, block) {
   db.log.push({ at: new Date().toISOString(), type: "execute", proposalId: p.id, tx: tx.hash });
   store.save(db);
   const word = ["反対", "賛成", "棄権"][after.result];
-  await notify(`✅ Prop ${p.id} を Nouns DAO に **${word}** で投票しました (${receipt.votes} 票、tokens 賛成 ${after.tokens[1]} / 反対 ${after.tokens[0]} / 棄権 ${after.tokens[2]}) ${explorerTx(tx.hash)}`);
+  await notify([
+    `✅ Prop ${p.id} を Nouns DAO に **${word}** で投票しました (${receipt.votes} 票)。`,
+    `最終集計: 賛成 ${after.tokens[1]} / 反対 ${after.tokens[0]} / 棄権 ${after.tokens[2]} (投票者 ${after.voters[1]}/${after.voters[0]}/${after.voters[2]} 名)`,
+    `Nouns DAO の記録: hasVoted=${receipt.hasVoted} support=${word} votes=${receipt.votes}`,
+    `tx: ${explorerTx(tx.hash)}`,
+    cfg.blockscout ? `イベント(VoteCast の reason に集計を記載): ${cfg.blockscout}/tx/${tx.hash}?tab=logs` : null,
+  ].filter(Boolean).join("\n"));
 }
 
 // 新しく投票可能(Pending/Active)になった提案を告知
@@ -77,7 +87,13 @@ async function announceNew(db, p, block) {
   const jst = eta.toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
   db.announced[p.id] = new Date().toISOString();
   store.save(db);
-  await notify(`📢 Nouns Prop ${p.id}「${title}」の投票受付を開始しました。pNouns 保有者は署名だけで投票できます(ガス不要)。締切: ${jst} ごろ (block ${deadlineBlock}) → ${cfg.publicUrl}  / https://nouns.wtf/vote/${p.id}`);
+  await notify([
+    `📢 Nouns Prop ${p.id}「${title}」の投票受付を開始しました。`,
+    `pNouns 保有者は署名だけで投票できます(ガス不要)。`,
+    `締切: ${jst} ごろ (block ${deadlineBlock})`,
+    `投票ページ: ${cfg.publicUrl}`,
+    `提案の内容: https://nouns.wtf/vote/${p.id}`,
+  ].join("\n"));
 }
 
 async function tick() {

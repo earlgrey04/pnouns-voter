@@ -27,5 +27,7 @@ module.exports = {
     },
   },
   mocha: { timeout: 600000 },
+  sourcify: { enabled: true },
+  etherscan: { apiKey: process.env.ETHERSCAN_API_KEY || "" },
   gasReporter: { enabled: !!process.env.REPORT_GAS, showMethodSig: true },
 };

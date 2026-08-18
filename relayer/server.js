@@ -10,7 +10,7 @@ function createApp() {
   app.use(express.static(path.join(__dirname, "public")));
 
   app.get("/api/config", (req, res) => {
-    res.json({ network: cfg.network, chainId: cfg.chainId, metagov: cfg.metagov, pnouns: cfg.pnouns, nounsDAO: cfg.nounsDAO, explorer: cfg.explorer, domain: eip712Domain(), types: VOTE_TYPES });
+    res.json({ network: cfg.network, chainId: cfg.chainId, metagov: cfg.metagov, pnouns: cfg.pnouns, nounsDAO: cfg.nounsDAO, explorer: cfg.explorer, blockscout: cfg.blockscout, domain: eip712Domain(), types: VOTE_TYPES });
   });
 
   // 投票対象になりうる提案(Pending/Active)+ MetaGov の集計。closed=1 で直近の終了分も返す

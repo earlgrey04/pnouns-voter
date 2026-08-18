@@ -138,9 +138,9 @@ async function proposalTitle(id, creationBlock) {
 async function metagovInfo(proposalId) {
   return withFallback(async (p) => {
     const c = contracts(p);
-    const [t, deadline, votes, cur] = await Promise.all([c.metagov.tally(proposalId), c.metagov.voteDeadline(proposalId).catch(() => 0n), c.nouns.getCurrentVotes(cfg.metagov), c.metagov.currentResult(proposalId)]);
-    // 未実行のあいだは currentResult(現時点の判定)、実行後は確定した result
-    return { tokens: t.tokens.map(Number), voters: t.voters.map(Number), executed: t.executed, result: Number(t.executed ? t.result : cur), deadline: Number(deadline), metagovVotes: Number(votes) };
+    const [t, deadline, votes, cur, rcpt] = await Promise.all([c.metagov.tally(proposalId), c.metagov.voteDeadline(proposalId).catch(() => 0n), c.nouns.getCurrentVotes(cfg.metagov), c.metagov.currentResult(proposalId), c.dao.getReceipt(proposalId, cfg.metagov)]);
+    // 未実行のあいだは currentResult(現時点の判定)、実行後は確定した result。nounsReceipt = Nouns DAO 側に記録された MetaGov の投票
+    return { tokens: t.tokens.map(Number), voters: t.voters.map(Number), executed: t.executed, result: Number(t.executed ? t.result : cur), deadline: Number(deadline), metagovVotes: Number(votes), nounsReceipt: { hasVoted: rcpt.hasVoted, support: Number(rcpt.support), votes: Number(rcpt.votes) } };
   });
 }
 

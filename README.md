@@ -73,6 +73,8 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - Sepolia 実績: Prop 498 = API 受付 3 票 → 投函(gas 266,957)→ execute → Nouns DAO に賛成 2 票(全自動)
 - 新提案が Pending/Active になると 📢 告知(締切 JST・dApp URL・nouns.wtf リンク)。`ANNOUNCE=0` で無効
 - 常駐: `deploy/pnouns-metagov-relayer.service`(systemd user unit。`~/.config/systemd/user/` にコピーして enable。2026-08-18 から Sepolia で稼働中)
+- Discord 通知は一文ごとに改行。✅ には Blockscout のイベントログ URL(Nouns DAO の `VoteCast` の reason に集計文が入る)を添付
+- 検証: MetaGov(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0x09Ba5e225052D2C752Ed2954D4079e0a6DA74d19 (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
 - 手動テスト: `TO=0x… N=3 npx hardhat --network sepolia run scripts/sepolia/08-mint-to.js` で MetaMask アドレスに pNouns 複製を配り、`06-propose.js` で提案を出して 5 分以内に dApp で署名
 
 ## 次の段階

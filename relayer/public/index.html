@@ -118,8 +118,10 @@ async function render() {
     el.className = "card";
     el.innerHTML = `<b>最近の結果</b>` + closed.map((p) => {
       const mg = p.metagov, ex = p.executed;
-      const r = mg.executed ? `MetaGov → Nouns DAO: <b>${SUPPORT[mg.result]}</b>${ex && ex.tx ? ` <a href="${CONFIG.explorer}/tx/${ex.tx}" target="_blank">tx</a>` : ""}` : (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] ? "未実行" : "投票なし");
-      return `<div class="muted" style="margin-top:6px">Prop ${p.id} ${escapeHtml(p.title)} — 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]}(投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]}) ・ ${r} ・ Nouns: ${p.stateName}</div>`;
+      const nr = mg.nounsReceipt;
+      const r = mg.executed ? `MetaGov → Nouns DAO: <b>${SUPPORT[mg.result]}</b>${ex && ex.tx ? ` <a href="${CONFIG.explorer}/tx/${ex.tx}" target="_blank">tx</a>${CONFIG.blockscout ? ` / <a href="${CONFIG.blockscout}/tx/${ex.tx}?tab=logs" target="_blank">イベント</a>` : ""}` : ""}` : (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] ? "未実行" : "投票なし");
+      const nouns = nr && nr.hasVoted ? `<br><span style="color:var(--for)">✔ Nouns DAO 側の記録: MetaGov が「${SUPPORT[nr.support]}」${nr.votes} 票(提案全体: 賛成 ${p.forVotes} / 反対 ${p.againstVotes} / 棄権 ${p.abstainVotes})</span>` : "";
+      return `<div class="muted" style="margin-top:6px">Prop ${p.id} ${escapeHtml(p.title)} — 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]}(投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]}) ・ ${r} ・ Nouns: ${p.stateName}${nouns}</div>`;
     }).join("");
     root.appendChild(el);
   }

@@ -10,6 +10,7 @@ const PRESETS = {
     nounsDAO: "0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57",
     nounsToken: "0x4C4674bb72a096855496a7204962297bd7e12b85",
     explorer: "https://sepolia.etherscan.io",
+    blockscout: "https://eth-sepolia.blockscout.com",
     ...require("../deployments/sepolia.json"), // pnouns, metagov
   },
   mainnet: {
@@ -20,6 +21,7 @@ const PRESETS = {
     pnouns: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
     metagov: process.env.METAGOV_ADDRESS, // mainnet デプロイ後に設定
     explorer: "https://etherscan.io",
+    blockscout: "https://eth.blockscout.com",
   },
 };
 
@@ -36,6 +38,7 @@ module.exports = {
   pnouns: process.env.PNOUNS_ADDRESS || preset.pnouns,
   metagov: process.env.METAGOV_ADDRESS || preset.metagov,
   explorer: preset.explorer,
+  blockscout: preset.blockscout,
   // 署名鍵: RELAYER_PRIVATE_KEY 優先、なければ SEPOLIA_MNEMONIC の #0
   relayerKey: process.env.RELAYER_PRIVATE_KEY || null,
   relayerMnemonic: process.env.SEPOLIA_MNEMONIC || null,
