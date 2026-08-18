@@ -79,7 +79,7 @@
 <h2>2. 提案する仕組み</h2>
 <div class="flow">
   <div class="step"><span class="who">メンバー</span><b>署名するだけ</b><small>投票ページで「賛成／反対／棄権」を押し、ウォレットで署名。<b>ガス代 0 円</b>、トランザクションなし。</small></div>
-  <div class="step"><span class="who">リレイヤー</span><b>まとめて投函</b><small>集まった署名を 1 つの tx でチェーン上の pNouns Voter に届ける（ガスはリレイヤー負担）。</small></div>
+  <div class="step"><span class="who">リレイヤー（誰でも可）</span><b>まとめて投函</b><small>集まった署名を 1 つの tx でチェーン上の pNouns Voter に届ける。投函にかかったガスは、トレジャリーがコントラクトに預けた ETH からその場で払い戻される。</small></div>
   <div class="step"><span class="who">pNouns Voter（コントラクト）</span><b>検証・集計</b><small>署名者が本当にその pNouns を持っているか確認し、tokenId ごとに二重投票を防いで集計。</small></div>
   <div class="step"><span class="who">pNouns Voter → Nouns DAO</span><b>自動で投票</b><small>締切後に誰でも「execute」を呼べ、集計結果で Nouns DAO に投票。この tx のガスは Nouns DAO から払い戻される。</small></div>
 </div>
@@ -111,7 +111,7 @@
 <div class="card">
   <dl class="kv">
     <dt>投票ページ（Sepolia）</dt><dd><a href="https://pnouns-voter.x402-adsb-worker.workers.dev">pnouns-voter.x402-adsb-worker.workers.dev</a></dd>
-    <dt>pNouns Voter（Sepolia）</dt><dd><span class="mono">0xeeb0741Bf61Bd4486A96902eD5B1AdEb631016d8</span> — <a href="https://eth-sepolia.blockscout.com/address/0xeeb0741Bf61Bd4486A96902eD5B1AdEb631016d8">検証済みソース</a></dd>
+    <dt>pNouns Voter（Sepolia）</dt><dd><span class="mono">0x1fdE7cA18cAD4c7a315B63D2Ce9ce72EFFcDD769</span> — <a href="https://eth-sepolia.blockscout.com/address/0x1fdE7cA18cAD4c7a315B63D2Ce9ce72EFFcDD769">検証済みソース</a></dd>
     <dt>実例</dt><dd><a href="https://eth-sepolia.blockscout.com/tx/0x13f600016bdb2afff341f4dfb21f57d90f6a5c2282d96a4318e02242a8c5f3ac?tab=logs">Prop 507 の execute tx</a>（Nouns DAO の VoteCast イベントに「賛成 2 票、reason: pNouns holders voted on-chain via pNouns Voter: FOR (tokens 3/2/1, voters 1/1/1)」）</dd>
   </dl>
 </div>
@@ -128,11 +128,14 @@
 </table></div>
 <p>月 8 提案なら <b>約 200 円〜4,000 円/月</b>。ガスが高い時間帯は締切前まで投函を待つ設定も入れられます。</p>
 
-<h3>ガス代を誰がどう負担するか（決めたい点）</h3>
+<h3>ガス代の負担方法（決定: コントラクトが払い戻す方式）</h3>
 <div class="card accent">
-  <p><b>案 A（推奨・シンプル）</b> pNouns トレジャリーからリレイヤー用ウォレットに <b>0.05 ETH（約 15,000 円）</b> を入れる。今の相場なら 1 年以上、混雑が続いても半年程度もつ量。残高が減ると Discord に自動警告が出るので、そのとき補充する。支出はオンチェーンで誰でも確認できる。</p>
-  <p><b>案 B（トラスト最小化）</b> pNouns Voter 自体にガス補填機能を持たせ、トレジャリーが pNouns Voter に ETH を預け、投函した人に自動で払い戻す（Nouns DAO と同じ方式）。誰でもリレイヤーになれるが、コントラクトの変更が必要。メインネット前の今なら追加可能。</p>
-  <p style="margin:0"><b>案 C（保険のみ）</b> メンバー各自が自分の tx で投票（castVote）。ガスは自己負担。リレイヤー停止時の逃げ道として常に使えるが、通常運用には向かない。</p>
+  <p><b>採用した方式</b> pNouns Voter コントラクトに pNouns トレジャリーが ETH を預けておき（例: 0.05 ETH ≒ 15,000 円）、署名を投函した人に<b>使ったガス代をその場で自動払い戻し</b>します（Nouns DAO の投票払い戻しと同じ仕組み）。これにより、運営のリレイヤーだけでなく<b>誰が投函しても損をしない</b>ので、運営に依存しない運用が可能になります。</p>
+  <ul style="margin:0">
+    <li>払い戻しには上限（ガス単価・量・提案ごとの総額）があり、預け金が無駄に減ることを防ぎます。預け金が尽きても投票は成立し、払い戻しだけが止まります（残高が減ると Discord に警告）。</li>
+    <li>預け金の残高と支出はすべてオンチェーンで確認でき、余った分は運営マルチシグがいつでも引き出せます。</li>
+    <li>テストネットでの実測: 投函者の支払 0.000157 ETH に対し払い戻し 0.000156 ETH（実質 0）。</li>
+  </ul>
 </div>
 
 <h2>6. 進め方（メンバー合意なしに本番投票が始まることはありません）</h2>
@@ -147,7 +150,7 @@
 <div class="card warn">
   <ol style="margin:0">
     <li>この方向で進めてよいか（メインネットへのシャドー運用デプロイ）</li>
-    <li>ガス代の負担方法（案 A / B / C）</li>
+    <li>トレジャリーからコントラクトへの預け金の額（提案: 0.05 ETH）</li>
     <li>細部のルール: 締切は Nouns の 24 時間前（票ゼロのときは「投票しない」）でよいか</li>
   </ol>
 </div>

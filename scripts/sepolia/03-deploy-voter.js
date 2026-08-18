@@ -16,6 +16,10 @@ async function main() {
   saveDeployments(dep);
   const tx = await c.setLiveMode(true);
   await tx.wait();
+  // 返金原資(案 B)を預ける
+  const fund = ethers.parseEther(process.env.FUND_ETH || "0.02");
+  await (await deployer.sendTransaction({ to: dep.voter, value: fund })).wait();
+  console.log("funded refund pool:", ethers.formatEther(fund), "ETH");
   console.log("pNouns Voter:", dep.voter, "liveMode=true margin=", String(margin));
 }
 main().catch((e) => { console.error(e); process.exit(1); });

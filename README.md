@@ -23,6 +23,7 @@ mainnet フォーク上の E2E テスト(段階1)。
 - `castVotesBySig(VoteSig[])` 誰でも投函可。署名 = `Vote(uint256 proposalId,uint8 support,uint256[] tokenIds)`(EIP-712 domain: `pNouns Voter` / `1`)
 - `castVote(...)` 本人が自分でガスを払う退路
 - `execute(proposalId)` 締切後に誰でも。`liveMode=false` なら Nouns を呼ばずイベントのみ(シャドー運用)
+- **ガス払い戻し(案 B)**: `castVotesBySig` / `castVote` の実行者(tx.origin)に、コントラクトの預け金から使用ガス分を同一 tx 内で返す(Nouns の `_refundGas` 準拠: priority ≤2 gwei、basefee ≤200 gwei、gas 量 ≤120k+70k×票数、`REFUND_BASE_GAS` 55k)。提案ごとの返金上限 `refundCapPerProposal`(既定 0.02 ETH)、`setRefundEnabled` で停止可、残高 0 ならスキップ、送金失敗でも revert しない(best effort)。owner は `sweep` で回収。フォーク実測: 支払 0.000157 ETH に対し返金 0.000156 ETH(net ≈ 0)。Sepolia 実測(Prop 510): 返金 0.000295 ETH、リレイヤーの純負担 −0.0000032 ETH
 - 投票受付は Nouns 側 state が Pending / Active のときだけ(Updatable 中・取消済みは不可)
 - 重み = tokenId 数、voter は提案ごとに1回。前所有者が投票済みの token は数えない
 - 集計は 1 スロットにパック(uint32×6 + deadline + flags)
@@ -47,6 +48,7 @@ npx hardhat test
 | 2 票目以降(1 枚持ち) | ~46k / 票 |
 | 1 名 × 5 枚 | ~96k |
 | execute(Nouns castRefundableVote 込み) | ~157k(Nouns から executor へ払い戻し) |
+| 返金処理の追加分(castVotesBySig) | ~+25k / tx |
 
 目安: 30 名投票 ≒ 1.5M gas。mainnet gas 0.05 gwei なら 0.00008 ETH、2 gwei でも 0.003 ETH。
 
@@ -77,7 +79,7 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - 新提案が Pending/Active になると 📢 告知(締切 JST・dApp URL・nouns.wtf リンク)。`ANNOUNCE=0` で無効
 - 常駐: `deploy/pnouns-metagov-relayer.service`(systemd user unit。`~/.config/systemd/user/` にコピーして enable。2026-08-18 から Sepolia で稼働中)
 - Discord 通知は一文ごとに改行。✅ には Blockscout のイベントログ URL(Nouns DAO の `VoteCast` の reason に集計文が入る)を添付
-- 検証: pNouns Voter(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0xeeb0741Bf61Bd4486A96902eD5B1AdEb631016d8 (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
+- 検証: pNouns Voter(Sepolia)は Sourcify exact_match + Blockscout 検証済み → https://eth-sepolia.blockscout.com/address/0x1fdE7cA18cAD4c7a315B63D2Ce9ce72EFFcDD769 (Sourcify v1 API が brownout 中のため v2 API に直接 POST した。`hardhat verify` は使えない)
 - 手動テスト: `TO=0x… N=3 npx hardhat --network sepolia run scripts/sepolia/08-mint-to.js` で MetaMask アドレスに pNouns 複製を配り、`06-propose.js` で提案を出して 5 分以内に dApp で署名
 
 ## Cloudflare Workers 版リレイヤー(`relayer-cf/`、2026-08-18 デプロイ・クラウドのみで通し成功)

@@ -113,18 +113,17 @@ async function maybeExecute(c, pc, wc, store, p, block) {
 
 // リレイヤー残高が閾値未満なら 1 日 1 回 Discord に警告
 async function checkBalance(c, pc, wc, kv) {
-  if (!wc) return;
-  const bal = await pc.getBalance({ address: wc.account.address });
-  const eth = Number(bal) / 1e18;
   const threshold = Number(c.lowBalanceEth);
-  if (eth >= threshold) { await kv.delete("lowbal"); return; }
-  if (await kv.get("lowbal")) return; // 警告済み(24h)
-  await kv.put("lowbal", new Date().toISOString(), { expirationTtl: 86400 });
-  await notify(c, [
-    `⚠️ リレイヤー残高が少なくなっています: ${eth.toFixed(5)} ETH (閾値 ${threshold} ETH)`,
-    `アドレス: ${wc.account.address} (${c.network})`,
-    `投函・execute が止まらないよう補充してください。締切後の execute は誰でも(dApp の手動ボタンからも)実行できます。`,
-  ].join("\n"));
+  const checks = [];
+  if (wc) checks.push({ key: "lowbal", label: "リレイヤー残高", address: wc.account.address, hint: "投函・execute が止まらないよう補充してください。締切後の execute は誰でも(dApp の手動ボタンからも)実行できます。" });
+  checks.push({ key: "lowpool", label: "返金プール(pNouns Voter コントラクト)残高", address: c.metagov, hint: "投函者へのガス払い戻しが止まります(投票自体は成立します)。トレジャリーから補充してください。" });
+  for (const ck of checks) {
+    const eth = Number(await pc.getBalance({ address: ck.address })) / 1e18;
+    if (eth >= threshold) { await kv.delete(ck.key); continue; }
+    if (await kv.get(ck.key)) continue; // 警告済み(24h)
+    await kv.put(ck.key, new Date().toISOString(), { expirationTtl: 86400 });
+    await notify(c, [`⚠️ ${ck.label}が少なくなっています: ${eth.toFixed(5)} ETH (閾値 ${threshold} ETH)`, `アドレス: ${ck.address} (${c.network})`, ck.hint].join("\n"));
+  }
 }
 
 export async function tick(env) {

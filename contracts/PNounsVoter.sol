@@ -26,6 +26,9 @@ interface INounsDAO {
  *    tokens 最多 → 同数なら voters 最多 → それも同数なら棄権、を Nouns DAO に castRefundableVoteWithReason する。
  *    票がひとつもない提案は execute できない(NoVotes)= Nouns DAO には投票しない。
  *  - liveMode=false のあいだは Nouns DAO を呼ばず結果イベントだけ出す(シャドー運用用)。
+ *  - ガス払い戻し(案 B): 本コントラクトに預けられた ETH から、castVotesBySig / castVote の実行者(tx.origin)へ
+ *    使ったガス代を同一 tx 内で返す(Nouns DAO の _refundGas と同じ方式)。単価・量・提案ごとの上限あり。
+ *    残高が無ければ返金をスキップし、投票自体は成立させる。返金は best effort(送金失敗でも revert しない)。
  *
  *  Nouns 側の前提: この Nouns 保有ウォレット(マルチシグ)が本コントラクトに delegate() 済みであること。
  */
@@ -55,6 +58,19 @@ contract PNounsVoter is EIP712, Ownable {
     uint256 public marginBlocks;
     /// @notice true のとき execute が実際に Nouns DAO へ投票する。false はシャドー運用。
     bool public liveMode;
+    /// @notice ガス払い戻しの有効/無効(owner が切替可)
+    bool public refundEnabled = true;
+    /// @notice 提案ごとの返金総額の上限(wei)。グリーフィング(細切れ投函)による預け金の目減りを抑える
+    uint256 public refundCapPerProposal = 0.02 ether;
+    /// @notice 提案ごとの返金済み額(wei)
+    mapping(uint256 => uint256) public refundedForProposal;
+
+    // 返金の上限(Nouns DAO と同じ考え方)
+    uint256 public constant MAX_REFUND_PRIORITY_FEE = 2 gwei;
+    uint256 public constant MAX_REFUND_BASE_FEE = 200 gwei;
+    uint256 public constant REFUND_BASE_GAS = 55_000; // intrinsic 21000 + calldata + 計測後に走る SSTORE/送金/イベント分(gasleft() では測れない)
+    uint256 public constant MAX_REFUND_GAS_BASE = 120_000; // 1 tx あたりの上限(基礎)
+    uint256 public constant MAX_REFUND_GAS_PER_VOTE = 70_000; // + 票ごとの上限
 
     // ---- 集計状態 ---------------------------------------------------------
     /// @dev 1 スロットにパック(uint32×6 + uint48 + bool + uint8 = 256bit)。pNouns は 2100 枚なので uint32 で十分。
@@ -81,6 +97,9 @@ contract PNounsVoter is EIP712, Ownable {
     event ExcludedSet(address indexed account, bool isExcluded);
     event MarginBlocksSet(uint256 marginBlocks);
     event LiveModeSet(bool live);
+    event RefundableVote(address indexed refundee, uint256 refundAmount, bool refundSent);
+    event RefundEnabledSet(bool enabled);
+    event RefundCapPerProposalSet(uint256 cap);
 
     // ---- エラー -----------------------------------------------------------
     error InvalidSupport();
@@ -127,7 +146,17 @@ contract PNounsVoter is EIP712, Ownable {
         emit LiveModeSet(live);
     }
 
-    /// @notice 誤送金や払い戻しの残りを回収する
+    function setRefundEnabled(bool enabled) external onlyOwner {
+        refundEnabled = enabled;
+        emit RefundEnabledSet(enabled);
+    }
+
+    function setRefundCapPerProposal(uint256 cap) external onlyOwner {
+        refundCapPerProposal = cap;
+        emit RefundCapPerProposalSet(cap);
+    }
+
+    /// @notice 預け金(返金原資)や誤送金を回収する
     function sweep(address payable to) external onlyOwner {
         (bool ok, ) = to.call{value: address(this).balance}("");
         require(ok, "sweep failed");
@@ -194,18 +223,46 @@ contract PNounsVoter is EIP712, Ownable {
     }
 
     // ---- 投票 -------------------------------------------------------------
-    /// @notice 本人が自分でガスを払って投票する(リレイヤーを介さない退路)
+    /// @notice 本人が自分で投票する(リレイヤーを介さない退路)。ガスは預け金から払い戻される。
     function castVote(uint256 proposalId, uint8 support, uint256[] calldata tokenIds) external {
+        uint256 startGas = gasleft();
         _castVote(msg.sender, proposalId, support, tokenIds);
+        _refundGas(startGas, 1, proposalId);
     }
 
-    /// @notice 署名付き投票をまとめて投函する。誰でも呼べる。
+    /// @notice 署名付き投票をまとめて投函する。誰でも呼べ、ガスは預け金から払い戻される。
     function castVotesBySig(VoteSig[] calldata votes) external {
+        uint256 startGas = gasleft();
         for (uint256 i = 0; i < votes.length; i++) {
             VoteSig calldata v = votes[i];
             address voter = ECDSA.recover(hashVote(v.proposalId, v.support, v.tokenIds), v.signature);
             _castVote(voter, v.proposalId, v.support, v.tokenIds);
         }
+        if (votes.length > 0) _refundGas(startGas, votes.length, votes[0].proposalId);
+    }
+
+    /// @dev Nouns DAO の _refundGas 準拠。返金は best effort で、失敗しても投票は成立する。
+    function _refundGas(uint256 startGas, uint256 voteCount, uint256 proposalId) internal {
+        if (!refundEnabled) return;
+        unchecked {
+            uint256 balance = address(this).balance;
+            if (balance == 0) return;
+            uint256 remainingCap = refundCapPerProposal > refundedForProposal[proposalId]
+                ? refundCapPerProposal - refundedForProposal[proposalId] : 0;
+            if (remainingCap == 0) return;
+            uint256 basefee = _min(block.basefee, MAX_REFUND_BASE_FEE);
+            uint256 gasPrice = _min(tx.gasprice, basefee + MAX_REFUND_PRIORITY_FEE);
+            uint256 gasUsed = _min(startGas - gasleft() + REFUND_BASE_GAS, MAX_REFUND_GAS_BASE + MAX_REFUND_GAS_PER_VOTE * voteCount);
+            uint256 refundAmount = _min(_min(gasPrice * gasUsed, balance), remainingCap);
+            if (refundAmount == 0) return;
+            refundedForProposal[proposalId] += refundAmount;
+            (bool refundSent, ) = tx.origin.call{value: refundAmount}("");
+            emit RefundableVote(tx.origin, refundAmount, refundSent);
+        }
+    }
+
+    function _min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
     }
 
     function _castVote(address voter, uint256 proposalId, uint8 support, uint256[] calldata tokenIds) internal {

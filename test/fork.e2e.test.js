@@ -69,6 +69,11 @@ async function collectPNouns(pnouns, assignments, startId = 1) {
   }
 }
 
+async function tokensOfSigner(pnouns, signer) {
+  const out = [];
+  for (let id = 1; id <= 400; id++) if ((await pnouns.ownerOf(id)).toLowerCase() === signer.address.toLowerCase()) out.push(BigInt(id));
+  return out;
+}
 async function signVote(signer, metagov, proposalId, support, tokenIds) {
   const domain = {
     name: "pNouns Voter",
@@ -291,5 +296,48 @@ describe("PNounsVoter (mainnet fork E2E)", function () {
     expect(t.tokens[1]).to.equal(10n);
     expect(t.voters[1]).to.equal(10n);
     expect(t.tokens[0]).to.equal(5n);
+  });
+
+  it("ガス払い戻し(案 B): 預け金があれば投函者の ETH はほぼ減らず、上限・無効化・残高ゼロが効く", async function () {
+    // 預け金なし → 返金なし(投票は成立)
+    const v1 = await signVote(alice, metagov, proposalId, 1, alice.tokenIds);
+    const rc0 = await (await metagov.connect(relayer).castVotesBySig([v1])).wait();
+    expect(rc0.logs.some((l) => { try { return metagov.interface.parseLog(l)?.name === "RefundableVote"; } catch { return false; } })).to.equal(false);
+    // 預け金 0.05 ETH → 返金あり、投函者の残高はほぼ変わらない
+    await deployer.sendTransaction({ to: await metagov.getAddress(), value: ethers.parseEther("0.05") });
+    const v2 = await signVote(bob, metagov, proposalId, 0, bob.tokenIds);
+    const v3 = await signVote(carol, metagov, proposalId, 0, carol.tokenIds);
+    const before = await ethers.provider.getBalance(relayer.address);
+    const rc = await (await metagov.connect(relayer).castVotesBySig([v2, v3])).wait();
+    const after = await ethers.provider.getBalance(relayer.address);
+    const paid = rc.gasUsed * rc.gasPrice;
+    const ev = rc.logs.map((l) => { try { return metagov.interface.parseLog(l); } catch { return null; } }).find((l) => l && l.name === "RefundableVote");
+    expect(ev, "RefundableVote emitted").to.not.equal(undefined);
+    expect(ev.args.refundSent).to.equal(true);
+    expect(ev.args.refundee).to.equal(relayer.address);
+    const netCost = before - after; // 支払ったガス − 返金
+    console.log(`      paid ${ethers.formatEther(paid)} ETH, refunded ${ethers.formatEther(ev.args.refundAmount)} ETH, net ${ethers.formatEther(netCost)} ETH`);
+    expect(netCost).to.be.lessThan(paid / 5n); // 8 割以上戻る
+    expect(await metagov.refundedForProposal(proposalId)).to.equal(ev.args.refundAmount);
+    expect(netCost).to.be.lessThan(paid / 10n); // 9 割以上戻る
+    // 提案ごとの上限: 残り 1000 wei にすると、次の返金は 1000 wei だけ
+    await metagov.setRefundCapPerProposal(ev.args.refundAmount + 1000n);
+    const [, , , , , , , , , , voterD] = await ethers.getSigners();
+    await collectPNouns(pnouns, [{ signer: voterD, count: 1 }], 200);
+    const rcD = await (await metagov.connect(voterD).castVote(proposalId, 2, [(await tokensOfSigner(pnouns, voterD))[0]])).wait();
+    const evD = rcD.logs.map((l) => { try { return metagov.interface.parseLog(l); } catch { return null; } }).find((l) => l && l.name === "RefundableVote");
+    expect(evD.args.refundAmount).to.equal(1000n);
+    // 無効化すると返金イベントなし
+    await metagov.setRefundEnabled(false);
+    await metagov.setRefundCapPerProposal(ethers.parseEther("1"));
+    const [, , , , , , , , , , , voterE] = await ethers.getSigners();
+    await collectPNouns(pnouns, [{ signer: voterE, count: 1 }], 300);
+    const rcE = await (await metagov.connect(voterE).castVote(proposalId, 2, [(await tokensOfSigner(pnouns, voterE))[0]])).wait();
+    expect(rcE.logs.some((l) => { try { return metagov.interface.parseLog(l)?.name === "RefundableVote"; } catch { return false; } })).to.equal(false);
+    // sweep で回収できる
+    const bal = await ethers.provider.getBalance(await metagov.getAddress());
+    await metagov.sweep(deployer.address);
+    expect(await ethers.provider.getBalance(await metagov.getAddress())).to.equal(0n);
+    expect(bal).to.be.greaterThan(0n);
   });
 });
