@@ -7,8 +7,9 @@
 export function makeStore(kv, ns) {
   const P = ns ? `${ns}:` : "";
   const voteKey = (pid, voter) => `${P}vote:${pid}:${voter.toLowerCase()}`;
-  const meta = (rec) => ({ s: rec.support, n: rec.tokenIds.length, tx: rec.tx || null, st: rec.txStatus || null, d: rec.dropped ? 1 : 0, at: rec.receivedAt, sa: rec.sentAt || null });
-  const fromMeta = (voter, m) => ({ voter, support: m.s, tokenCount: m.n, tx: m.tx || undefined, txStatus: m.st || undefined, dropped: m.d ? true : undefined, receivedAt: m.at, sentAt: m.sa || undefined });
+  // metadata は受付時の不変情報だけ(support/枚数/受付時刻)。投函状態(tx/txStatus/dropped/sentAt)は sum:{pid} だけが持つ(書込み削減・競合回避)
+  const meta = (rec) => ({ s: rec.support, n: rec.tokenIds.length, at: rec.receivedAt });
+  const fromMeta = (voter, m) => ({ voter, support: m.s, tokenCount: m.n, receivedAt: m.at });
   return {
     kvRaw: kv, prefix: P,
     async getVote(pid, voter) { return kv.get(voteKey(pid, voter), "json"); },
@@ -24,6 +25,11 @@ export function makeStore(kv, ns) {
       return out;
     },
     summarize(voter, rec) { return fromMeta(voter, meta(rec)); },
+    /// list 結果(新規 voter を含む)と既存サマリー(状態を含む)をマージ
+    mergeSummaries(listed, existing) {
+      const byVoter = new Map(existing.map((v) => [v.voter.toLowerCase(), v]));
+      return listed.map((l) => { const e = byVoter.get(l.voter.toLowerCase()); return e ? { ...l, tx: e.tx, txStatus: e.txStatus, dropped: e.dropped, sentAt: e.sentAt } : l; });
+    },
     async getSummary(pid) { return (await kv.get(`${P}sum:${pid}`, "json")) || { listedAt: 0, votes: [] }; },
     async putSummary(pid, votes, listedAt) { await kv.put(`${P}sum:${pid}`, JSON.stringify({ listedAt, votes })); },
     async markDirty(pid) { await kv.put(`${P}dirty:${pid}`, String(Date.now()), { expirationTtl: 86400 * 7 }); },

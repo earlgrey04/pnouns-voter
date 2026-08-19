@@ -1,7 +1,7 @@
 // Cloudflare Worker: Hono API + cron(scheduled)。静的 dApp は wrangler の assets で配信(public/_headers で CSP)。
 import { Hono } from "hono";
 import { recoverTypedDataAddress, encodeFunctionData } from "viem";
-import { cfg, clients, domain, VOTE_TYPES, tokensOf, allOwners, recentProposals, proposalTitle, metagovInfo, getAddress, METAGOV_ABI, DAO_ABI, storeNs, acceptDeadline } from "./chain.js";
+import { cfg, clients, domain, VOTE_TYPES, tokensOf, allOwners, recentProposals, proposalTitle, metagovInfo, getAddress, METAGOV_ABI, DAO_ABI, storeNs, acceptDeadline, submitCapacity } from "./chain.js";
 import { makeStore } from "./store.js";
 import { tick, notifyError } from "./worker.js";
 
@@ -64,8 +64,11 @@ app.get("/api/tokens/:address", async (ctx) => {
     ], allowFailure: false });
     hasVoted = res[0];
     ids.forEach((id, i) => { voted[id] = res[i + 1]; });
-    pending = await store.getVote(String(pid), address);
-    if (pending) pending = { support: pending.support, tokenIds: pending.tokenIds, tx: pending.tx, txStatus: pending.txStatus, receivedAt: pending.receivedAt };
+    const rec = await store.getVote(String(pid), address);
+    if (rec) {
+      const st = (await store.getSummary(String(pid))).votes.find((v) => v.voter.toLowerCase() === address.toLowerCase()) || {};
+      pending = { support: rec.support, tokenIds: rec.tokenIds, tx: st.tx, txStatus: st.txStatus, receivedAt: rec.receivedAt };
+    }
   }
   return ctx.json({ address, tokenIds: ids, voted, hasVoted, pending });
 });
@@ -124,8 +127,13 @@ app.post("/api/vote", async (ctx) => {
   if (state !== 0 && state !== 1) return ctx.json({ error: `proposal not votable (state ${state})` }, 400);
   if (block >= deadline) return ctx.json({ error: "voting closed" }, 400);
   if (block >= acceptDeadline(c, deadline)) return ctx.json({ error: "signature acceptance closed (too close to the on-chain deadline); submit on-chain yourself via castVote or the manual submit button", code: "accept_closed", acceptDeadline: acceptDeadline(c, deadline), deadline }, 400); // M-14
+  // M-14R: 受付容量(締切までに確実に投函できる数)を超える場合は受け付けない
+  const sumNow = await store.getSummary(pidKey);
+  const pendingNow = sumNow.votes.filter((v) => !v.tx && !v.dropped).length;
+  const capacity = submitCapacity(c, block, deadline);
+  if (pendingNow >= capacity) return ctx.json({ error: "relayer capacity before the deadline is full; please submit on-chain yourself (manual submit button / castVote)", code: "capacity_full", pending: pendingNow, capacity }, 400);
   const existing = await store.getVote(pidKey, voter);
-  if (existing && existing.tx) return ctx.json({ error: "already submitted" }, 400);
+  if (existing) { const st = sumNow.votes.find((v) => v.voter.toLowerCase() === voter.toLowerCase()); if (st && st.tx) return ctx.json({ error: "already submitted" }, 400); }
   await store.setFlag(`rl:${voter.toLowerCase()}`, 60);
   await store.putVote(pidKey, voter, { support: Number(support), tokenIds: ids.map(String), signature, receivedAt: new Date().toISOString() });
   await store.markDirty(pidKey); // ワーカーが次回 tick で list → サマリー更新

@@ -45,15 +45,15 @@ async function loadVotes(store, proposalId, force) {
   const stale = Date.now() - (sum.listedAt || 0) > FORCE_LIST_MS;
   if (!force && !stale && dirty <= (sum.listedAt || 0)) return { summaries: sum.votes };
   const listedAt = Date.now(); // list 開始時刻。これより後に受け付けた署名は次回の再 list で拾う(競合しない)
-  const summaries = await store.listVoteSummaries(proposalId);
+  const listed = await store.listVoteSummaries(proposalId);
+  const summaries = store.mergeSummaries(listed, sum.votes); // 状態は既存サマリーから引き継ぐ
   await store.putSummary(proposalId, summaries, listedAt);
   return { summaries, listedAt };
 }
-async function saveVote(store, proposalId, voter, rec, summaries) {
-  await store.putVote(proposalId, voter, rec);
+// 投函状態の更新はサマリー(メモリ)にだけ反映し、まとめて flushSummary で 1 回書く(票本文は不変)
+function setStatus(summaries, voter, patch) {
   const i = summaries.findIndex((x) => x.voter.toLowerCase() === voter.toLowerCase());
-  const sm = store.summarize(voter, rec);
-  if (i >= 0) summaries[i] = sm; else summaries.push(sm);
+  if (i >= 0) summaries[i] = { ...summaries[i], ...patch };
 }
 async function flushSummary(store, proposalId, summaries) {
   const sum = await store.getSummary(proposalId);
@@ -75,10 +75,8 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
     const voted = await pc.multicall({ contracts: vs.map((v) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), v.voter] })), allowFailure: false });
     for (let i = 0; i < vs.length; i++) {
       const v = vs[i];
-      const full = await store.getVote(proposalId, v.voter);
-      if (!full) continue;
-      if (rc && rc.status === "success") await saveVote(store, proposalId, v.voter, { ...full, txStatus: "success" }, summaries);
-      else await saveVote(store, proposalId, v.voter, { ...full, tx: voted[i] ? "external" : undefined, txStatus: undefined, sentAt: undefined }, summaries);
+      if (rc && rc.status === "success") setStatus(summaries, v.voter, { txStatus: "success" });
+      else setStatus(summaries, v.voter, { tx: voted[i] ? "external" : undefined, txStatus: undefined, sentAt: undefined });
     }
     changed = true;
     if (rc && rc.status === "success") {
@@ -102,46 +100,50 @@ async function submitPending(c, pc, wc, store, proposalId, block, onchainDeadlin
   const rush = shouldRushSubmit(c, block, onchainDeadline); // M-14: 受付締切を過ぎたら最小待機なしで即投函
   const { summaries } = await loadVotes(store, proposalId, rush);
   if (summaries.some((v) => v.txStatus === "sent")) return; // 送信中は新規投函しない(確定は reconcile)
-  const pendingSummaries = summaries.filter((v) => !v.tx && !v.dropped && (rush || Date.now() - Date.parse(v.receivedAt) >= c.minPendingAgeSec * 1000)).slice(0, c.maxBatch);
-  if (!pendingSummaries.length) return;
-  // 本文(署名)は投函対象だけ get(≤ MAX_BATCH 件)
-  const pending = [];
-  for (const s of pendingSummaries) { const v = await store.getVote(proposalId, s.voter); if (v) pending.push({ ...v, voter: s.voter }); }
-  // 既に他者が投函済み(on-chain)のものは external に(multicall 1 回)
-  const voted = await pc.multicall({ contracts: pending.map((v) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), v.voter] })), allowFailure: false });
-  const cands = [];
-  let touched = false;
-  for (let i = 0; i < pending.length; i++) {
-    if (voted[i]) { await saveVote(store, proposalId, pending[i].voter, { ...pending[i], voter: undefined, tx: "external" }, summaries); touched = true; continue; }
-    cands.push(pending[i]);
-  }
-  if (!cands.length) { if (touched) await flushSummary(store, proposalId, summaries); return; }
   const toArg = (v) => ({ proposalId: BigInt(proposalId), support: v.support, tokenIds: v.tokenIds.map(BigInt), signature: v.signature });
-  // バッチ全体を 1 回 simulate。失敗したら個別に切り分け(通常は起きない)
-  let good = cands;
-  try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [cands.map(toArg)], account: wc.account }); }
-  catch (e) {
-    if (!isContractRevert(e)) { console.warn(`[worker] batch simulate transient error prop ${proposalId}: ${(e.shortMessage || e.message || "").slice(0, 120)} (retry next tick)`); return; }
-    good = [];
-    for (const v of cands.slice(0, 10)) { // 個別確認は上限 10 件(サブリクエスト節約)
-      try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [[toArg(v)]], account: wc.account }); good.push(v); }
-      catch (e2) {
-        if (isContractRevert(e2)) {
-          const reason = (e2.shortMessage || e2.message || "").slice(0, 200);
-          await saveVote(store, proposalId, v.voter, { ...v, voter: undefined, dropped: reason }, summaries); touched = true;
-          console.warn(`[worker] drop vote prop ${proposalId} ${v.voter}: ${reason}`);
+  const batches = rush ? c.rushBatches : 1; // M-14R: rush 時は 1 tick で複数バッチ
+  let touched = false;
+  for (let b = 0; b < batches; b++) {
+    const pendingSummaries = summaries.filter((v) => !v.tx && !v.dropped && (rush || Date.now() - Date.parse(v.receivedAt) >= c.minPendingAgeSec * 1000)).slice(0, c.maxBatch);
+    if (!pendingSummaries.length) break;
+    // 本文(署名)は投函対象だけ get(≤ MAX_BATCH 件)
+    const pending = [];
+    for (const sm of pendingSummaries) { const v = await store.getVote(proposalId, sm.voter); if (v) pending.push({ ...v, voter: sm.voter }); }
+    // 既に他者が投函済み(on-chain)のものは external に(multicall 1 回)
+    const voted = await pc.multicall({ contracts: pending.map((v) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasVoted", args: [BigInt(proposalId), v.voter] })), allowFailure: false });
+    const cands = [];
+    for (let i = 0; i < pending.length; i++) {
+      if (voted[i]) { setStatus(summaries, pending[i].voter, { tx: "external" }); touched = true; continue; }
+      cands.push(pending[i]);
+    }
+    if (!cands.length) continue;
+    // バッチ全体を 1 回 simulate。失敗したら個別に切り分け(通常は起きない)
+    let good = cands;
+    try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [cands.map(toArg)], account: wc.account }); }
+    catch (e) {
+      if (!isContractRevert(e)) { console.warn(`[worker] batch simulate transient error prop ${proposalId}: ${(e.shortMessage || e.message || "").slice(0, 120)} (retry next tick)`); break; }
+      good = [];
+      for (const v of cands.slice(0, 10)) {
+        try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [[toArg(v)]], account: wc.account }); good.push(v); }
+        catch (e2) {
+          if (isContractRevert(e2)) { const reason = (e2.shortMessage || e2.message || "").slice(0, 200); setStatus(summaries, v.voter, { dropped: true, reason }); touched = true; console.warn(`[worker] drop vote prop ${proposalId} ${v.voter}: ${reason}`); }
         }
       }
+      if (!good.length) continue;
     }
-    if (!good.length) { if (touched) await flushSummary(store, proposalId, summaries); return; }
+    const args = good.map(toArg);
+    const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], account: wc.account });
+    const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], gas: (gas * 13n) / 10n });
+    console.log(`[worker] castVotesBySig prop ${proposalId} ${args.length} votes tx ${hash}${rush ? " (rush)" : ""}`);
+    const sentAt = new Date().toISOString();
+    for (const v of good) setStatus(summaries, v.voter, { tx: hash, txStatus: "sent", sentAt });
+    touched = true;
+    if (b + 1 < batches) { // 連続投函: 次バッチは nonce が進むまで少し待つ(viem は pending nonce を取得)
+      await new Promise((r) => setTimeout(r, 1500));
+      // 送信済みは summaries 上で "sent" になっているので次のフィルタで除外される。ただし同一 tick 内では "sent" 中でも続行する
+    }
   }
-  const args = good.map(toArg);
-  const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], account: wc.account });
-  const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castVotesBySig", args: [args], gas: (gas * 13n) / 10n });
-  console.log(`[worker] castVotesBySig prop ${proposalId} ${args.length} votes tx ${hash}`);
-  const sentAt = new Date().toISOString();
-  for (const v of good) await saveVote(store, proposalId, v.voter, { ...v, voter: undefined, tx: hash, txStatus: "sent", sentAt }, summaries);
-  await flushSummary(store, proposalId, summaries);
+  if (touched) await flushSummary(store, proposalId, summaries);
   // receipt は待たない(次回 tick の reconcile で確定・通知)
 }
 

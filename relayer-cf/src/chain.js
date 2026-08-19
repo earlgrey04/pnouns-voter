@@ -47,6 +47,7 @@ export function cfg(env) {
     maxBatch: (() => { const n = Number(env.MAX_BATCH || 10); if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("MAX_BATCH must be 1..10"); return n; })(), // 1 tx にまとめる署名数の上限
     announce: env.ANNOUNCE !== "0",
     cronSec: Number(env.CRON_SEC || (env.NETWORK === "mainnet" ? 120 : 60)), // cron 間隔(秒)。署名受付締切の計算に使う
+    rushBatches: (() => { const n = Number(env.RUSH_BATCHES || 2); if (!Number.isInteger(n) || n < 1 || n > 3) throw new Error("RUSH_BATCHES must be 1..3"); return n; })(), // 受付締切後、1 tick で連続投函するバッチ数
     submitBufferSec: Number(env.SUBMIT_BUFFER_SEC || 120), // KV 反映・送信・採掘の余裕
     discordWebhook: env.DISCORD_WEBHOOK_URL || null,
     relayerKey: env.RELAYER_PRIVATE_KEY || null,
@@ -63,6 +64,13 @@ export function acceptDeadline(c, onchainDeadline) {
 // ワーカー側: 受付締切を過ぎたら最小待機を無視して即時投函(境界の票を取り残さない)
 export function shouldRushSubmit(c, block, onchainDeadline) {
   return Number(block) >= acceptDeadline(c, onchainDeadline);
+}
+// M-14R: 受付容量 = これから締切までに確実に回せる投函数。pending がこれ以上なら API は受付を止め、手動投函へ誘導する
+//   remainingTicks = floor(((onchainDeadline − block)×12 − 余裕) / cron 間隔)、1 tick あたり rushBatches × maxBatch 票
+export function submitCapacity(c, block, onchainDeadline) {
+  const secsLeft = (Number(onchainDeadline) - Number(block)) * 12 - c.submitBufferSec;
+  const ticks = Math.floor(secsLeft / c.cronSec);
+  return Math.max(0, ticks) * c.rushBatches * c.maxBatch;
 }
 export const storeNs = (c) => `${c.chainId}:${c.metagov.toLowerCase()}`;
 export function clients(c) {
