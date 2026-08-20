@@ -100,3 +100,15 @@ Prop 511 でクラウド通し(3 票 → 投函 → execute → Nouns DAO 賛成
 
 再検証: フォークテスト **16 本**、Worker テスト **11 本**(cursor 回帰 5 本を含む)。Sepolia 再デプロイ `0xFa8A9BBE8E22904Ad4d0f2840393b5088a159976`(Sourcify exact_match)。
 Snapshot の日次提案上限(5 件/日)に達していたため、**既存の投票済み Snapshot 提案を新しい Nouns 提案に対応付ける方式**(`scripts/sepolia/15-reuse-snap.js`)でライブ E2E を実施 → 4 票を取得・検証・集計(賛成 6/反対 2/棄権 1)し、Nouns DAO に賛成 2 票を記録。
+
+## 再監査(第 9 回・B3)への対応
+| ID | 重大度 | 対応 |
+|---|---|---|
+| 指摘1: 同一秒 300 件超で cursor 停滞 | High | ページ取得を **6 ページ(600 件)** に拡張し、**読み切れなかった場合は `complete=false` を返して cursor を一切進めない**(planSubmission が `blocked` で開始)。同時に ⚠️ 通知。回帰テスト追加(300 件処理済み + complete=false → advance 0、complete=true → advance T) |
+| 指摘2: NFT 移転後の補完票を見落とす | Medium | 補完要否の判定を「保有枚数 > 計上数」から **「未計上の tokenId が 1 枚でもあるか」** に変更。Worker は保有 tokenId ごとに `hasTokenVoted` を multicall で確認して `uncountedTokens` を作り、planSubmission に渡す。既定値は保守的に 0。回帰テスト追加(5 枚計上 → 手放して未計上 1 枚取得 → 補完対象と判定) |
+| 指摘3: 取消可否の判定 | Medium | `snapshotVotesAccepted`(**Snapshot 署名の受理件数**)を新設し、`unregisterProposal` はこれで判定。`snapshotVotesCounted`(新規 token 数)は統計用途に降格。フォークテスト追加(直接投票 → 新しい Snapshot 署名で choice 変更(新規 token 0) → 取消不可を確認) |
+| 指摘4: 恒久 revert 票が後続を塞ぐ | Medium | 個別 simulate の**決定的 revert のみ**回数を KV に記録し、5 回でデッドレター化(⚠️ 通知つき)。一時エラー(RPC 障害)は従来どおり再試行のみで回数を数えない |
+| 指摘5: 直近 15 件から外れた対応付け | Medium | ハブの直近 20 件に加え、**処理対象の Nouns 提案から `nounsToSnap` で逆引き**し、必要なら最大 200 件遡って Snapshot 提案を特定。投票期間中の対応付けを見失わない |
+
+再検証: フォークテスト **17 本**、Worker テスト **13 本**(300 件境界・token 入れ替えを追加)。Sepolia 再デプロイ `0x9b4AcC39f464d1F8A8F61A33E49f26Ea4688f5C1`(Sourcify exact_match)。再利用方式のライブ E2E で 3 票 → 集計(賛成 3/棄権 3 → 投票者 2:1 で賛成)→ Nouns DAO に賛成 2 票を記録。
+なお B3-M03R(Snapshot 終了がオンチェーン締切より遅い設定)は運用条件として扱い、mainnet のリリース条件に「Snapshot 投票期間 + 排出余裕 < Nouns 締切」を明記する。

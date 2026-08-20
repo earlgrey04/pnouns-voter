@@ -252,6 +252,30 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
       expect(await voterC.nounsToSnap(pid4)).to.equal(ethers.ZeroHash);
     });
 
+    it("指摘3 対策: 直接投票の後に Snapshot 署名でやり直しても(新規 token 0 でも)取消は不可になる", async function () {
+      const { id: pid5, snap: SNAP5 } = await newProposalWithSnap("s");
+      const [, , , , , , , , , , grace] = await ethers.getSigners();
+      let gid;
+      for (let id = 1; id <= 2100; id++) {
+        const owner = (await pnouns.ownerOf(id)).toLowerCase();
+        if (owner === PNOUNS_TREASURY || owner === (await voterC.getAddress()).toLowerCase()) continue;
+        const s2 = await impersonate(owner);
+        try { await pnouns.connect(s2).transferFrom(owner, grace.address, id); gid = BigInt(id); break; } catch {}
+      }
+      // まず直接投票(この時点では取消できる)
+      await voterC.connect(grace).castVote(pid5, 1, [gid]);
+      expect(await voterC.snapshotVotesAccepted(pid5)).to.equal(0n);
+      // 次に「より新しい」Snapshot 署名で choice を変更(新規 token は 0 枚)
+      const later = Number((await ethers.provider.getBlock("latest")).timestamp) + 1000; // フォークのブロック時刻を基準にする
+      const vg = await signSnapVote(grace, SNAP5, 2, later);
+      await voterC.castSnapshotVotes([snapVoteArg(vg, [gid])]);
+      const t = await voterC.tally(pid5);
+      expect(t.tokens[0]).to.equal(1n); // 反対に移った
+      expect(await voterC.snapshotVotesCounted(pid5)).to.equal(0n); // 新規 token は 0
+      expect(await voterC.snapshotVotesAccepted(pid5)).to.equal(1n); // だが受理は 1 件
+      await expect(voterC.unregisterProposal(pid5)).to.be.revertedWithCustomError(voterC, "VotesAlreadyCounted");
+    });
+
     it("M04 対策: EIP-1271 スマートウォレットの Snapshot 投票を検証できる", async function () {
       const { id: pid3, snap: SNAP3 } = await newProposalWithSnap("m");
       const [, , , , , , , , walletOwner] = await ethers.getSigners();

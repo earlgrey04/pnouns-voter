@@ -91,7 +91,9 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     mapping(bytes32 => uint256) public snapToNouns;
     /// Nouns 提案 id → keccak(Snapshot 提案 id 文字列)
     mapping(uint256 => bytes32) public nounsToSnap;
-    /// @notice Snapshot 由来で計上された token 数(直接 castVote と区別する。取消可否の判定に使う)
+    /// @notice Snapshot 署名が受理された件数(やり直しで新規 token が 0 でも増える。取消可否の判定に使う)
+    mapping(uint256 => uint32) public snapshotVotesAccepted;
+    /// @notice Snapshot 由来で新たに計上された token 数(統計用途)
     mapping(uint256 => uint32) public snapshotVotesCounted;
 
     struct SnapVote {
@@ -182,7 +184,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         if (msg.sender != registrar && msg.sender != owner()) revert NotRegistrar();
         bytes32 h = nounsToSnap[nounsProposalId];
         if (h == bytes32(0)) revert NotRegistered();
-        if (snapshotVotesCounted[nounsProposalId] != 0) revert VotesAlreadyCounted(); // 直接投票による妨害では取消を止めない
+        if (snapshotVotesAccepted[nounsProposalId] != 0) revert VotesAlreadyCounted(); // 受理済みの Snapshot 票が 1 件でもあれば取消不可(直接投票では妨害できない)
         delete snapToNouns[h];
         delete nounsToSnap[nounsProposalId];
         delete registeredAtBlock[nounsProposalId];
@@ -259,6 +261,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
             snapCounted += _castVote(fromAddr, nounsId, support, v.tokenIds, v.timestamp, digest);
         }
         snapshotVotesCounted[nounsId] += snapCounted;
+        snapshotVotesAccepted[nounsId] += uint32(votes.length); // 新規 token 数に関わらず「受理した」ことを記録
         _refundGas(startGas, votes.length, nounsId);
     }
 

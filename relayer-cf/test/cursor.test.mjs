@@ -50,7 +50,7 @@ test("やり直し(新しい timestamp)と補完(同 timestamp・token 増)を�
   const rows = [row("0xa", 500), row("0xb", 600)];
   // a: 既に ts=400 で反映済み → 500 は新しいのでやり直し扱い / b: ts=600 で 1 枚計上済み、いま 3 枚保有 → 補完
   const recs = [recDone(400), recDone(600, 1)];
-  const r = planSubmission(rows, recs, { tokenCounts: [2, 3], limit: 10, cursor: 0 });
+  const r = planSubmission(rows, recs, { tokenCounts: [2, 3], uncountedTokens: [0, 2], limit: 10, cursor: 0 });
   assert.equal(r.send.length, 2);
   assert.equal(r.advance, 0);
 });
@@ -60,4 +60,26 @@ test("すべて反映済みなら最大 created まで進む", () => {
   const r = planSubmission(rows, [recDone(100), recDone(200)], { tokenCounts: [1, 1], limit: 10, cursor: 50 });
   assert.equal(r.send.length, 0);
   assert.equal(r.advance, 200);
+});
+
+test("指摘1: ページを読み切れない(complete=false)ときは cursor を一切進めない", () => {
+  const T = 1000;
+  const rows = Array.from({ length: 300 }, (_, i) => row(`0x${i}`, T));
+  const recs = rows.map(() => recDone(T)); // 300 件すべて処理済みでも…
+  const r = planSubmission(rows, recs, { tokenCounts: rows.map(() => 1), limit: 20, cursor: 0, complete: false });
+  assert.equal(r.advance, 0, "読み切れていないので cursor を進めない(301 件目に到達できなくなるのを防ぐ)");
+  const r2 = planSubmission(rows, recs, { tokenCounts: rows.map(() => 1), limit: 20, cursor: 0, complete: true });
+  assert.equal(r2.advance, T, "読み切れていれば進めてよい");
+});
+
+test("指摘2: token を入れ替えた場合(保有数 < 計上数)でも補完対象として検出する", () => {
+  const rows = [row("0xa", 700)];
+  // 過去に 5 枚計上済み。その後手放し、未計上の 1 枚を取得 → 保有 1 枚・未計上 1 枚
+  const recs = [recDone(700, 5)];
+  const r = planSubmission(rows, recs, { tokenCounts: [1], uncountedTokens: [1], limit: 10, cursor: 0 });
+  assert.equal(r.send.length, 1, "枚数比較(1>5=偽)ではなく未計上 token の有無で判定する");
+  // 未計上がなければ送らない
+  const r2 = planSubmission(rows, recs, { tokenCounts: [1], uncountedTokens: [0], limit: 10, cursor: 0 });
+  assert.equal(r2.send.length, 0);
+  assert.equal(r2.advance, 700);
 });

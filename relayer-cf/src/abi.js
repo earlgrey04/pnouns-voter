@@ -461,6 +461,25 @@ export const METAGOV_ABI = [
     "type": "uint256"
    }
   ],
+  "name": "snapshotVotesAccepted",
+  "outputs": [
+   {
+    "internalType": "uint32",
+    "name": "",
+    "type": "uint32"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
   "name": "snapshotVotesCounted",
   "outputs": [
    {

@@ -144,22 +144,39 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
   }
 
   const cursor = Number(await store.kvRaw.get(cursorKey(store, nounsId))) || 0;
-  const rows = await fetchRows(c, snapInfo.snapId, cursor);
+  const { rows, complete } = await fetchRows(c, snapInfo.snapId, cursor);
+  if (!complete && !(await store.getFlag(`pagewarn:${nounsId}`))) { // 指摘1: 読み切れない = cursor を進めない + 通知
+    await store.setFlag(`pagewarn:${nounsId}`, 86400);
+    await notify(c, `⚠️ Prop ${nounsId}: 1 回で読み切れない量の投票があります(同一時刻に多数)。処理は継続しますが、進捗が遅くなる可能性があります。`);
+  }
   if (!rows.length) return;
   const deadArr = (await store.kvRaw.get(deadKey(store, nounsId), "json")) || [];
   const deadLetters = new Set(deadArr);
-  // オンチェーン記録と保有枚数
+  // オンチェーン記録と保有 tokenId(移転を正しく扱うため tokenId 単位で計上済みかを見る: 指摘2)
   const recs = await pc.multicall({ contracts: rows.map((v) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "voterRec", args: [BigInt(nounsId), v.voter] })), allowFailure: false });
   const owners = await allOwners(c, pc);
-  const tokenCounts = rows.map((v) => { const a = v.voter.toLowerCase(); let n = 0; for (let id = 1; id < owners.length; id++) if (owners[id] === a) n++; return n; });
+  const tokensByRow = rows.map((v) => { const a = v.voter.toLowerCase(); const ids = []; for (let id = 1; id < owners.length; id++) if (owners[id] === a) ids.push(id); return ids; });
+  const tokenCounts = tokensByRow.map((ids) => ids.length);
+  // hasTokenVoted をまとめて確認(送信候補になりうる行のみ: 保有ありかつ voterRec に記録あり)
+  const checkIdx = [];
+  rows.forEach((_, i) => { if (tokenCounts[i] > 0 && recs[i][0]) checkIdx.push(i); });
+  const flat = [];
+  for (const i of checkIdx) for (const id of tokensByRow[i]) flat.push({ i, id });
+  const votedFlags = flat.length
+    ? await pc.multicall({ contracts: flat.map((f) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasTokenVoted", args: [BigInt(nounsId), BigInt(f.id)] })), allowFailure: false })
+    : [];
+  const uncountedTokens = rows.map((_, i) => (recs[i][0] ? 0 : tokenCounts[i]));
+  flat.forEach((f, k) => { if (!votedFlags[k]) uncountedTokens[f.i] += 1; });
   const batches = rush ? c.rushBatches : 1;
-  const { send, advance } = planSubmission(rows, recs, { tokenCounts, deadLetters, limit: c.maxBatch * batches, cursor });
+  const drops = (await store.kvRaw.get(`${store.prefix}snapdrop:${nounsId}`, "json")) || {}; // 指摘4: 恒久 revert の回数
+  Object.entries(drops).forEach(([cid, n]) => { if (n >= 5) deadLetters.add(cid); });
+  const { send, advance } = planSubmission(rows, recs, { tokenCounts, uncountedTokens, deadLetters, limit: c.maxBatch * batches, cursor, complete });
   if (advance > cursor) await store.kvRaw.put(cursorKey(store, nounsId), String(advance));
   if (!send.length) return;
 
   // 送る票のエンベロープを取得(取れないものは fail カウント → デッドレター)
   const fails = (await store.kvRaw.get(failKey(store, nounsId), "json")) || {};
-  const args = []; let failChanged = false, deadChanged = false;
+  const args = []; const cidOf = new Map(); let failChanged = false, deadChanged = false, dropChanged = false;
   for (const { row, index } of send) {
     const env = await fetchEnvelope(c, row, snapInfo.snapId);
     if (!env) {
@@ -172,12 +189,13 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     }
     const m = env.data.message;
     const tokenIds = [];
-    const a = row.voter.toLowerCase();
-    for (let id = 1; id < owners.length && tokenIds.length < tokenCounts[index]; id++) if (owners[id] === a) tokenIds.push(BigInt(id));
-    args.push({ from: m.from, timestamp: BigInt(m.timestamp), proposal: m.proposal, choice: m.choice, reason: m.reason ?? "", app: m.app ?? "", metadata: m.metadata ?? "", signature: env.sig, tokenIds });
+    for (const id of tokensByRow[index]) tokenIds.push(BigInt(id));
+    const arg = { from: m.from, timestamp: BigInt(m.timestamp), proposal: m.proposal, choice: m.choice, reason: m.reason ?? "", app: m.app ?? "", metadata: m.metadata ?? "", signature: env.sig, tokenIds };
+    args.push(arg); cidOf.set(arg, row.ipfs);
   }
   if (failChanged) await store.kvRaw.put(failKey(store, nounsId), JSON.stringify(fails), { expirationTtl: 86400 * 30 });
   if (deadChanged) await store.kvRaw.put(deadKey(store, nounsId), JSON.stringify(deadArr), { expirationTtl: 86400 * 90 });
+  if (dropChanged) await store.kvRaw.put(`${store.prefix}snapdrop:${nounsId}`, JSON.stringify(drops), { expirationTtl: 86400 * 30 });
   if (!args.length) return;
 
   const txs = []; let count = 0;
@@ -188,7 +206,17 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     catch (e) {
       if (!isContractRevert(e)) { console.warn(`[snap] simulate transient error prop ${nounsId}: ${(e.shortMessage || e.message || "").slice(0, 120)}`); break; }
       const good = [];
-      for (const a2 of chunk.slice(0, 10)) { try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a2]], account: wc.account }); good.push(a2); } catch (e2) { console.warn(`[snap] drop vote ${a2.from.slice(0, 10)}: ${(e2.shortMessage || "").slice(0, 120)}`); } }
+      for (const a2 of chunk.slice(0, 10)) {
+        try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a2]], account: wc.account }); good.push(a2); }
+        catch (e2) {
+          const cid = cidOf.get(a2);
+          if (isContractRevert(e2) && cid) { // 決定的な revert だけ回数を数え、5 回でデッドレター(後続票を塞がない)
+            drops[cid] = (drops[cid] || 0) + 1; dropChanged = true;
+            if (drops[cid] === 5) await notify(c, [`⚠️ Prop ${nounsId}: 1 票がオンチェーンで受理されませんでした(5 回試行)。集計から除外します。`, `投票者: ${a2.from}`, `データ ID: ${cid}`].join("\n"));
+          }
+          console.warn(`[snap] drop vote ${a2.from.slice(0, 10)}: ${(e2.shortMessage || "").slice(0, 120)}`);
+        }
+      }
       if (!good.length) continue;
       chunk.length = 0; chunk.push(...good);
     }
@@ -197,6 +225,7 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     console.log(`[snap] castSnapshotVotes prop ${nounsId} ${chunk.length} votes tx ${hash}${rush ? " (rush)" : ""}`);
     txs.push(hash); count += chunk.length;
   }
+  if (dropChanged) await store.kvRaw.put(`${store.prefix}snapdrop:${nounsId}`, JSON.stringify(drops), { expirationTtl: 86400 * 30 });
   if (txs.length) await store.kvRaw.put(sentK, JSON.stringify({ txs, at: new Date().toISOString(), count }));
 }
 
@@ -363,7 +392,11 @@ export async function tick(env) {
         if (c.network === "mainnet" && Number(delay) < c.minRegistrationDelay) { await notifyError(c, "config", new Error(`registrationDelayBlocks(${delay}) が最低値 ${c.minRegistrationDelay} 未満です`)); return; } // H02R: fail-closed
         spaceChecked = true;
       }
-      try { const { mappings } = await resolveMappings(c, pc); snapByNouns = new Map(mappings.map((m) => [Number(m.nounsId), m])); }
+      try {
+        const active = proposals.filter((p) => p.state === 0 || p.state === 1).map((p) => p.id);
+        const { mappings } = await resolveMappings(c, pc, active);
+        snapByNouns = new Map(mappings.map((m) => [Number(m.nounsId), m]));
+      }
       catch (e) { await notifyError(c, "snapshot hub", e); }
     }
     for (const p of proposals) {
