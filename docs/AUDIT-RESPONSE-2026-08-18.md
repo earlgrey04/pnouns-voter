@@ -259,3 +259,39 @@ create-and-register の副作用なし fail(dry-run/fetch 失敗)、非 Snapshot
 pendingnotes の id 重複排除。
 
 テスト: relayer 43 pass / contracts 19 pass。コントラクト無変更(Worker のみ再デプロイ)。
+
+---
+
+## 第15回監査 (2026-08-20, Codex CLI / read-only) — 第14回修正の検証とクローズ判定
+
+対象: 8e37def + シリーズ総括。生ログ: `docs/audit-15-codex-raw.md`
+判定: 「Medium 1 件と StaleVote selector を修正後にコード面クローズ」→ 本コミットで対応。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | Medium | graceBad の排出見積りは最初の 1 wave(最大 20 票)分のみ。猶予明けに 21 票以上滞留していると、締切までに全票を投函できず**部分集計が確定**しうる | 修正(Codex 推奨 3 案のうち最終防壁を採用): 締切後の execute 前に、ハブの投票者数と「オンチェーン計上 + dead-letter」を実数照合。未反映が残っていれば警告し、mainnet は自動 execute を停止(手動 execute で救済)。照合不能(ハブ障害)時も mainnet は停止。テスト 3 ケース追加(mainnet 停止 / testnet 続行 / 全票反映済みなら mainnet も確定) |
+| 2 | Low | StaleVote() テストの selector が誤り(0x3d7ac07d ≠ 正 0x93ff56e3)。復号失敗 → 「数える」で偶然パスし、「復号可能な恒久 revert」を検証できていない | 修正: 正しい selector に変更し、`errorName === "StaleVote"` の復号確認を先行して assert ※selector 誤りは Codex 報告前にこちらの検算でも特定済み |
+| 3 | Low | 「実投函フルパス」は言い過ぎ(receipt 確定 → cursor 前進は未検証) | 表現を「送信・snapsent 保存まで」と認識。receipt → 再走査 → cursor 前進は Sepolia E2E の確認項目 5 に割当 |
+| - | 記録 | graceBad の提案は unregister → 再登録では回復しない(猶予が再カウント) | RUNBOOK §8 に手動運用への切替を明記 |
+
+**問題なしと確認**: ABI 28 error は artifact と完全一致・RegistrationTooRecent の復号が実際に機能
+(二重防御②復旧)・decode 誤爆なし・graceBad 境界(>=)は安全側・3 ゲートの優先順位に矛盾なし・
+deploy/check-deploy の検証・env $ENV の実行可能性。
+
+**accepted risk 一覧(Codex 妥当性確認済み)**: ①自己整合する悪意ある registrar は URL 照合で
+検出不能(猶予+独立鍵+公開監視で受け止め) ②直接投票は取消を妨げない(DoS 回避の意図的設計)
+③pendingnotes の KV 失敗窓・上限・重複(補助通知のみ) ④/vote/989偽 の false positive
+⑤Worker mock の網羅限界(E2E で補完)。
+
+### Sepolia E2E チェックリスト(第15回監査提示・明日実施)
+
+1. registrar・relayer・owner・Snapshot bot が 4 つの別アドレス
+2. create-and-register 後、対応表・registeredAtBlock・eligibleAtBlock が期待値
+3. 猶予中に投票しても snapsent/snapdrop/dead-letter が増えない
+4. block == eligibleAtBlock 以降、同じ票が自動投函される
+5. receipt 成功後に snapsent が消え、voterRec 確認で cursor が前進する
+6. 複数バッチ(21 票以上)で全票が締切前に排出される / 未反映があれば execute が止まる
+7. RegistrationTooRecent / StaleVote の実 revert が復号され、前者だけ drop 非加算
+8. ハブ障害・対応不明・link 不一致・timeline 不足で fail-closed
+9. receipt revert・10 分未採掘で再評価され、票が消えない・重複しない
+10. 最終集計が Snapshot 全票と一致し、通知・execute が期待どおり

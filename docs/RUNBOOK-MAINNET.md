@@ -103,4 +103,8 @@ npx wrangler secret put DISCORD_WEBHOOK_URL --env mainnet   # pNouns 公式 Disc
   dApp の「手動 execute」または Etherscan から `execute(proposalId)`
 - 誤登録の疑い: 24h 猶予内なら registrar/owner から `unregisterProposal` → 正しい ID で再登録
   (Worker の自動照合が Discord に⚠️を出す)
+- **登録が遅すぎた(graceBad 警告)**: 単純な unregister → 再登録では回復しない
+  (再登録すると猶予がその時点から再カウントされ、さらに遅くなる)。この提案は自動反映を
+  諦め、**手動運用に切り替える**(従来どおり委任元から手動投票)。締切時に未反映の票が
+  残った場合(backlogwarn 警告)も同様に、自動 execute は止まるので手動で判断する
 - registrar 鍵漏洩: `setRegistrar(新アドレス)`。relayer 鍵漏洩: secret 差し替えのみ(票の偽造は不可能)

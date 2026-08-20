@@ -1,7 +1,7 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
 import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit, snapshotTimelineSafe, allOwners } from "./chain.js";
-import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, supplementCheckPlan, uniqueVoterCandidates, scanKey, deadKey, failKey } from "./snap.js";
+import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, supplementCheckPlan, uniqueVoterCandidates, scanKey, deadKey, failKey, snapshotVoterCount } from "./snap.js";
 import { keccak256, stringToBytes } from "viem";
 import { makeStore } from "./store.js";
 
@@ -552,6 +552,26 @@ export async function tick(env) {
         } else if (!c.snapshotSpace || snapInfo) {
           // Snapshot モードでは対応付けの取れた提案のみ確定させる。未登録の提案を
           // "no votes" として確定してしまうと、登録が遅れただけの提案を切り捨てる。
+          // 最終防壁(第15回監査): 締切時点でハブ上の投票者数が「オンチェーン計上 + dead-letter」を
+          // 上回るなら、未反映の票が残っている。graceBad の見積り(最初の 1 wave 分)では
+          // 21 票以上の滞留を排出しきれないケースがあり、部分集計の確定を許してしまうため、
+          // ここで実数を照合する。mainnet では確定を止めて警告する(手動 execute で救済可能)。
+          if (c.snapshotSpace && snapInfo && !mg.executed) {
+            let backlog = null;
+            try {
+              const hubVoters = await snapshotVoterCount(c, snapInfo.snapId);
+              const deadArr = (await store.kvRaw.get(deadKey(store, p.id), "json")) || [];
+              const counted = mg.voters[0] + mg.voters[1] + mg.voters[2];
+              backlog = hubVoters - counted - deadArr.length;
+            } catch (e) { console.warn(`[worker] prop ${p.id}: backlog check failed: ${e.message}`); }
+            if (backlog === null || backlog > 0) {
+              if (!(await store.getFlag(`backlogwarn:${p.id}`))) {
+                const sent = await notify(c, [`⚠️ Prop ${p.id}: 締切時点で Nouns DAO に反映されていない票が${backlog === null ? "ないか確認できません" : ` ${backlog} 名分残っています`}。`, c.network === "mainnet" ? "部分的な集計を最終結果にしないため、自動 execute を停止しました。票を確認のうえ、手動 execute で確定してください。" : "テスト環境のため execute は続行します。"].join("\n"));
+                if (sent) await store.setFlag(`backlogwarn:${p.id}`, 86400 * 7);
+              }
+              if (c.network === "mainnet") continue;
+            }
+          }
           await maybeExecute(c, pc, wc, store, p, block, mg);
         }
       } catch (e) {

@@ -39,6 +39,14 @@ async function hubGql(c, query) {
   return j.data;
 }
 
+/// ハブ上の投票者数(1 人 1 レコード)。締切時の「未反映の票が残っていないか」の最終確認に使う(第15回監査)
+export async function snapshotVoterCount(c, snapId) {
+  const d = await hubGql(c, `{ proposal(id:"${snapId}") { votes } }`);
+  const n = Number(d?.proposal?.votes);
+  if (!Number.isFinite(n)) throw new Error("hub: votes count shape");
+  return n;
+}
+
 /// Snapshot 提案 ↔ Nouns 提案の対応付けを毎回オンチェーンで検証して返す(M01R)。
 /// 指摘5: ハブの直近提案だけでなく、**現在処理対象の Nouns 提案**からも逆引きする
 ///        (同じ space で新しい提案が 15 件以上作られても、投票期間中の対応付けを失わない)。

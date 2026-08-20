@@ -324,7 +324,11 @@ test("実投函: RegistrationTooRecent の revert は ABI で復号され、drop
 
 test("実投函: 復号可能な恒久 revert(StaleVote)は drop に数える", async () => {
   const wallet = { account: { address: RELAYER }, writeContract: async () => "0x" + "ee".repeat(32) };
-  const revert = () => { throw new ContractFunctionRevertedError({ abi: METAGOV_ABI, data: "0x3d7ac07d", functionName: "castSnapshotVotes" }); }; // StaleVote()
+  // StaleVote() = keccak256("StaleVote()")[0:4] = 0x93ff56e3。復号できていることを先に確認する
+  // (第15回監査: 誤 selector だと「復号失敗 → 数える」で偶然パスし、復号成功時の挙動を証明できない)
+  const staleErr = new ContractFunctionRevertedError({ abi: METAGOV_ABI, data: "0x93ff56e3", functionName: "castSnapshotVotes" });
+  assert.equal(staleErr.data?.errorName, "StaleVote", "ABI で StaleVote が復号される");
+  const revert = () => { throw staleErr; };
   const { kv, env } = setup(submitHandlers({ simulateContract: revert }), {}, wallet);
   F.hub = hubWithVote(); F.envelope = goodEnvelope();
   await tick(env);
@@ -337,4 +341,35 @@ test("猶予境界: block == eligibleAt では投函が始まる", async () => {
   F.hub = hubWithVote(); F.envelope = goodEnvelope();
   await tick(env);
   assert.ok(F.hubCalls >= 2, "votes クエリに到達(off-by-one なし)");
+});
+
+test("第15回監査: 締切時に未反映の票が残っていれば mainnet は execute しない", async () => {
+  const wallet = { account: { address: RELAYER }, writeContract: async () => "0x" + "ee".repeat(32) };
+  const mainnetEnv = { NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03" };
+  // ハブは 3 名が投票、オンチェーン計上は 1 名、dead-letter なし → 2 名分が未反映
+  const h = handlers({ __block: 196, tally: () => [[0n, 0n, 0n], [1n, 0n, 0n], false, 0] });
+  // Snapshot は締切前に終了済み(過去の end)。未来だと timelineBad が先に止めてしまい防壁を検証できない
+  const pastProposal = { proposals: [{ id: SNAP_ID, title: "T", end: Math.floor(Date.now() / 1000) - 100000, discussion: "https://nouns.wtf/vote/1", body: "" }] };
+  {
+    const { kv, env } = setup(h, mainnetEnv, wallet);
+    F.hub = [pastProposal, { proposal: { votes: 3 } }];
+    await tick(env);
+    assert.ok(F.discordBodies.some((b) => b.includes("反映されていない票")), "警告が出る");
+    assert.equal(putsOf(kv, "executed").length, 0, "mainnet は部分集計を確定しない");
+  }
+  // sepolia は警告のみで続行(確定される)
+  {
+    const { kv, env } = setup(h, {}, wallet);
+    F.hub = [pastProposal, { proposal: { votes: 3 } }];
+    await tick(env);
+    assert.equal(putsOf(kv, "executed").length, 1, "テストネットは続行");
+  }
+  // 全票反映済み(hub 1 名 = 計上 1 名)なら mainnet でも確定する
+  {
+    const { kv, env } = setup(h, mainnetEnv, wallet);
+    F.hub = [pastProposal, { proposal: { votes: 1 } }];
+    await tick(env);
+    assert.equal(putsOf(kv, "executed").length, 1, "未反映ゼロなら mainnet も確定する");
+  }
 });
