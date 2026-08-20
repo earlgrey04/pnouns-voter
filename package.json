@@ -17,6 +17,7 @@
     "hardhat": "^2.29.0"
   },
   "dependencies": {
+    "@snapshot-labs/snapshot.js": "^0.17.0",
     "express": "^5.2.1"
   }
 }

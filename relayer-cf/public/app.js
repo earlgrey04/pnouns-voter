@@ -77,6 +77,7 @@ async function render() {
   const { block, proposals: all } = await api("/api/proposals?closed=8");
   const proposals = all.filter((p) => p.votable);
   const closed = all.filter((p) => !p.votable);
+  const snapMode = CONFIG.snapshotSpace;
   const root = $("#proposals");
   root.innerHTML = "";
   if (!proposals.length) root.innerHTML = `<div class="card">現在、投票受付中の Nouns 提案はありません。(block ${block})</div>`;
@@ -102,7 +103,8 @@ async function render() {
       <div id="my-${p.id}"></div>`;
     root.appendChild(el);
     el.querySelectorAll("button.submitall").forEach((b) => b.addEventListener("click", () => manualSubmit(Number(b.dataset.p))));
-    if (account && p.votable) await renderMine(p);
+    if (snapMode && p.votable) { const d = document.createElement("div"); d.className = "muted"; d.innerHTML = `投票は <a href="https://snapshot.box/#/s:${CONFIG.snapshotSpace}" target="_blank" rel="noopener">Snapshot(${escapeHtml(CONFIG.snapshotSpace)})</a> から。結果は自動でオンチェーンに反映されます。`; el.appendChild(d); }
+    else if (account && p.votable) await renderMine(p);
   }
   if (closed.length) {
     const el = document.createElement("div");

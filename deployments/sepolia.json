@@ -5,5 +5,7 @@
   "metagovDeployBlock": 11511807,
   "marginBlocks": 5,
   "voter": "0x3C7fb408EE6A5c2732770110B6dd48527F360e26",
-  "voterDeployBlock": 11514747
+  "voterDeployBlock": 11514747,
+  "snapVoter": "0xc181c8fB1268FD02b5849428013037d25F5B2206",
+  "snapVoterDeployBlock": 11526264
 }

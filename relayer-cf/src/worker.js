@@ -1,6 +1,7 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
 import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit } from "./chain.js";
+import { resolveMappings, collectVotes } from "./snap.js";
 import { makeStore } from "./store.js";
 
 async function notify(c, text) {
@@ -19,10 +20,24 @@ function isContractRevert(e) {
   return false;
 }
 
-async function announceNew(c, pc, store, p, block) {
+async function announceNew(c, pc, store, p, block, snapInfo) {
   if (await store.getAnnounced(p.id)) return;
   const mg = await metagovInfo(c, pc, p.id);
   if (mg.deadline && block >= mg.deadline) { await store.putAnnounced(p.id, "late"); return; }
+  if (c.snapshotSpace) {
+    if (!snapInfo) return; // Snapshot 提案が対応付けられるまで告知しない
+    const minutes = Math.max(0, Math.round(((mg.deadline || p.endBlock) - block) * 12 / 60));
+    const jst = new Date(Date.now() + minutes * 60000).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
+    await store.putAnnounced(p.id, new Date().toISOString());
+    await notify(c, [
+      `📢 Nouns Prop ${p.id}「${snapInfo.title || ""}」の投票受付を開始しました。`,
+      `いつもどおり Snapshot から投票してください(ガス不要)。結果は自動で Nouns DAO に反映されます。`,
+      `締切: ${jst} ごろ (block ${mg.deadline})`,
+      `投票: https://snapshot.box/#/s:${c.snapshotSpace}/proposal/${snapInfo.snapId}`,
+      `提案の内容: https://nouns.wtf/vote/${p.id}`,
+    ].join("\n"));
+    return;
+  }
   const title = await proposalTitle(c, pc, store, p.id, p.creationBlock, p.state);
   const deadlineBlock = mg.deadline || p.endBlock;
   const minutes = Math.max(0, Math.round((deadlineBlock - block) * 12 / 60));
@@ -94,6 +109,46 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
   }
   if (changed) await flushSummary(store, proposalId, summaries);
   return changed;
+}
+
+// B3: Snapshot ハブから署名を取得して castSnapshotVotes。送信中は KV の snapsent:{id} で追跡(次 tick で receipt 確定)
+async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId) {
+  const key = `snapsent:${nounsId}`;
+  const pending = await store.kvRaw.get(`${store.prefix}${key}`, "json");
+  if (pending) {
+    let rc = null;
+    try { rc = await pc.getTransactionReceipt({ hash: pending.tx }); } catch { rc = null; }
+    if (!rc && Date.now() - Date.parse(pending.at) < 10 * 60 * 1000) return; // まだ確定待ち
+    await store.kvRaw.delete(`${store.prefix}${key}`);
+    if (rc && rc.status === "success" && !(await store.getFlag(`notified:${pending.tx}`))) {
+      await store.setFlag(`notified:${pending.tx}`, 86400);
+      const mg = await metagovInfo(c, pc, nounsId);
+      await notify(c, [
+        `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${rc.gasUsed})。`,
+        `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
+        `tx: ${explorerTx(c, pending.tx)}`,
+      ].join("\n"));
+    } else if (rc && rc.status !== "success") {
+      console.warn(`[snap] castSnapshotVotes reverted ${pending.tx}`);
+    }
+    if (rc) return; // 確定処理をした tick では新規送信しない
+  }
+  const { args, skipped } = await collectVotes(c, pc, snapInfo.snapId, nounsId, c.maxBatch);
+  if (skipped) console.log(`[snap] prop ${nounsId}: ${skipped} vote(s) skipped (no pNouns)`);
+  if (!args.length) return;
+  try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [args], account: wc.account }); }
+  catch (e) {
+    if (!isContractRevert(e)) { console.warn(`[snap] simulate transient error prop ${nounsId}: ${(e.shortMessage || e.message || "").slice(0, 120)}`); return; }
+    // 個別に切り分け(不正票は無視して残りを送る)
+    const good = [];
+    for (const a of args.slice(0, 10)) { try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a]], account: wc.account }); good.push(a); } catch (e2) { console.warn(`[snap] drop vote ${a.from.slice(0, 10)}: ${(e2.shortMessage || "").slice(0, 120)}`); } }
+    if (!good.length) return;
+    args.length = 0; args.push(...good);
+  }
+  const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [args], account: wc.account });
+  const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [args], gas: (gas * 13n) / 10n });
+  console.log(`[snap] castSnapshotVotes prop ${nounsId} ${args.length} votes tx ${hash}`);
+  await store.kvRaw.put(`${store.prefix}${key}`, JSON.stringify({ tx: hash, at: new Date().toISOString(), count: args.length }));
 }
 
 async function submitPending(c, pc, wc, store, proposalId, block, onchainDeadline) {
@@ -245,14 +300,23 @@ export async function tick(env) {
     if (Date.now() - lastBalanceCheck > 10 * 60 * 1000) { lastBalanceCheck = Date.now(); try { await checkBalance(c, pc, wc, store); } catch (e) { console.warn("[worker] balance check failed", e.message); } }
     const { block, proposals } = await recentProposals(c, pc);
     await reconcileRecent(c, pc, wc, store, proposals);
+    // B3: Snapshot 提案 ↔ Nouns 提案の対応付けを解決(SNAPSHOT_SPACE 設定時)
+    let snapByNouns = new Map();
+    if (c.snapshotSpace) {
+      try { const { mappings } = await resolveMappings(c, pc, store); snapByNouns = new Map(mappings.map((m) => [Number(m.nounsId), m])); }
+      catch (e) { await notifyError(c, "snapshot hub", e); }
+    }
     for (const p of proposals) {
       if (p.state !== 0 && p.state !== 1) continue;
       try {
-        if (c.announce) await announceNew(c, pc, store, p, block);
+        const snapInfo = snapByNouns.get(p.id) || null;
+        if (c.announce) await announceNew(c, pc, store, p, block, snapInfo);
         const mg = await metagovInfo(c, pc, p.id);
         if (!wc) continue;
-        if (block < mg.deadline) await submitPending(c, pc, wc, store, String(p.id), block, mg.deadline);
-        else await maybeExecute(c, pc, wc, store, p, block, mg);
+        if (block < mg.deadline) {
+          if (c.snapshotSpace) { if (snapInfo) await submitFromSnapshot(c, pc, wc, store, snapInfo, p.id); }
+          else await submitPending(c, pc, wc, store, String(p.id), block, mg.deadline);
+        } else await maybeExecute(c, pc, wc, store, p, block, mg);
       } catch (e) {
         await notifyError(c, `worker prop ${p.id}`, e);
       }

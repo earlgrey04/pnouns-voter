@@ -1,4 +1,4 @@
-// PNounsVoter の必要最小限 ABI(artifacts から抽出)
+// PNounsSnapVoter の必要最小限 ABI(artifacts から抽出)
 export const METAGOV_ABI = [
  {
   "anonymous": false,
@@ -42,6 +42,25 @@ export const METAGOV_ABI = [
   "inputs": [
    {
     "indexed": true,
+    "internalType": "uint256",
+    "name": "nounsProposalId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "string",
+    "name": "snapshotProposal",
+    "type": "string"
+   }
+  ],
+  "name": "ProposalRegistered",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
     "internalType": "address",
     "name": "refundee",
     "type": "address"
@@ -68,7 +87,7 @@ export const METAGOV_ABI = [
    {
     "indexed": true,
     "internalType": "uint256",
-    "name": "proposalId",
+    "name": "nounsProposalId",
     "type": "uint256"
    },
    {
@@ -85,18 +104,24 @@ export const METAGOV_ABI = [
    },
    {
     "indexed": false,
-    "internalType": "uint256[]",
-    "name": "tokenIds",
-    "type": "uint256[]"
+    "internalType": "uint32",
+    "name": "counted",
+    "type": "uint32"
    },
    {
     "indexed": false,
-    "internalType": "uint256",
-    "name": "counted",
-    "type": "uint256"
+    "internalType": "uint64",
+    "name": "timestamp",
+    "type": "uint64"
+   },
+   {
+    "indexed": false,
+    "internalType": "bool",
+    "name": "revote",
+    "type": "bool"
    }
   ],
-  "name": "VoteCast",
+  "name": "SnapVoteCounted",
   "type": "event"
  },
  {
@@ -104,32 +129,80 @@ export const METAGOV_ABI = [
    {
     "components": [
      {
-      "internalType": "uint256",
-      "name": "proposalId",
-      "type": "uint256"
+      "internalType": "string",
+      "name": "from",
+      "type": "string"
      },
      {
-      "internalType": "uint8",
-      "name": "support",
-      "type": "uint8"
+      "internalType": "uint64",
+      "name": "timestamp",
+      "type": "uint64"
      },
      {
-      "internalType": "uint256[]",
-      "name": "tokenIds",
-      "type": "uint256[]"
+      "internalType": "string",
+      "name": "proposal",
+      "type": "string"
+     },
+     {
+      "internalType": "uint32",
+      "name": "choice",
+      "type": "uint32"
+     },
+     {
+      "internalType": "string",
+      "name": "reason",
+      "type": "string"
+     },
+     {
+      "internalType": "string",
+      "name": "app",
+      "type": "string"
+     },
+     {
+      "internalType": "string",
+      "name": "metadata",
+      "type": "string"
      },
      {
       "internalType": "bytes",
       "name": "signature",
       "type": "bytes"
+     },
+     {
+      "internalType": "uint256[]",
+      "name": "tokenIds",
+      "type": "uint256[]"
      }
     ],
-    "internalType": "struct PNounsVoter.VoteSig[]",
+    "internalType": "struct PNounsSnapVoter.SnapVote[]",
     "name": "votes",
     "type": "tuple[]"
    }
   ],
-  "name": "castVotesBySig",
+  "name": "castSnapshotVotes",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "nounsProposalId",
+    "type": "uint256"
+   },
+   {
+    "internalType": "uint8",
+    "name": "support",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint256[]",
+    "name": "tokenIds",
+    "type": "uint256[]"
+   }
+  ],
+  "name": "castVote",
   "outputs": [],
   "stateMutability": "nonpayable",
   "type": "function"
@@ -213,12 +286,12 @@ export const METAGOV_ABI = [
   "inputs": [
    {
     "internalType": "uint256",
-    "name": "",
+    "name": "proposalId",
     "type": "uint256"
    },
    {
     "internalType": "address",
-    "name": "",
+    "name": "voter",
     "type": "address"
    }
   ],
@@ -260,6 +333,25 @@ export const METAGOV_ABI = [
   "type": "function"
  },
  {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "name": "nounsToSnap",
+  "outputs": [
+   {
+    "internalType": "bytes32",
+    "name": "",
+    "type": "bytes32"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
   "inputs": [],
   "name": "refundEnabled",
   "outputs": [
@@ -281,6 +373,25 @@ export const METAGOV_ABI = [
    }
   ],
   "name": "refundedForProposal",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "bytes32",
+    "name": "",
+    "type": "bytes32"
+   }
+  ],
+  "name": "snapToNouns",
   "outputs": [
    {
     "internalType": "uint256",
@@ -339,6 +450,45 @@ export const METAGOV_ABI = [
     "internalType": "uint256",
     "name": "",
     "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   },
+   {
+    "internalType": "address",
+    "name": "",
+    "type": "address"
+   }
+  ],
+  "name": "voterRec",
+  "outputs": [
+   {
+    "internalType": "bool",
+    "name": "exists",
+    "type": "bool"
+   },
+   {
+    "internalType": "uint8",
+    "name": "support",
+    "type": "uint8"
+   },
+   {
+    "internalType": "uint32",
+    "name": "counted",
+    "type": "uint32"
+   },
+   {
+    "internalType": "uint64",
+    "name": "timestamp",
+    "type": "uint64"
    }
   ],
   "stateMutability": "view",

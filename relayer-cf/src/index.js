@@ -18,7 +18,7 @@ app.use("*", async (ctx, next) => {
 
 app.get("/api/config", (ctx) => {
   const c = cfg(ctx.env);
-  return ctx.json({ network: c.network, chainId: c.chainId, metagov: c.metagov, pnouns: c.pnouns, nounsDAO: c.nounsDAO, explorer: c.explorer, blockscout: c.blockscout, domain: domain(c), types: VOTE_TYPES });
+  return ctx.json({ network: c.network, chainId: c.chainId, metagov: c.metagov, pnouns: c.pnouns, nounsDAO: c.nounsDAO, explorer: c.explorer, blockscout: c.blockscout, snapshotSpace: c.snapshotSpace, domain: domain(c), types: VOTE_TYPES });
 });
 
 app.get("/api/proposals", async (ctx) => {
@@ -91,6 +91,7 @@ async function readJsonLimited(req, limit = 65536) {
 
 app.post("/api/vote", async (ctx) => {
   const c = cfg(ctx.env);
+  if (c.snapshotSpace) return ctx.json({ error: `voting happens on Snapshot: https://snapshot.box/#/s:${c.snapshotSpace}`, code: "snapshot_mode" }, 410);
   const { publicClient: pc } = clients(c);
   const store = makeStore(ctx.env.STATE, storeNs(c));
   let body;
