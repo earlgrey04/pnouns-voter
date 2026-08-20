@@ -1,7 +1,7 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
-import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit, allOwners } from "./chain.js";
-import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, cursorKey, deadKey, failKey } from "./snap.js";
+import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit, snapshotTimelineSafe, allOwners } from "./chain.js";
+import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, supplementCheckPlan, uniqueVoterCandidates, scanKey, deadKey, failKey } from "./snap.js";
 import { keccak256, stringToBytes } from "viem";
 import { makeStore } from "./store.js";
 
@@ -143,13 +143,12 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     return;
   }
 
-  const cursor = Number(await store.kvRaw.get(cursorKey(store, nounsId))) || 0;
-  const { rows, complete } = await fetchRows(c, snapInfo.snapId, cursor);
-  if (!complete && !(await store.getFlag(`pagewarn:${nounsId}`))) { // 指摘1: 読み切れない = cursor を進めない + 通知
-    await store.setFlag(`pagewarn:${nounsId}`, 86400);
-    await notify(c, `⚠️ Prop ${nounsId}: 1 回で読み切れない量の投票があります(同一時刻に多数)。処理は継続しますが、進捗が遅くなる可能性があります。`);
-  }
-  if (!rows.length) return;
+  // timestamp cursor では同一秒の大量票を一意に走査できないため、固定幅 window の offset を
+  // KV に保持して末尾まで巡回する。window 内が解決するまで offset は進めない。
+  const scanK = scanKey(store, nounsId, snapInfo.snapId);
+  const offset = Number(await store.kvRaw.get(scanK)) || 0;
+  const { rows, nextOffset } = await fetchRows(c, snapInfo.snapId, offset);
+  if (!rows.length) { if (offset !== nextOffset) await store.kvRaw.put(scanK, String(nextOffset)); return; }
   const deadArr = (await store.kvRaw.get(deadKey(store, nounsId), "json")) || [];
   const deadLetters = new Set(deadArr);
   // オンチェーン記録と保有 tokenId(移転を正しく扱うため tokenId 単位で計上済みかを見る: 指摘2)
@@ -157,22 +156,26 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
   const owners = await allOwners(c, pc);
   const tokensByRow = rows.map((v) => { const a = v.voter.toLowerCase(); const ids = []; for (let id = 1; id < owners.length; id++) if (owners[id] === a) ids.push(id); return ids; });
   const tokenCounts = tokensByRow.map((ids) => ids.length);
-  // hasTokenVoted をまとめて確認(送信候補になりうる行のみ: 保有ありかつ voterRec に記録あり)
-  const checkIdx = [];
-  rows.forEach((_, i) => { if (tokenCounts[i] > 0 && recs[i][0]) checkIdx.push(i); });
-  const flat = [];
-  for (const i of checkIdx) for (const id of tokensByRow[i]) flat.push({ i, id });
-  const votedFlags = flat.length
-    ? await pc.multicall({ contracts: flat.map((f) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasTokenVoted", args: [BigInt(nounsId), BigInt(f.id)] })), allowFailure: false })
-    : [];
+  // hasTokenVoted は tokenId 単位で重複排除し、RPC サイズを抑えるため 200 件ずつ照会する。
+  // timestamp が voterRec と同じ行だけが補完候補なので、新しいやり直し票にはこの照会自体が不要。
+  const { rowIndexes: supplementRows, tokenIds: checkTokenIds } = supplementCheckPlan(rows, recs, tokensByRow);
+  const votedByToken = new Map();
+  for (let start = 0; start < checkTokenIds.length; start += 200) {
+    const ids = checkTokenIds.slice(start, start + 200);
+    const flags = await pc.multicall({ contracts: ids.map((id) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasTokenVoted", args: [BigInt(nounsId), BigInt(id)] })), allowFailure: false });
+    ids.forEach((id, i) => votedByToken.set(id, !!flags[i]));
+  }
   const uncountedTokens = rows.map((_, i) => (recs[i][0] ? 0 : tokenCounts[i]));
-  flat.forEach((f, k) => { if (!votedFlags[k]) uncountedTokens[f.i] += 1; });
+  for (const i of supplementRows) for (const id of tokensByRow[i]) if (!votedByToken.get(id)) uncountedTokens[i] += 1;
   const batches = rush ? c.rushBatches : 1;
   const drops = (await store.kvRaw.get(`${store.prefix}snapdrop:${nounsId}`, "json")) || {}; // 指摘4: 恒久 revert の回数
   Object.entries(drops).forEach(([cid, n]) => { if (n >= 5) deadLetters.add(cid); });
-  const { send, advance } = planSubmission(rows, recs, { tokenCounts, uncountedTokens, deadLetters, limit: c.maxBatch * batches, cursor, complete });
-  if (advance > cursor) await store.kvRaw.put(cursorKey(store, nounsId), String(advance));
-  if (!send.length) return;
+  const planned = planSubmission(rows, recs, { tokenCounts, uncountedTokens, deadLetters, limit: rows.length, cursor: 0 });
+  // 1 voter 1 候補へ正規化。同一 voter の複数票を同じ tx に入れて interaction revert させない。
+  const send = uniqueVoterCandidates(planned.send, c.maxBatch * batches);
+  // 値が変わるときだけ書く(毎 tick 書くと無料枠の KV 書込み上限 1,000/日 を超えるため。
+  // 投票数が 1 window(300 件)に収まる通常運用では offset は常に 0 で、書き込みは発生しない)
+  if (!send.length) { if (offset !== nextOffset) await store.kvRaw.put(scanK, String(nextOffset)); return; }
 
   // 送る票のエンベロープを取得(取れないものは fail カウント → デッドレター)
   const fails = (await store.kvRaw.get(failKey(store, nounsId), "json")) || {};
@@ -218,6 +221,13 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
         }
       }
       if (!good.length) continue;
+      // 個別には成功しても、組合せによって revert する可能性を排除するため再 simulate。
+      // なお失敗する場合は、この tick では先頭 1 票だけを送り、次回 on-chain 状態から再評価する。
+      try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [good], account: wc.account }); }
+      catch (e3) {
+        if (!isContractRevert(e3)) { console.warn(`[snap] re-simulate transient error prop ${nounsId}: ${(e3.shortMessage || e3.message || "").slice(0, 120)}`); break; }
+        good.length = 1;
+      }
       chunk.length = 0; chunk.push(...good);
     }
     const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [chunk], account: wc.account });
@@ -406,15 +416,18 @@ export async function tick(env) {
         if (c.announce) await announceNew(c, pc, store, p, block, snapInfo);
         const mg = await metagovInfo(c, pc, p.id);
         if (!wc) continue;
+        // M03R: mainnet では投函だけでなく execute も止め、不完全な自動集計を最終結果にしない。
+        if (c.snapshotSpace && snapInfo) {
+          const timelineSafe = snapshotTimelineSafe(c, block, mg.deadline, snapInfo.snapEnd);
+          if (!timelineSafe && !(await store.getFlag(`endwarn:${p.id}`))) {
+            await store.setFlag(`endwarn:${p.id}`, 86400 * 7);
+            await notify(c, `⚠️ Prop ${p.id}: Snapshot 終了後の排出時間が不足しています。${c.network === "mainnet" ? "mainnet は安全側に停止しました。設定を修正し、必要なら手動投函・executeしてください。" : "締切後の票は反映されない可能性があります。"}`);
+          }
+          if (!timelineSafe && c.network === "mainnet") continue;
+        }
         if (block < mg.deadline) {
           if (c.snapshotSpace) {
             if (snapInfo) {
-              // M03: Snapshot の投票終了がオンチェーン締切より遅い場合は警告(締切後の票は反映されない)
-              const deadlineEta = Date.now() / 1000 + (mg.deadline - block) * 12;
-              if (snapInfo.snapEnd && snapInfo.snapEnd > deadlineEta - c.submitBufferSec && !(await store.getFlag(`endwarn:${p.id}`))) {
-                await store.setFlag(`endwarn:${p.id}`, 86400 * 7);
-                await notify(c, `⚠️ Prop ${p.id}: Snapshot の投票終了がオンチェーン締切より遅い設定です。締切(block ${mg.deadline})後に投じられた票は反映されません。`);
-              }
               const rush = shouldRushSubmit(c, block, mg.deadline);
               await submitFromSnapshot(c, pc, wc, store, snapInfo, p.id, rush);
             }

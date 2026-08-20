@@ -112,3 +112,19 @@ Snapshot の日次提案上限(5 件/日)に達していたため、**既存の�
 
 再検証: フォークテスト **17 本**、Worker テスト **13 本**(300 件境界・token 入れ替えを追加)。Sepolia 再デプロイ `0x9b4AcC39f464d1F8A8F61A33E49f26Ea4688f5C1`(Sourcify exact_match)。再利用方式のライブ E2E で 3 票 → 集計(賛成 3/棄権 3 → 投票者 2:1 で賛成)→ Nouns DAO に賛成 2 票を記録。
 なお B3-M03R(Snapshot 終了がオンチェーン締切より遅い設定)は運用条件として扱い、mainnet のリリース条件に「Snapshot 投票期間 + 排出余裕 < Nouns 締切」を明記する。
+
+## 第 9 回再監査の残存リスクへの対応
+| ID | 重大度 | 対応 |
+|---|---|---|
+| 600 件以上で cursor が永久停滞 | High | timestamp cursor と固定ページ上限を廃止。100 件×3ページの **window offset を KV に保存**し、window 内の未解決票がなくなった時だけ次へ進む。末尾で offset=0 に戻して全体を再走査するため、同一秒 601 件以上でも全行へ到達し、途中挿入も次周回で回収する。GraphQL モックで 601 件を 3 tick で全取得する回帰テストを追加 |
+| 組合せ revert がデッドレターされない | High | 送信候補を **1 voter 1 票**へ正規化。同 timestamp は CID の辞書順で決定する。バッチ失敗後の個別切り分け結果を再度バッチ simulate し、それでも interaction revert する場合は先頭 1 票だけを送って次 tick の on-chain 状態から再評価する |
+| `hasTokenVoted` 照会増幅 | Medium | 補完候補を `created == voterRec.timestamp` に限定し、tokenId を全行で重複排除。最大 2,100 token を 200 件ずつ multicall する。600 行×100 token が一意な100照会になる回帰テストを追加 |
+| B3-M03R | Medium | mainnet は Snapshot 終了後に `cron + submit buffer` の排出時間がない場合、または終了時刻不明の場合に **投函・execute とも fail-closed**。Discord 通知と境界テストを追加 |
+
+再検証: Worker テストに 601 件巡回・同一 voter 正規化・tokenId 重複排除・timeline fail-closed 境界を追加。コントラクトは変更なし。
+
+### レビュー結果(第 9 回の修正を Claude 側で独立確認、2026-08-20)
+Codex による修正(timestamp cursor 廃止 → KV offset の巡回、1 バッチ 1 投票者への正規化、hasTokenVoted の重複排除、mainnet の排出時間 fail-closed)を精査し、設計は妥当と判断。以下 1 点のみ修正した。
+- **KV 書込み予算の退行(要修正・対応済み)**: 送るものが無い tick でも scan offset を無条件に KV へ書いていた(`put(scanK, ...)`)。通常運用(投票数 ≤ 300)では offset は常に 0 のままなので、毎分 1 write = 1,440 件/日となり、第 3 回監査(H-04R)で確保した無料枠(1,000 writes/日)を超える。**値が変化したときだけ書く**よう修正。
+- 確認したが問題なしと判断した点: (a) offset 巡回は on-chain voterRec を真実とするため、行の並びが不安定でも次周回で必ず拾える。(b) 送信対象が残っている間は offset を進めないので、window 内の未解決票を飛ばさない。(c) `uniqueVoterCandidates` は Snapshot ハブが (proposal, voter) で 1 行に集約するため通常は作動しないが、防御として妥当。(d) mainnet の fail-closed は execute も止めるため、Snapshot 終了時刻が不明・遅い場合は手動実行が必要になる(通知文に明記済み)。
+再検証: フォークテスト 17 本 / Worker テスト 17 本 / Sepolia ライブ E2E(Prop 526: 3 票 → 賛成 3・棄権 3 → 投票者 2:1 で賛成 → Nouns DAO に賛成 2 票)。

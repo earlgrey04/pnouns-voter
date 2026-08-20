@@ -70,6 +70,13 @@ export function acceptDeadline(c, onchainDeadline) {
 export function shouldRushSubmit(c, block, onchainDeadline) {
   return Number(block) >= acceptDeadline(c, onchainDeadline);
 }
+// B3-M03R: Snapshot の終了後にも最低 1 cron + submit buffer の排出時間が残ること。
+// snapEnd が取得できない場合も mainnet では安全とみなさない。
+export function snapshotTimelineSafe(c, block, onchainDeadline, snapEnd, nowSec = Date.now() / 1000) {
+  if (!Number.isFinite(Number(snapEnd)) || Number(snapEnd) <= 0) return false;
+  const deadlineEta = Number(nowSec) + (Number(onchainDeadline) - Number(block)) * 12;
+  return Number(snapEnd) <= deadlineEta - c.cronSec - c.submitBufferSec;
+}
 // M-14R: 受付容量 = これから締切までに確実に回せる投函数。pending がこれ以上なら API は受付を止め、手動投函へ誘導する
 //   remainingTicks = floor(((onchainDeadline − block)×12 − 余裕) / cron 間隔)、1 tick あたり rushBatches × maxBatch 票
 export function submitCapacity(c, block, onchainDeadline) {

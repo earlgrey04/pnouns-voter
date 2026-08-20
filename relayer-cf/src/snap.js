@@ -1,10 +1,9 @@
 // B3 モード: Snapshot(本物のハブ)の投票署名を取得し、PNounsSnapVoter に送信する。
 // 監査対応:
-//  H04 — cursor は「オンチェーンの voterRec が真実」という前提で保守的に進める。
-//        取得は created_gte(境界の秒を含む)。未解決の票より先には絶対に進めない。
-//        同一秒に何票あっても、オンチェーン状態でしか「済み」と判定しないので取りこぼさない。
+//  H04 — オンチェーンの voterRec を真実とし、固定幅 window を KV offset で巡回する。
+//        timestamp cursor を使わないため、同一秒に何票あっても後続ページへ到達できる。
 //  M01R — 対応付けは毎 tick オンチェーンで再検証する(取消・再登録に追従)。
-//  M06R — 応答はストリームで 64KB 打ち切り。検証できない票では cursor を進めず、
+//  M06R — 応答はストリームで 64KB 打ち切り。検証できない票では window を進めず、
 //         恒久的に取得できない票は dead-letter に記録して警告する(黙って捨てない)。
 import { METAGOV_ABI } from "./chain.js";
 import { keccak256, stringToBytes } from "viem";
@@ -80,9 +79,9 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
 /// rows は created 昇順。recs[i] = [exists, support, counted, timestamp, digest]。
 /// - resolved(オンチェーン反映済み) / skip(対象外・デッドレター) は cursor を進めてよい
 /// - それ以外(送る対象・取得失敗)が現れたら、そこで cursor の前進を打ち切る
-export function planSubmission(rows, recs, { tokenCounts, uncountedTokens, deadLetters = new Set(), limit = 10, cursor = 0, complete = true }) {
+export function planSubmission(rows, recs, { tokenCounts, uncountedTokens, deadLetters = new Set(), limit = 10, cursor = 0 }) {
   const send = []; const skipped = [];
-  let advance = cursor; let blocked = !complete; // 指摘1: 読み切れていないなら cursor を一切進めない
+  let advance = cursor; let blocked = false;
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i]; const rec = recs[i];
     const created = Number(r.created);
@@ -121,23 +120,50 @@ export async function fetchEnvelope(c, row, snapId) {
   return null;
 }
 
-/// ハブから未反映の投票を取得する(cursor は境界の秒を含めて取得 = 取りこぼさない)。
-/// 指摘1: ページを読み切れなかった場合(同一秒に大量の票がある等)は complete=false を返し、
-///        呼び出し側は cursor を進めない(進めると 301 件目以降へ到達できなくなるため)。
-export const MAX_PAGES = 6; // 100 件 × 6 = 600 件/tick
-export async function fetchRows(c, snapId, cursor) {
+/// ハブの投票を固定幅の window で取得する。
+/// timestamp cursor は同一秒の大量投稿を一意に走査できないため使わず、KV に保存した skip offset を
+/// 複数 tick で進め、末尾まで到達したら 0 に戻して全体を再走査する。途中で行が追加・削除されても、
+/// 次の周回で on-chain voterRec と突き合わせるため恒久的な取りこぼしにはならない。
+export const PAGE_SIZE = 100;
+export const PAGES_PER_TICK = 3;
+export async function fetchRows(c, snapId, offset = 0) {
   const rows = [];
-  let complete = true;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const d = await hubGql(c, `{ votes(where:{proposal:"${snapId}", created_gte:${cursor}}, first: 100, skip: ${page * 100}, orderBy: "created", orderDirection: asc) { voter ipfs choice created } }`);
+  for (let page = 0; page < PAGES_PER_TICK; page++) {
+    const skip = offset + page * PAGE_SIZE;
+    const d = await hubGql(c, `{ votes(where:{proposal:"${snapId}"}, first: ${PAGE_SIZE}, skip: ${skip}, orderBy: "created", orderDirection: asc) { voter ipfs choice created } }`);
     if (!Array.isArray(d.votes)) throw new Error("hub: votes shape");
     rows.push(...d.votes);
-    if (d.votes.length < 100) break;
-    if (page === MAX_PAGES - 1) complete = false; // 最終ページも満杯 = 読み切れていない
+    if (d.votes.length < PAGE_SIZE) return { rows, nextOffset: 0, wrapped: true };
   }
-  return { rows, complete };
+  return { rows, nextOffset: offset + rows.length, wrapped: false };
 }
 
-export const cursorKey = (store, nounsId) => `${store.prefix}snapcursor:${nounsId}`;
+/// 補完判定に必要な tokenId を重複排除する。hasTokenVoted は proposalId/tokenId のみで決まり、
+/// 同じ投票者の複数行ごとに再照会する必要はない。
+export function supplementCheckPlan(rows, recs, tokensByRow) {
+  const rowIndexes = [];
+  const unique = new Set();
+  rows.forEach((r, i) => {
+    if (!recs[i]?.[0] || Number(r.created) !== Number(recs[i]?.[3] ?? 0) || !tokensByRow[i]?.length) return;
+    rowIndexes.push(i);
+    for (const id of tokensByRow[i]) unique.add(Number(id));
+  });
+  return { rowIndexes, tokenIds: [...unique].sort((a, b) => a - b) };
+}
+
+/// 同じ voter の候補を 1 バッチに複数入れると、個別 simulate は成功しても組合せで
+/// StaleVote になりうる。voter ごとに created が新しく、同値なら CID が大きい 1 行へ正規化する。
+export function uniqueVoterCandidates(send, limit) {
+  const byVoter = new Map();
+  for (const item of send) {
+    const key = item.row.voter.toLowerCase();
+    const prev = byVoter.get(key);
+    if (!prev || Number(item.row.created) > Number(prev.row.created)
+      || (Number(item.row.created) === Number(prev.row.created) && String(item.row.ipfs) > String(prev.row.ipfs))) byVoter.set(key, item);
+  }
+  return [...byVoter.values()].sort((a, b) => Number(a.row.created) - Number(b.row.created) || String(a.row.ipfs).localeCompare(String(b.row.ipfs))).slice(0, limit);
+}
+
+export const scanKey = (store, nounsId, snapId) => `${store.prefix}snapscan:${nounsId}:${snapId}`;
 export const deadKey = (store, nounsId) => `${store.prefix}snapdead:${nounsId}`;
 export const failKey = (store, nounsId) => `${store.prefix}snapfail:${nounsId}`;

@@ -101,4 +101,5 @@ NETWORK=sepolia node relayer/index.js        # http://localhost:8790  (mainnet �
 - 段階2 残り: dApp の「手動 execute」ボタン(ワーカー停止時の保険)、残高警告、日本語要約の表示(任意)、独自ドメイン
 - pNouns Voter 方式では Snapshot への「起案」工程(pnouns-mirror の drafts→PR→publish)は不要。Nouns 提案は自動で受付対象になる
 - 段階3: mainnet に `liveMode=false` でデプロイし Snapshot と並走 → 一致を確認 → マルチシグが委任先を切替、`liveMode=true`
+- B3 mainnet の安全条件: Snapshot 終了からオンチェーン締切までに `cron 間隔 + SUBMIT_BUFFER_SEC` 以上を確保する。Worker は不足または終了時刻不明なら**投函・execute とも fail-closed**し、Discord へ警告する
 - 決定(2026-08-18): mainnet 鍵は新規生成、margin 24h。未決: ガス代負担(案 A/B)、owner をどのマルチシグにするか。**mainnet デプロイは指示があるまで行わない**

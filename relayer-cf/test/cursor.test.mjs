@@ -1,7 +1,7 @@
 // B3-H04 の回帰テスト: cursor は未解決票より先に進まない / 同一秒の票を取りこぼさない
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planSubmission } from "../src/snap.js";
+import { fetchRows, planSubmission, scanKey, supplementCheckPlan, uniqueVoterCandidates } from "../src/snap.js";
 
 const row = (voter, created, ipfs) => ({ voter, created, ipfs: ipfs || `cid-${voter}-${created}` });
 const recNone = [false, 0, 0, 0, "0x"];
@@ -62,14 +62,26 @@ test("すべて反映済みなら最大 created まで進む", () => {
   assert.equal(r.advance, 200);
 });
 
-test("指摘1: ページを読み切れない(complete=false)ときは cursor を一切進めない", () => {
-  const T = 1000;
-  const rows = Array.from({ length: 300 }, (_, i) => row(`0x${i}`, T));
-  const recs = rows.map(() => recDone(T)); // 300 件すべて処理済みでも…
-  const r = planSubmission(rows, recs, { tokenCounts: rows.map(() => 1), limit: 20, cursor: 0, complete: false });
-  assert.equal(r.advance, 0, "読み切れていないので cursor を進めない(301 件目に到達できなくなるのを防ぐ)");
-  const r2 = planSubmission(rows, recs, { tokenCounts: rows.map(() => 1), limit: 20, cursor: 0, complete: true });
-  assert.equal(r2.advance, T, "読み切れていれば進めてよい");
+test("指摘1R: 601 件を複数 tick の offset 走査で末尾まで取得して先頭へ戻る", async () => {
+  const votes = Array.from({ length: 601 }, (_, i) => row(`0x${i}`, 1000, `cid-${i}`));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    const query = JSON.parse(init.body).query;
+    const first = Number(query.match(/first:\s*(\d+)/)?.[1]);
+    const skip = Number(query.match(/skip:\s*(\d+)/)?.[1]);
+    return new Response(JSON.stringify({ data: { votes: votes.slice(skip, skip + first) } }), { status: 200 });
+  };
+  try {
+    let offset = 0; const got = [];
+    for (let tick = 0; tick < 3; tick++) {
+      const r = await fetchRows({ snapshotHub: "https://hub.invalid" }, "snap", offset);
+      got.push(...r.rows.map((v) => v.ipfs)); offset = r.nextOffset;
+    }
+    assert.equal(got.length, 601);
+    assert.equal(new Set(got).size, 601);
+    assert.equal(got.at(-1), "cid-600");
+    assert.equal(offset, 0, "末尾に到達したら全体再走査のため先頭へ戻る");
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("指摘2: token を入れ替えた場合(保有数 < 計上数)でも補完対象として検出する", () => {
@@ -82,4 +94,29 @@ test("指摘2: token を入れ替えた場合(保有数 < 計上数)でも補完
   const r2 = planSubmission(rows, recs, { tokenCounts: [1], uncountedTokens: [0], limit: 10, cursor: 0 });
   assert.equal(r2.send.length, 0);
   assert.equal(r2.advance, 700);
+});
+
+test("指摘3R: 補完用 token 照会は行数ではなく一意な tokenId 数に制限される", () => {
+  const rows = Array.from({ length: 600 }, (_, i) => row("0xaaa", 700, `cid-${i}`));
+  const recs = rows.map(() => recDone(700, 100));
+  const tokensByRow = rows.map(() => Array.from({ length: 100 }, (_, i) => i + 1));
+  const p = supplementCheckPlan(rows, recs, tokensByRow);
+  assert.equal(p.rowIndexes.length, 600);
+  assert.equal(p.tokenIds.length, 100, "60,000 回ではなく一意な 100 token だけ照会する");
+});
+
+test("指摘2R: 同一 voter の候補は最新 1 件だけをバッチへ入れる", () => {
+  const send = [
+    { row: row("0xaaa", 100, "cid-a"), index: 0 },
+    { row: row("0xaaa", 100, "cid-b"), index: 1 },
+    { row: row("0xbbb", 101, "cid-c"), index: 2 },
+  ];
+  const selected = uniqueVoterCandidates(send, 10);
+  assert.equal(selected.length, 2);
+  assert.equal(selected.find((x) => x.row.voter === "0xaaa").row.ipfs, "cid-b");
+});
+
+test("再登録した Snapshot 提案は別の scan offset を使う", () => {
+  const store = { prefix: "1:voter:" };
+  assert.notEqual(scanKey(store, 42, "snap-a"), scanKey(store, 42, "snap-b"));
 });

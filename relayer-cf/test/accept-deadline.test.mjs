@@ -1,7 +1,7 @@
 // M-14 境界テスト: 署名受付締切 = オンチェーン締切 − (最小待機 + cron 間隔 + 余裕)/12 ブロック
 import test from "node:test";
 import assert from "node:assert/strict";
-import { acceptMarginBlocks, acceptDeadline, shouldRushSubmit, submitCapacity } from "../src/chain.js";
+import { acceptMarginBlocks, acceptDeadline, shouldRushSubmit, snapshotTimelineSafe, submitCapacity } from "../src/chain.js";
 
 const mainnet = { minPendingAgeSec: 120, cronSec: 120, submitBufferSec: 120, rushBatches: 2, maxBatch: 10 };
 const sepolia = { minPendingAgeSec: 20, cronSec: 60, submitBufferSec: 120, rushBatches: 2, maxBatch: 10 };
@@ -42,4 +42,13 @@ test("M-14R: 受付容量は残り tick × rushBatches × maxBatch。締切直�
 test("受付締切より十分前なら容量は大きく、通常運用を妨げない(1 日前 ≈ 14,000 票)", () => {
   const dl = 1_000_000;
   assert.ok(submitCapacity(mainnet, dl - 7200, dl) > 2100);
+});
+
+test("B3-M03R: Snapshot 終了後に cron + buffer の排出時間がなければ unsafe", () => {
+  const now = 2_000_000_000, block = 1000, deadline = 1100;
+  const deadlineEta = now + 1200;
+  assert.equal(snapshotTimelineSafe(mainnet, block, deadline, deadlineEta - 241, now), true);
+  assert.equal(snapshotTimelineSafe(mainnet, block, deadline, deadlineEta - 240, now), true, "境界は許可");
+  assert.equal(snapshotTimelineSafe(mainnet, block, deadline, deadlineEta - 239, now), false);
+  assert.equal(snapshotTimelineSafe(mainnet, block, deadline, 0, now), false, "終了時刻不明は fail-closed");
 });
