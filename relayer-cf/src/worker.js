@@ -384,11 +384,17 @@ async function checkBalance(c, pc, wc, store) {
   const checks = [];
   if (wc) checks.push({ key: "lowbal", label: "リレイヤー残高", address: wc.account.address, hint: "投函・execute が止まらないよう補充してください。締切後の execute は誰でも(dApp の手動ボタンからも)実行できます。" });
   checks.push({ key: "lowpool", label: "返金プール(pNouns Voter コントラクト)残高", address: c.metagov, hint: "投函者へのガス払い戻しが止まります(投票自体は成立します)。トレジャリーから補充してください。" });
+  // 登録係は返金がなく自分のガスを消費していくため、少額の下限(通常の 1/10)で監視する
+  try {
+    const reg = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "registrar" });
+    checks.push({ key: "lowreg", label: "登録係(registrar)残高", address: reg, hint: "残高が尽きると新しい提案の対応付け登録が失敗します(登録操作には返金がありません)。少額を補充してください。", threshold: Number(c.lowBalanceEth) / 10 });
+  } catch (e) { console.warn("[worker] registrar balance check skipped", e.message); }
   for (const ck of checks) {
+    const th = ck.threshold ?? threshold;
     const eth = Number(await pc.getBalance({ address: ck.address })) / 1e18;
-    if (eth >= threshold) continue; // 回復時の削除は書込み節約のため行わず TTL 失効に任せる
+    if (eth >= th) continue; // 回復時の削除は書込み節約のため行わず TTL 失効に任せる
     if (await store.getFlag(ck.key)) continue;
-    const sent = await notify(c, [`⚠️ ${ck.label}が少なくなっています: ${eth.toFixed(5)} ETH (閾値 ${threshold} ETH)`, `アドレス: ${ck.address} (${c.network})`, ck.hint].join("\n"));
+    const sent = await notify(c, [`⚠️ ${ck.label}が少なくなっています: ${eth.toFixed(5)} ETH (閾値 ${ck.threshold ?? threshold} ETH)`, `アドレス: ${ck.address} (${c.network})`, ck.hint].join("\n"));
     if (sent) await store.setFlag(ck.key, 86400);
   }
 }
