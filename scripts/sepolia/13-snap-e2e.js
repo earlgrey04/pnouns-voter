@@ -74,6 +74,9 @@ async function main() {
   // ④ 対応付け登録
   await (await snapVoter.registerProposal(snapId, nounsId)).wait();
   console.log("④ registered mapping");
+  // 登録猶予(eligibleAtBlock)が明けるまで待つ。第10回監査 M-2 で、猶予は登録時に確定する仕様になった
+  const eligible = Number(await snapVoter.eligibleAtBlock(nounsId));
+  if (eligible > await ethers.provider.getBlockNumber()) await waitForBlock(ethers.provider, eligible, "④ 登録猶予の明けを待機");
 
   // ⑤ hub から投票(署名)を取得して送信
   await sleep(10000); // hub の反映待ち

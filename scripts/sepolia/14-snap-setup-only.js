@@ -32,6 +32,7 @@ async function main() {
   const nounsId = await dao.proposalCount();
   const snapVoter = await ethers.getContractAt("PNounsSnapVoter", dep.snapVoter, deployer);
   await (await snapVoter.registerProposal(receipt.id, nounsId)).wait();
-  console.log(`nouns proposal #${nounsId} registered → あとは Worker が処理`);
+  const eligible = Number(await snapVoter.eligibleAtBlock(nounsId));
+  console.log(`nouns proposal #${nounsId} registered → あとは Worker が処理 (票の受付解禁 block ${eligible}, 現在 ${await ethers.provider.getBlockNumber()})`);
 }
 main().catch((e) => { console.error(e.error_description || e.shortMessage || e.message); process.exit(1); });
