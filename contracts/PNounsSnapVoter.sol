@@ -56,6 +56,8 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     INounsDAO public immutable nounsDAO;
     /// @notice 対象の Snapshot スペース(例: "pnounsdao.eth")のハッシュ
     bytes32 public immutable spaceHash;
+    /// @notice 対象の Snapshot スペース名(Nouns DAO に残す理由文に使う)
+    string public space;
 
     mapping(address => bool) public excluded;
     uint256 public marginBlocks;
@@ -150,6 +152,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         pnouns = IERC721(pnouns_);
         nounsDAO = INounsDAO(nounsDAO_);
         spaceHash = keccak256(bytes(space_));
+        space = space_;
         registrar = registrar_;
         marginBlocks = marginBlocks_;
         registrationDelayBlocks = registrationDelayBlocks_;
@@ -403,10 +406,10 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     }
     function _max3(uint256 a, uint256 b, uint256 c) internal pure returns (uint256 m) { m = a > b ? a : b; if (c > m) m = c; }
 
-    function _reason(uint256[3] memory tokens, uint256[3] memory voters, uint8 support) internal pure returns (string memory) {
+    function _reason(uint256[3] memory tokens, uint256[3] memory voters, uint8 support) internal view returns (string memory) {
         string memory word = support == FOR ? "FOR" : support == AGAINST ? "AGAINST" : "ABSTAIN";
         return string.concat(
-            "pNouns holders voted on Snapshot (pnounsdao.eth), verified on-chain by pNouns Snap Voter: ", word,
+            "pNouns holders voted on Snapshot (", space, "), verified on-chain by pNouns Snap Voter: ", word,
             " (tokens for/against/abstain = ", tokens[1].toString(), "/", tokens[0].toString(), "/", tokens[2].toString(),
             ", voters = ", voters[1].toString(), "/", voters[0].toString(), "/", voters[2].toString(), ")"
         );
