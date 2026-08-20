@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1200" role="img" aria-labelledby="title desc">
+  <title id="title">pNouns Voter — Snapshot の投票を Nouns DAO へ自動反映する仕組み</title>
+  <desc id="desc">投票の5段階の流れ、4つの鍵による役割分離、ガス代の循環を上から順に説明する図。</desc>
+  <defs>
+    <marker id="arrow-gray" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4b5563"/>
+    </marker>
+    <marker id="arrow-red" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#d22209"/>
+    </marker>
+    <style>
+      text { font-family: sans-serif; fill: #4b5563; }
+      .zone-title { font-size: 27px; font-weight: 700; }
+      .zone-note { font-size: 18px; }
+      .step-no { font-size: 20px; font-weight: 700; fill: #ffffff; }
+      .who { font-size: 19px; font-weight: 700; fill: #ffffff; }
+      .step-title { font-size: 23px; font-weight: 700; }
+      .body { font-size: 18px; }
+      .small { font-size: 18px; fill: #ffffff; }
+      .card-title { font-size: 22px; font-weight: 700; }
+      .card-sub { font-size: 18px; }
+      .cant { font-size: 18px; font-weight: 700; fill: #d22209; }
+      .node-title { font-size: 21px; font-weight: 700; }
+      .node-sub { font-size: 18px; }
+      .pill-text { fill: #ffffff; }
+      .banner-text { fill: #ffffff; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1200" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="800" y="55" text-anchor="middle" font-size="36" font-weight="700">pNouns Voter — Snapshot の投票を Nouns DAO へ自動反映する仕組み</text>
+  <line x1="48" y1="82" x2="1552" y2="82" stroke="#4b5563" stroke-width="2" opacity="0.3"/>
+
+  <!-- Zone A -->
+  <g id="zone-a">
+    <text class="zone-title" x="48" y="122"><tspan fill="#1c5aa8">A</tspan><tspan>　投票の流れ</tspan></text>
+    <text class="zone-note" x="1552" y="122" text-anchor="end">青＝クラウド　／　紫＝オンチェーン</text>
+
+    <!-- flow arrows -->
+    <path d="M 336 385 H 357" fill="none" stroke="#4b5563" stroke-width="5" marker-end="url(#arrow-gray)"/>
+    <path d="M 632 385 H 653" fill="none" stroke="#4b5563" stroke-width="5" marker-end="url(#arrow-gray)"/>
+    <path d="M 928 385 H 949" fill="none" stroke="#4b5563" stroke-width="5" marker-end="url(#arrow-gray)"/>
+    <path d="M 1224 385 H 1245" fill="none" stroke="#4b5563" stroke-width="5" marker-end="url(#arrow-gray)"/>
+
+    <!-- Step 1 -->
+    <g transform="translate(48 150)">
+      <rect width="288" height="470" rx="18" fill="#1c5aa8" fill-opacity="0.09" stroke="#1c5aa8" stroke-width="3"/>
+      <rect x="18" y="18" width="160" height="34" rx="17" fill="#1c5aa8"/>
+      <text class="who" x="98" y="42" text-anchor="middle" fill="#ffffff">誰が：メンバー</text>
+      <circle cx="254" cy="35" r="21" fill="#1c5aa8"/>
+      <text class="step-no" x="254" y="42" text-anchor="middle">1</text>
+      <text class="step-title" x="144" y="94" text-anchor="middle">
+        <tspan x="144">Snapshot で</tspan><tspan x="144" dy="31">投票</tspan>
+      </text>
+      <g transform="translate(144 174)" fill="none" stroke="#1c5aa8" stroke-width="5">
+        <path d="M -50 25 C -48 3 -30 -8 -12 -3 C -2 -30 39 -26 43 3 C 66 5 70 38 48 45 H -44 C -68 44 -72 14 -50 8"/>
+        <path d="M -12 23 L 2 37 L 28 9"/>
+      </g>
+      <text class="body" x="144" y="259" text-anchor="middle">
+        <tspan x="144">ウォレットで署名するだけ</tspan>
+        <tspan x="144" dy="30" font-weight="700" fill="#d22209">ガス代 0 円</tspan>
+        <tspan x="144" dy="38">ETH がなくても投票可能</tspan>
+      </text>
+      <rect x="79" y="410" width="130" height="36" rx="18" fill="#1c5aa8"/>
+      <text class="small" x="144" y="435" text-anchor="middle" fill="#ffffff" font-weight="700">クラウド</text>
+    </g>
+
+    <!-- Step 2 -->
+    <g transform="translate(344 150)">
+      <rect width="288" height="470" rx="18" fill="#1c5aa8" fill-opacity="0.09" stroke="#1c5aa8" stroke-width="3"/>
+      <rect x="18" y="18" width="170" height="34" rx="17" fill="#1c5aa8"/>
+      <text class="who" x="103" y="42" text-anchor="middle" fill="#ffffff">誰が：Snapshot</text>
+      <circle cx="254" cy="35" r="21" fill="#1c5aa8"/>
+      <text class="step-no" x="254" y="42" text-anchor="middle">2</text>
+      <text class="step-title" x="144" y="94" text-anchor="middle">
+        <tspan x="144">署名が</tspan><tspan x="144" dy="31">公開保存される</tspan>
+      </text>
+      <g transform="translate(144 166)" fill="none" stroke="#1c5aa8" stroke-width="5">
+        <rect x="-55" y="-2" width="110" height="70" rx="6"/>
+        <path d="M -35 18 H 35 M -35 37 H 35 M -35 56 H 12"/>
+        <circle cx="49" cy="-8" r="15" fill="#ffffff"/>
+        <path d="M 43 -8 L 48 -3 L 57 -13"/>
+      </g>
+      <text class="body" x="144" y="259" text-anchor="middle">
+        <tspan x="144">メッセージ＋署名を</tspan>
+        <tspan x="144" dy="30">Snapshot / IPFS に保存</tspan>
+        <tspan x="144" dy="38" font-weight="700">誰でも読める「公開掲示板」</tspan>
+      </text>
+      <rect x="79" y="410" width="130" height="36" rx="18" fill="#1c5aa8"/>
+      <text class="small" x="144" y="435" text-anchor="middle" fill="#ffffff" font-weight="700">クラウド</text>
+    </g>
+
+    <!-- Step 3 -->
+    <g transform="translate(640 150)">
+      <rect width="288" height="470" rx="18" fill="#1c5aa8" fill-opacity="0.09" stroke="#1c5aa8" stroke-width="3"/>
+      <rect x="18" y="18" width="180" height="34" rx="17" fill="#1c5aa8"/>
+      <text class="who" x="108" y="42" text-anchor="middle" fill="#ffffff">誰が：リレイヤー</text>
+      <circle cx="254" cy="35" r="21" fill="#1c5aa8"/>
+      <text class="step-no" x="254" y="42" text-anchor="middle">3</text>
+      <text class="step-title" x="144" y="94" text-anchor="middle">
+        <tspan x="144">署名を運ぶだけ</tspan><tspan x="144" dy="31">（2 分ごと）</tspan>
+      </text>
+      <g transform="translate(144 178)" fill="none" stroke="#1c5aa8" stroke-width="5">
+        <path d="M -58 8 H 18 V 55 H -58 Z M 18 23 H 43 L 58 40 V 55 H 18"/>
+        <circle cx="-34" cy="58" r="11" fill="#ffffff"/><circle cx="39" cy="58" r="11" fill="#ffffff"/>
+        <path d="M -40 27 H -4"/>
+      </g>
+      <text class="body" x="144" y="275" text-anchor="middle">
+        <tspan x="144">Cloudflare の配達員</tspan>
+        <tspan x="144" dy="32">中身を書き換えると</tspan>
+        <tspan x="144" dy="30" font-weight="700" fill="#d22209">署名が無効になり拒否</tspan>
+      </text>
+      <rect x="55" y="410" width="178" height="36" rx="18" fill="#1c5aa8"/>
+      <text class="small" x="144" y="435" text-anchor="middle" fill="#ffffff" font-weight="700">Cloudflare</text>
+    </g>
+
+    <!-- Step 4 -->
+    <g transform="translate(936 150)">
+      <rect width="288" height="470" rx="18" fill="#5b3fa8" fill-opacity="0.09" stroke="#5b3fa8" stroke-width="3"/>
+      <rect x="18" y="18" width="190" height="34" rx="17" fill="#5b3fa8"/>
+      <text class="who" x="113" y="42" text-anchor="middle" fill="#ffffff">誰が：コントラクト</text>
+      <circle cx="254" cy="35" r="21" fill="#5b3fa8"/>
+      <text class="step-no" x="254" y="42" text-anchor="middle">4</text>
+      <text class="step-title" x="144" y="92" text-anchor="middle">
+        <tspan x="144">pNouns Voter</tspan><tspan x="144" dy="31">自分で検証・集計</tspan>
+      </text>
+      <g transform="translate(144 176)" fill="none" stroke="#5b3fa8" stroke-width="5">
+        <path d="M 0 -23 L 49 -5 V 28 C 49 58 22 76 0 86 C -22 76 -49 58 -49 28 V -5 Z"/>
+        <path d="M -22 29 L -4 47 L 28 11"/>
+      </g>
+      <text class="body" x="144" y="283" text-anchor="middle">
+        <tspan x="144">✓ 署名の本人確認</tspan>
+        <tspan x="144" dy="27">✓ NFT 保有を 1 枚ずつ照会</tspan>
+        <tspan x="144" dy="27">✓ 二重計上を防止</tspan>
+        <tspan x="144" dy="27">✓ 締切を確認</tspan>
+      </text>
+      <rect x="65" y="410" width="158" height="36" rx="18" fill="#5b3fa8"/>
+      <text class="small" x="144" y="435" text-anchor="middle" fill="#ffffff" font-weight="700">オンチェーン</text>
+    </g>
+
+    <!-- Step 5 -->
+    <g transform="translate(1232 150)">
+      <rect width="320" height="470" rx="18" fill="#5b3fa8" fill-opacity="0.09" stroke="#5b3fa8" stroke-width="3"/>
+      <rect x="18" y="18" width="200" height="34" rx="17" fill="#5b3fa8"/>
+      <text class="who" x="118" y="42" text-anchor="middle" fill="#ffffff">誰が：Nouns DAO</text>
+      <circle cx="286" cy="35" r="21" fill="#5b3fa8"/>
+      <text class="step-no" x="286" y="42" text-anchor="middle">5</text>
+      <text class="step-title" x="160" y="94" text-anchor="middle">
+        <tspan x="160">集計どおり</tspan><tspan x="160" dy="31">自動投票</tspan>
+      </text>
+      <g transform="translate(160 174)" fill="none" stroke="#5b3fa8" stroke-width="5">
+        <path d="M -58 24 H 58 V 82 H -58 Z M -38 24 L -18 -8 H 30 L 47 24"/>
+        <path d="M -17 47 L -1 63 L 29 34"/>
+      </g>
+      <text class="body" x="160" y="284" text-anchor="middle">
+        <tspan x="160">賛成・反対・棄権を反映</tspan>
+        <tspan x="160" dy="34">集計の内訳も</tspan>
+        <tspan x="160" dy="30" font-weight="700">理由文として記録</tspan>
+        <tspan x="160" dy="34">誰でも後から検算できる</tspan>
+      </text>
+      <rect x="81" y="410" width="158" height="36" rx="18" fill="#5b3fa8"/>
+      <text class="small" x="160" y="435" text-anchor="middle" fill="#ffffff" font-weight="700">オンチェーン</text>
+    </g>
+  </g>
+
+  <!-- Zone B -->
+  <g id="zone-b">
+    <text class="zone-title" x="48" y="672"><tspan fill="#5b3fa8">B</tspan><tspan>　4 つの鍵 — 1 本の万能な鍵を作らない</tspan></text>
+    <text class="zone-note" x="1552" y="672" text-anchor="end">役割ごとに独立</text>
+
+    <g transform="translate(48 698)">
+      <rect width="364" height="232" rx="16" fill="#1c5aa8" fill-opacity="0.07" stroke="#1c5aa8" stroke-width="3"/>
+      <circle cx="34" cy="36" r="18" fill="#1c5aa8"/><text class="pill-text" x="34" y="43" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">1</text>
+      <text class="card-title" x="64" y="43">Snapshot bot</text>
+      <rect x="260" y="20" width="82" height="32" rx="16" fill="#1c5aa8"/><text class="card-sub pill-text" x="301" y="42" text-anchor="middle" fill="#ffffff">GitHub</text>
+      <text class="card-sub" x="24" y="88"><tspan font-weight="700">できる：</tspan><tspan>Snapshot の提案を作る</tspan></text>
+      <line x1="24" y1="116" x2="340" y2="116" stroke="#4b5563" opacity="0.25"/>
+      <text class="cant" x="24" y="151">できない：オンチェーン操作</text>
+      <text class="card-sub" x="24" y="193">提案ごとに 1 回</text>
+    </g>
+
+    <g transform="translate(428 698)">
+      <rect width="364" height="232" rx="16" fill="#4b5563" fill-opacity="0.06" stroke="#4b5563" stroke-width="3"/>
+      <circle cx="34" cy="36" r="18" fill="#4b5563"/><text class="pill-text" x="34" y="43" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">2</text>
+      <text class="card-title" x="64" y="43">登録係</text>
+      <text class="card-sub" x="24" y="88"><tspan font-weight="700">できる：</tspan><tspan>議案の対応表を登録</tspan></text>
+      <text class="card-sub" x="24" y="116">Snapshot ↔ Nouns 第 N 号</text>
+      <line x1="24" y1="136" x2="340" y2="136" stroke="#4b5563" opacity="0.25"/>
+      <text class="cant" x="24" y="171">できない：票の操作</text>
+      <text class="card-sub" x="24" y="207">bot とは別の場所に保管</text>
+    </g>
+
+    <g transform="translate(808 698)">
+      <rect width="364" height="232" rx="16" fill="#1c5aa8" fill-opacity="0.07" stroke="#1c5aa8" stroke-width="3"/>
+      <circle cx="34" cy="36" r="18" fill="#1c5aa8"/><text class="pill-text" x="34" y="43" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">3</text>
+      <text class="card-title" x="64" y="43">リレイヤー</text>
+      <rect x="218" y="20" width="124" height="32" rx="16" fill="#1c5aa8"/><text class="card-sub pill-text" x="280" y="42" text-anchor="middle" fill="#ffffff">Cloudflare</text>
+      <text class="card-sub" x="24" y="88"><tspan font-weight="700">できる：</tspan><tspan>公開署名を運ぶだけ</tspan></text>
+      <text class="card-sub" x="24" y="116">本番は 2 分ごと</text>
+      <line x1="24" y1="136" x2="340" y2="136" stroke="#4b5563" opacity="0.25"/>
+      <text class="cant" x="24" y="171">できない：票の偽造・改変</text>
+      <text class="card-sub" x="24" y="207">コントラクト上の専用権限なし</text>
+    </g>
+
+    <g transform="translate(1188 698)">
+      <rect width="364" height="232" rx="16" fill="#5b3fa8" fill-opacity="0.07" stroke="#5b3fa8" stroke-width="3"/>
+      <circle cx="34" cy="36" r="18" fill="#5b3fa8"/><text class="pill-text" x="34" y="43" text-anchor="middle" font-size="21" font-weight="700" fill="#ffffff">4</text>
+      <text class="card-title" x="64" y="43">管理者</text>
+      <text class="card-sub" x="24" y="78">委任アドレス</text>
+      <text class="card-sub" x="24" y="104">→ pNouns マルチシグへ移管</text>
+      <text class="card-sub" x="24" y="133"><tspan font-weight="700">できる：</tspan><tspan>緊急停止・資金管理</tspan></text>
+      <line x1="24" y1="150" x2="340" y2="150" stroke="#4b5563" opacity="0.25"/>
+      <text class="cant" x="24" y="180">できない：票の作成・改変</text>
+      <text class="card-sub" x="24" y="211">Nouns への任意投票も不可</text>
+    </g>
+  </g>
+
+  <!-- Zone C -->
+  <g id="zone-c">
+    <text class="zone-title" x="48" y="978"><tspan fill="#d22209">C</tspan><tspan>　ガス代の流れ</tspan></text>
+    <text class="zone-note" x="1552" y="978" text-anchor="end">投函ガスは上限つきで自動払い戻し</text>
+
+    <path d="M 420 1058 H 600" fill="none" stroke="#4b5563" stroke-width="5" marker-end="url(#arrow-gray)"/>
+    <path d="M 1000 1058 H 1175" fill="none" stroke="#d22209" stroke-width="5" marker-end="url(#arrow-red)"/>
+    <path d="M 1315 1115 C 1315 1138 800 1138 800 1115" fill="none" stroke="#d22209" stroke-width="4" stroke-dasharray="10 8" marker-end="url(#arrow-red)"/>
+
+    <g transform="translate(70 1010)">
+      <rect width="350" height="105" rx="18" fill="#4b5563" fill-opacity="0.07" stroke="#4b5563" stroke-width="3"/>
+      <text class="node-title" x="175" y="39" text-anchor="middle">委任アドレス</text>
+      <text class="node-sub" x="175" y="73" text-anchor="middle">既存ガス代 0.111 ETH</text>
+      <text class="node-sub" x="175" y="99" text-anchor="middle">最初に 0.05 ETH を預け入れ</text>
+    </g>
+
+    <g transform="translate(600 1010)">
+      <rect width="400" height="105" rx="18" fill="#5b3fa8" fill-opacity="0.1" stroke="#5b3fa8" stroke-width="4"/>
+      <text class="node-title" x="200" y="39" text-anchor="middle">pNouns Voter コントラクト</text>
+      <text class="node-sub" x="200" y="75" text-anchor="middle" font-weight="700" fill="#5b3fa8">返金プール 0.05 ETH</text>
+    </g>
+
+    <g transform="translate(1175 1010)">
+      <rect width="355" height="105" rx="18" fill="#1c5aa8" fill-opacity="0.09" stroke="#1c5aa8" stroke-width="3"/>
+      <text class="node-title" x="177.5" y="39" text-anchor="middle">リレイヤー</text>
+      <text class="node-sub" x="177.5" y="73" text-anchor="middle">まずガスを立て替え</text>
+      <text class="node-sub" x="177.5" y="99" text-anchor="middle">同じ処理で自動払い戻し</text>
+    </g>
+
+    <rect x="48" y="1142" width="1504" height="42" rx="21" fill="#d22209"/>
+    <text class="banner-text" x="800" y="1171" text-anchor="middle" font-size="22" font-weight="700" fill="#ffffff">メンバーの負担 0 円　—　Snapshot では署名だけ。新たなトレジャリー支出なし</text>
+  </g>
+</svg>
