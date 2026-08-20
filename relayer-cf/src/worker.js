@@ -416,6 +416,14 @@ export async function tick(env) {
         if (c.announce) await announceNew(c, pc, store, p, block, snapInfo);
         const mg = await metagovInfo(c, pc, p.id);
         if (!wc) continue;
+        // 対応付けの自動照合(誤登録の検出): Snapshot 提案が当該 Nouns 議案を参照していなければ警告し、mainnet では止める
+        if (c.snapshotSpace && snapInfo && snapInfo.linkOk === false) {
+          if (!(await store.getFlag(`linkwarn:${p.id}`))) {
+            await store.setFlag(`linkwarn:${p.id}`, 86400 * 7);
+            await notify(c, [`⚠️ Prop ${p.id}: 対応付けられた Snapshot 提案が、この議案(nouns.wtf/vote/${p.id})を参照していません。`, `対応付けが誤っている可能性があります。Snapshot: ${c.publicUrl ? `https://snapshot.box/#/s:${c.snapshotSpace}/proposal/${snapInfo.snapId}` : snapInfo.snapId}`, c.network === "mainnet" ? "mainnet は安全側に停止しました。登録を確認してください(票が入る前なら取り消して登録し直せます)。" : "テスト環境のため処理は継続します。"].join("\n"));
+          }
+          if (c.network === "mainnet") continue;
+        }
         // M03R: mainnet では投函だけでなく execute も止め、不完全な自動集計を最終結果にしない。
         if (c.snapshotSpace && snapInfo) {
           const timelineSafe = snapshotTimelineSafe(c, block, mg.deadline, snapInfo.snapEnd);

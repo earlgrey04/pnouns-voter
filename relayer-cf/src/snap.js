@@ -43,7 +43,7 @@ async function hubGql(c, query) {
 /// 指摘5: ハブの直近提案だけでなく、**現在処理対象の Nouns 提案**からも逆引きする
 ///        (同じ space で新しい提案が 15 件以上作られても、投票期間中の対応付けを失わない)。
 export async function resolveMappings(c, pc, activeNounsIds = []) {
-  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id title end } }`);
+  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id title end discussion body } }`);
   if (!Array.isArray(data.proposals)) throw new Error("hub: proposals shape");
   const meta = new Map(data.proposals.map((p) => [p.id, p]));
   const found = new Map(); // nounsId -> snapId
@@ -62,7 +62,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     missing.forEach((id, i) => { if (hashes[i] && hashes[i] !== "0x0000000000000000000000000000000000000000000000000000000000000000") need.push({ id: Number(id), hash: hashes[i] }); });
     if (need.length) {
       // ハブから対象 space の提案を追加取得し、ハッシュ一致で snapId を特定(最大 200 件遡る)
-      const more = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 200, orderBy: "created", orderDirection: desc) { id title end } }`);
+      const more = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 200, orderBy: "created", orderDirection: desc) { id title end discussion body } }`);
       const byHash = new Map((more.proposals || []).map((p) => [keccak256(stringToBytes(p.id)), p]));
       for (const n of need) {
         const p = byHash.get(n.hash);
@@ -71,7 +71,14 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
       }
     }
   }
-  const mappings = [...found.entries()].map(([nounsId, snapId]) => ({ snapId, nounsId, title: meta.get(snapId)?.title, snapEnd: Number(meta.get(snapId)?.end || 0) }));
+  const mappings = [...found.entries()].map(([nounsId, snapId]) => {
+    const m = meta.get(snapId) || {};
+    // 対応付けの自動照合: Snapshot 提案が本当にその Nouns 議案を指しているか(discussion/本文の URL)を確認する。
+    // 登録の取り違えやプログラムの不具合を、票が入る前に検出するための仕掛け。
+    const needle = new RegExp(`nouns\\.wtf/vote/${nounsId}(\\b|$)`);
+    const linkOk = needle.test(String(m.discussion || "")) || needle.test(String(m.body || ""));
+    return { snapId, nounsId, title: m.title, snapEnd: Number(m.end || 0), linkOk, discussion: m.discussion || "" };
+  });
   return { mappings };
 }
 
