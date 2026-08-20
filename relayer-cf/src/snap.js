@@ -42,6 +42,23 @@ async function hubGql(c, query) {
 /// Snapshot 提案 ↔ Nouns 提案の対応付けを毎回オンチェーンで検証して返す(M01R)。
 /// 指摘5: ハブの直近提案だけでなく、**現在処理対象の Nouns 提案**からも逆引きする
 ///        (同じ space で新しい提案が 15 件以上作られても、投票期間中の対応付けを失わない)。
+// テキスト中に nouns.wtf の当該議案ページ URL が含まれるか。
+// 文字列一致ではなく URL として解析する: evilnouns.wtf / fake.nouns.wtf を弾き、
+// 大文字ホスト・クエリ・フラグメント・末尾スラッシュを正しく扱い、/vote/12 が /vote/123 に誤マッチしない。
+export function referencesNounsProposal(text, nounsId) {
+  const id = Number(nounsId);
+  if (!Number.isSafeInteger(id) || id <= 0) return false;
+  const s = String(text || "");
+  if (!s) return false;
+  for (const raw of s.match(/https?:\/\/[^\s<>"'`)\]]+/gi) || []) {
+    let u;
+    try { u = new URL(raw); } catch { continue; }
+    if (u.hostname.toLowerCase().replace(/^www\./, "") !== "nouns.wtf") continue;
+    if (u.pathname.replace(/\/+$/, "") === `/vote/${id}`) return true;
+  }
+  return false;
+}
+
 export async function resolveMappings(c, pc, activeNounsIds = []) {
   const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id title end discussion body } }`);
   if (!Array.isArray(data.proposals)) throw new Error("hub: proposals shape");
@@ -74,9 +91,10 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
   const mappings = [...found.entries()].map(([nounsId, snapId]) => {
     const m = meta.get(snapId) || {};
     // 対応付けの自動照合: Snapshot 提案が本当にその Nouns 議案を指しているか(discussion/本文の URL)を確認する。
-    // 登録の取り違えやプログラムの不具合を、票が入る前に検出するための仕掛け。
-    const needle = new RegExp(`nouns\\.wtf/vote/${nounsId}(\\b|$)`);
-    const linkOk = needle.test(String(m.discussion || "")) || needle.test(String(m.body || ""));
+    // 検出できるのは「別の提案を取り違えて登録した」類の事故まで。discussion/body は提案作成者が
+    // 自由に書ける自己申告なので、偽提案と対応表を同じ主体が作れる場合(registrar/作成プログラムの
+    // 侵害)は検出できない。過信しないこと。
+    const linkOk = referencesNounsProposal(m.discussion, nounsId) || referencesNounsProposal(m.body, nounsId);
     return { snapId, nounsId, title: m.title, snapEnd: Number(m.end || 0), linkOk, discussion: m.discussion || "" };
   });
   return { mappings };

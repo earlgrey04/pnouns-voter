@@ -227,6 +227,25 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
       await expect(voterC.unregisterProposal(proposalId)).to.be.revertedWithCustomError(voterC, "VotesAlreadyCounted");
     });
 
+    it("第10回監査 M-2 対策: 登録後に owner が delay を下げても、その提案の受付は前倒しされない", async function () {
+      await voterC.setRegistrationDelayBlocks(1000);
+      const SNAP_Z = "0x" + "5c".repeat(32);
+      await voterC.registerProposal(SNAP_Z, 777777);
+      const eligible = await voterC.eligibleAtBlock(777777);
+      expect(eligible).to.be.greaterThan(BigInt(await ethers.provider.getBlockNumber()));
+      // owner が猶予を 0 に短縮しても、登録済みの提案の解禁ブロックは動かない
+      await voterC.setRegistrationDelayBlocks(0);
+      expect(await voterC.eligibleAtBlock(777777)).to.equal(eligible);
+      const [, , , , , , , , , , grace] = await ethers.getSigners();
+      const vz = await signSnapVote(grace, SNAP_Z, 1, 1786902000);
+      await expect(voterC.castSnapshotVotes([snapVoteArg(vz, [1n])])).to.be.revertedWithCustomError(voterC, "RegistrationTooRecent");
+      await expect(voterC.castVote(777777, 0, [1n])).to.be.revertedWithCustomError(voterC, "RegistrationTooRecent");
+      // 解禁ブロックまで進めば、猶予は明けている(取消猶予は必ず確保されたうえで受付が始まる)
+      await ethers.provider.send("hardhat_mine", ["0x" + (eligible - BigInt(await ethers.provider.getBlockNumber())).toString(16)]);
+      await expect(voterC.castSnapshotVotes([snapVoteArg(vz, [1n])])).to.not.be.revertedWithCustomError(voterC, "RegistrationTooRecent");
+      await voterC.unregisterProposal(777777).catch(() => {});
+    });
+
     it("H02R 対策: 猶予期間中は直接投票も不可。直接投票だけなら取消できる", async function () {
       const { id: pid4, snap: SNAP4 } = await newProposalWithSnap("r");
       await voterC.setRegistrationDelayBlocks(1000);

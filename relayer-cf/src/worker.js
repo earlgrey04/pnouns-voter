@@ -7,9 +7,13 @@ import { makeStore } from "./store.js";
 
 async function notify(c, text) {
   console.log("[notify]", text.replace(/\n/g, " ⏎ "));
-  if (!c.discordWebhook) return;
-  try { await fetch(c.discordWebhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: text }) }); }
-  catch (e) { console.warn("discord notify failed", e.message); }
+  if (!c.discordWebhook) return true; // webhook 未設定は「送るものがない」= 抑止フラグを立ててよい
+  try {
+    const r = await fetch(c.discordWebhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: text }) });
+    if (!r.ok) { console.warn("discord notify http", r.status); return false; }
+    return true;
+  }
+  catch (e) { console.warn("discord notify failed", e.message); return false; }
 }
 const explorerTx = (c, h) => `${c.explorer}/tx/${h}`;
 const WORDS = ["反対", "賛成", "棄権"];
@@ -22,14 +26,16 @@ function isContractRevert(e) {
 }
 
 async function announceNew(c, pc, store, p, block, snapInfo) {
-  if (await store.getAnnounced(p.id)) return;
+  const prev = await store.getAnnounced(p.id);
+  // 誤登録を取り消して正しい Snapshot 提案に張り替えた場合は、新しい URL で告知し直す
+  if (prev && !(c.snapshotSpace && snapInfo && prev.includes("|") && prev.split("|")[1] !== snapInfo.snapId)) return;
   const mg = await metagovInfo(c, pc, p.id);
   if (mg.deadline && block >= mg.deadline) { await store.putAnnounced(p.id, "late"); return; }
   if (c.snapshotSpace) {
     if (!snapInfo) return; // Snapshot 提案が対応付けられるまで告知しない
     const minutes = Math.max(0, Math.round(((mg.deadline || p.endBlock) - block) * 12 / 60));
     const jst = new Date(Date.now() + minutes * 60000).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
-    await store.putAnnounced(p.id, new Date().toISOString());
+    await store.putAnnounced(p.id, `${new Date().toISOString()}|${snapInfo.snapId}`);
     await notify(c, [
       `📢 Nouns Prop ${p.id}「${snapInfo.title || ""}」の投票受付を開始しました。`,
       `いつもどおり Snapshot から投票してください(ガス不要)。結果は自動で Nouns DAO に反映されます。`,
@@ -380,7 +386,8 @@ export async function notifyError(c, where, e) {
 }
 
 let lastBalanceCheck = 0;
-let spaceChecked = false;
+let spaceCheckedAt = 0;
+const SPACE_RECHECK_MS = 30 * 60 * 1000; // owner が事後に delay を下げた場合を検知するため定期再確認
 export async function tick(env) {
   const c = cfg(env);
   const { publicClient: pc, walletClient: wc } = clients(c);
@@ -391,48 +398,61 @@ export async function tick(env) {
     await reconcileRecent(c, pc, wc, store, proposals);
     // B3: Snapshot 提案 ↔ Nouns 提案の対応付けを解決(SNAPSHOT_SPACE 設定時)
     let snapByNouns = new Map();
+    let mappingsResolved = false;
     if (c.snapshotSpace) {
       // H03: コントラクトの spaceHash と設定の SNAPSHOT_SPACE が一致しなければ fail-closed
-      if (!spaceChecked) {
+      if (Date.now() - spaceCheckedAt > SPACE_RECHECK_MS) {
         const [onchain, delay] = await pc.multicall({ contracts: [
           { address: c.metagov, abi: METAGOV_ABI, functionName: "spaceHash" },
           { address: c.metagov, abi: METAGOV_ABI, functionName: "registrationDelayBlocks" },
         ], allowFailure: false });
         if (onchain !== keccak256(stringToBytes(c.snapshotSpace))) { await notifyError(c, "config", new Error(`SNAPSHOT_SPACE "${c.snapshotSpace}" がコントラクトの spaceHash と一致しません`)); return; }
         if (c.network === "mainnet" && Number(delay) < c.minRegistrationDelay) { await notifyError(c, "config", new Error(`registrationDelayBlocks(${delay}) が最低値 ${c.minRegistrationDelay} 未満です`)); return; } // H02R: fail-closed
-        spaceChecked = true;
+        spaceCheckedAt = Date.now();
       }
       try {
         const active = proposals.filter((p) => p.state === 0 || p.state === 1).map((p) => p.id);
         const { mappings } = await resolveMappings(c, pc, active);
         snapByNouns = new Map(mappings.map((m) => [Number(m.nounsId), m]));
+        mappingsResolved = true;
       }
       catch (e) { await notifyError(c, "snapshot hub", e); }
+      // H-1(fail-closed): 対応表を検証できていない tick は何もしない。
+      // ここで続行すると snapInfo=null となり、照合(linkOk)も締切安全性(timeline)も
+      // 素通りしたまま maybeExecute() に入り、ハブ障害中の部分集計や "no votes" が
+      // 最終結果として確定してしまう。
+      if (!mappingsResolved) return;
     }
     for (const p of proposals) {
       if (p.state !== 0 && p.state !== 1) continue;
       try {
         const snapInfo = snapByNouns.get(p.id) || null;
-        if (c.announce) await announceNew(c, pc, store, p, block, snapInfo);
         const mg = await metagovInfo(c, pc, p.id);
-        if (!wc) continue;
         // 対応付けの自動照合(誤登録の検出): Snapshot 提案が当該 Nouns 議案を参照していなければ警告し、mainnet では止める
-        if (c.snapshotSpace && snapInfo && snapInfo.linkOk === false) {
-          if (!(await store.getFlag(`linkwarn:${p.id}`))) {
-            await store.setFlag(`linkwarn:${p.id}`, 86400 * 7);
-            await notify(c, [`⚠️ Prop ${p.id}: 対応付けられた Snapshot 提案が、この議案(nouns.wtf/vote/${p.id})を参照していません。`, `対応付けが誤っている可能性があります。Snapshot: ${c.publicUrl ? `https://snapshot.box/#/s:${c.snapshotSpace}/proposal/${snapInfo.snapId}` : snapInfo.snapId}`, c.network === "mainnet" ? "mainnet は安全側に停止しました。登録を確認してください(票が入る前なら取り消して登録し直せます)。" : "テスト環境のため処理は継続します。"].join("\n"));
-          }
-          if (c.network === "mainnet") continue;
+        const linkBad = !!(c.snapshotSpace && snapInfo && snapInfo.linkOk === false);
+        if (linkBad && !(await store.getFlag(`linkwarn:${p.id}`))) {
+          // L-1: 送信に成功したときだけ「通知済み」を立てる(失敗を 7 日間握りつぶさない)
+          const sent = await notify(c, [`⚠️ Prop ${p.id}: 対応付けられた Snapshot 提案が、この議案(nouns.wtf/vote/${p.id})を参照していません。`, `対応付けが誤っている可能性があります。Snapshot: ${c.publicUrl ? `https://snapshot.box/#/s:${c.snapshotSpace}/proposal/${snapInfo.snapId}` : snapInfo.snapId}`, c.network === "mainnet" ? "mainnet は安全側に停止しました。登録を確認してください(票が入る前なら取り消して登録し直せます)。" : "テスト環境のため処理は継続します。"].join("\n"));
+          if (sent) await store.setFlag(`linkwarn:${p.id}`, 86400 * 7);
         }
         // M03R: mainnet では投函だけでなく execute も止め、不完全な自動集計を最終結果にしない。
+        let timelineBad = false;
         if (c.snapshotSpace && snapInfo) {
-          const timelineSafe = snapshotTimelineSafe(c, block, mg.deadline, snapInfo.snapEnd);
-          if (!timelineSafe && !(await store.getFlag(`endwarn:${p.id}`))) {
-            await store.setFlag(`endwarn:${p.id}`, 86400 * 7);
-            await notify(c, `⚠️ Prop ${p.id}: Snapshot 終了後の排出時間が不足しています。${c.network === "mainnet" ? "mainnet は安全側に停止しました。設定を修正し、必要なら手動投函・executeしてください。" : "締切後の票は反映されない可能性があります。"}`);
+          timelineBad = !snapshotTimelineSafe(c, block, mg.deadline, snapInfo.snapEnd);
+          if (timelineBad && !(await store.getFlag(`endwarn:${p.id}`))) {
+            const sent = await notify(c, `⚠️ Prop ${p.id}: Snapshot 終了後の排出時間が不足しています。${c.network === "mainnet" ? "mainnet は安全側に停止しました。設定を修正し、必要なら手動投函・executeしてください。" : "締切後の票は反映されない可能性があります。"}`);
+            if (sent) await store.setFlag(`endwarn:${p.id}`, 86400 * 7);
           }
-          if (!timelineSafe && c.network === "mainnet") continue;
         }
+        // M-1: 告知は照合・締切チェックを通ってから。不一致の Snapshot 提案 URL を
+        // 「投票してください」と先に流してしまうと、誤った提案へ投票を誘導したうえ
+        // 「告知済み」が記録されて正しい URL の再告知も止まる。
+        if (c.announce && !linkBad && !(timelineBad && c.network === "mainnet")) {
+          await announceNew(c, pc, store, p, block, snapInfo);
+        }
+        if (linkBad && c.network === "mainnet") continue;
+        if (timelineBad && c.network === "mainnet") continue;
+        if (!wc) continue;
         if (block < mg.deadline) {
           if (c.snapshotSpace) {
             if (snapInfo) {

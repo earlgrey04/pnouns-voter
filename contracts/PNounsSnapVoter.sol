@@ -89,6 +89,8 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     uint256 public registrationDelayBlocks;
     /// Nouns 提案 id → 登録ブロック
     mapping(uint256 => uint256) public registeredAtBlock;
+    /// @notice その登録について票の受付が解禁されるブロック。登録時に確定し、以後 setRegistrationDelayBlocks では動かない
+    mapping(uint256 => uint256) public eligibleAtBlock;
     /// keccak(Snapshot 提案 id 文字列) → Nouns 提案 id
     mapping(bytes32 => uint256) public snapToNouns;
     /// Nouns 提案 id → keccak(Snapshot 提案 id 文字列)
@@ -135,6 +137,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     error VotingNotClosed();
     error StaleVote();
     error RegistrationTooRecent();
+    error InvalidSpace();
     error VotesAlreadyCounted();
     error InvalidFromAddress();
     error InvalidContractSignature();
@@ -151,6 +154,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     ) Ownable(owner_) {
         pnouns = IERC721(pnouns_);
         nounsDAO = INounsDAO(nounsDAO_);
+        if (bytes(space_).length == 0 || bytes(space_).length > 64) revert InvalidSpace();
         spaceHash = keccak256(bytes(space_));
         space = space_;
         registrar = registrar_;
@@ -164,6 +168,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     function setMarginBlocks(uint256 v) external onlyOwner { marginBlocks = v; emit MarginBlocksSet(v); }
     function setLiveMode(bool v) external onlyOwner { liveMode = v; emit LiveModeSet(v); }
     function setRegistrar(address a) external onlyOwner { registrar = a; emit RegistrarSet(a); }
+    /// @dev 以後の登録にのみ適用される。登録済みの提案の受付解禁(eligibleAtBlock)は変わらない
     function setRegistrationDelayBlocks(uint256 v) external onlyOwner { registrationDelayBlocks = v; emit RegistrationDelaySet(v); }
     function setRefundEnabled(bool v) external onlyOwner { refundEnabled = v; emit RefundEnabledSet(v); }
     function setRefundCapPerProposal(uint256 v) external onlyOwner { refundCapPerProposal = v; emit RefundCapPerProposalSet(v); }
@@ -179,6 +184,9 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         snapToNouns[h] = nounsProposalId;
         nounsToSnap[nounsProposalId] = h;
         registeredAtBlock[nounsProposalId] = block.number;
+        // 猶予は「登録した時点の設定」で固定する。あとから owner が delay を 0 にしても、
+        // 既に登録済みの提案の受付が前倒しされることはない(= 取消猶予は必ず確保される)。
+        eligibleAtBlock[nounsProposalId] = block.number + registrationDelayBlocks;
         emit ProposalRegistered(nounsProposalId, snapshotProposal);
     }
 
@@ -191,6 +199,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         delete snapToNouns[h];
         delete nounsToSnap[nounsProposalId];
         delete registeredAtBlock[nounsProposalId];
+        delete eligibleAtBlock[nounsProposalId];
         emit ProposalUnregistered(nounsProposalId, h);
     }
 
@@ -246,7 +255,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         bytes32 firstProp = keccak256(bytes(votes[0].proposal));
         uint256 nounsId = snapToNouns[firstProp];
         if (nounsId == 0) revert NotRegistered();
-        if (block.number < registeredAtBlock[nounsId] + registrationDelayBlocks) revert RegistrationTooRecent(); // 誤登録の取消猶予
+        if (block.number < eligibleAtBlock[nounsId]) revert RegistrationTooRecent(); // 誤登録の取消猶予(登録時に固定)
         uint32 snapCounted;
         for (uint256 i = 0; i < votes.length; i++) {
             SnapVote calldata v = votes[i];
@@ -273,7 +282,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         uint256 startGas = gasleft();
         if (support > ABSTAIN) revert InvalidChoice();
         // 登録直後の猶予期間中は直接投票も受け付けない(取消の妨害を防ぐ)
-        if (nounsToSnap[nounsProposalId] != bytes32(0) && block.number < registeredAtBlock[nounsProposalId] + registrationDelayBlocks) revert RegistrationTooRecent();
+        if (nounsToSnap[nounsProposalId] != bytes32(0) && block.number < eligibleAtBlock[nounsProposalId]) revert RegistrationTooRecent();
         _castVote(msg.sender, nounsProposalId, support, tokenIds, uint64(block.timestamp), keccak256(abi.encode("direct", msg.sender, nounsProposalId, support, block.timestamp)));
         _refundGas(startGas, 1, nounsProposalId);
     }
