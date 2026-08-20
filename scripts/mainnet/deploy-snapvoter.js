@@ -14,7 +14,7 @@ async function main() {
   const owner = process.env.OWNER, registrar = process.env.REGISTRAR;
   const excluded = (process.env.EXCLUDED || "").split(",").filter(Boolean);
   const delay = Number(process.env.REG_DELAY || 7200);
-  const margin = Number(process.env.MARGIN || 300);
+  const margin = Number(process.env.MARGIN || 7200); // 運用決定値: 締切 = Nouns 投票終了の約 24 時間前
   if (!owner || !registrar) throw new Error("OWNER(マルチシグ)と REGISTRAR を明示してください");
   // アドレスの厳格検証(第14回監査): checksum 不正・ゼロアドレスをデプロイ前に弾く
   for (const [k, a] of [["OWNER", owner], ["REGISTRAR", registrar], ...excluded.map((a, i) => [`EXCLUDED[${i}]`, a])]) {
@@ -24,7 +24,7 @@ async function main() {
   if (owner.toLowerCase() === registrar.toLowerCase()) throw new Error("owner と registrar は別アドレスにしてください");
   if (!excluded.length) throw new Error("EXCLUDED(トレジャリー等の除外アドレス)を明示してください");
   if (!Number.isInteger(delay) || delay < 300) throw new Error("REG_DELAY は 300 以上(運用値 7200 = 約 24 時間)");
-  if (!Number.isInteger(margin) || margin < 10 || margin > 7200) throw new Error("MARGIN は 10〜7200 の整数(運用値 300 = 約 1 時間)");
+  if (!Number.isInteger(margin) || margin < 10 || margin > 7200) throw new Error("MARGIN は 10〜7200 の整数(運用値 7200 = 約 24 時間)");
   const out = process.env.OUT || path.join(__dirname, "..", "..", "deployments", "mainnet.json");
   if (fs.existsSync(out) && JSON.parse(fs.readFileSync(out, "utf8")).snapVoter && process.env.FORCE !== "1") throw new Error(`${out} に既存デプロイがあります(上書きは FORCE=1)`);
   const [deployer] = await ethers.getSigners();

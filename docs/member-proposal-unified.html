@@ -10,7 +10,8 @@
   .eyebrow { font-size:12px; letter-spacing:.08em; color:var(--ink-2); font-weight:600; }
   h1 { font-size:27px; line-height:1.4; margin:8px 0 10px; text-wrap:balance; letter-spacing:-.01em; }
   .lede { color:var(--ink-2); margin:0; font-size:15px; }
-  h2 { font-size:20px; margin:40px 0 12px; } h3 { font-size:16px; margin:20px 0 6px; }
+  h2 { font-size:20px; margin:44px 0 12px; padding-top:8px; border-top:1px solid var(--line); } h3 { font-size:16px; margin:20px 0 6px; }
+  h2 .no { color:var(--accent); font-variant-numeric:tabular-nums; margin-right:6px; }
   p { margin:0 0 12px; } ul,ol { margin:0 0 12px; padding-left:1.4em; } li { margin:3px 0; }
   .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }
   .card.ok { border-color:var(--ok); background:var(--ok-soft); } .card.warn { border-color:var(--warn); background:var(--warn-soft); } .card.accent { border-left:4px solid var(--accent); }
@@ -19,10 +20,11 @@
   th,td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
   th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-2); background:var(--ground); }
   tr:last-child td { border-bottom:0; }
-  code,.mono { font-family:var(--mono); font-size:13px; } code { background:var(--ground); padding:1px 5px; border-radius:4px; }
+  code,.mono { font-family:var(--mono); font-size:13px; } code { background:var(--ground); padding:1px 5px; border-radius:4px; word-break:break-all; }
+  pre { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:12px 14px; overflow-x:auto; font-family:var(--mono); font-size:12.5px; line-height:1.6; }
   .flow { display:grid; gap:8px; margin:14px 0; }
-  .flow.c4 { grid-template-columns:repeat(4,1fr); } .flow.c5 { grid-template-columns:repeat(5,1fr); }
-  @media (max-width:680px) { .flow.c4,.flow.c5 { grid-template-columns:1fr; } }
+  .flow.c4 { grid-template-columns:repeat(4,1fr); }
+  @media (max-width:680px) { .flow.c4 { grid-template-columns:1fr; } }
   .step { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:11px 12px; font-size:13.5px; }
   .step b { display:block; margin:2px 0 3px; font-size:14px; } .step small { color:var(--ink-2); display:block; }
   .who { font-size:11px; letter-spacing:.06em; text-transform:uppercase; font-weight:700; color:var(--accent); display:block; }
@@ -31,10 +33,8 @@
   .pill.cloud { background:var(--cloud-soft); color:var(--cloud); }
   .pill.chain { background:var(--chain-soft); color:var(--chain); }
   .pill.human { background:var(--accent-soft); color:var(--accent); }
-  .pill.zero { background:var(--ok-soft); color:var(--ok); }
   .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:13px; color:var(--ink-2); margin:8px 0 0; }
   footer { margin-top:44px; padding-top:14px; border-top:1px solid var(--line); color:var(--ink-2); font-size:13px; }
-
   .cmp { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:14px 0; }
   @media (max-width:680px) { .cmp { grid-template-columns:1fr; } }
   .col { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--surface); }
@@ -48,13 +48,32 @@
   .tag.h { background:var(--accent-soft); color:var(--accent); }
   .tag.a { background:var(--ok-soft); color:var(--ok); }
   big { font-size:19px; font-weight:700; }
+  details { background:var(--surface); border:1px solid var(--line); border-radius:8px; margin:10px 0; }
+  details > summary { cursor:pointer; padding:10px 14px; font-weight:600; font-size:14.5px; list-style:none; }
+  details > summary::before { content:"▸ "; color:var(--accent); }
+  details[open] > summary::before { content:"▾ "; }
+  details > summary:hover { color:var(--link); }
+  details > .din { padding:0 14px 12px; border-top:1px dashed var(--line); }
+  details .tbl { margin:10px 0 4px; }
+  .toc { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px 16px; margin:16px 0 8px; font-size:14px; columns:2; column-gap:24px; }
+  @media (max-width:600px) { .toc { columns:1; } }
+  .toc a { text-decoration:none; display:block; padding:2px 0; }
+  .toc a:hover { text-decoration:underline; }
 </style>
 <div class="wrap">
 <header>
   <div class="eyebrow">pNouns ⚡ DAO — 運営からの提案</div>
   <h1>Snapshot での投票はそのまま。その前後の手作業をなくします</h1>
-  <p class="lede">2026年8月20日 ・ アールグレイ ・ 「いまの仕組み」と「新しい仕組み」を並べて、何が変わり、何が変わらないのか、費用はどうなるのかをまとめました。提案する仕組みは、実際の Snapshot とテストネットの Nouns DAO で動作確認を進めています。</p>
+  <p class="lede">2026年8月21日 ・ アールグレイ ・ 「いまの仕組み」と「新しい仕組み」を並べて、何が変わり、何が変わらないのか、費用と安全性はどうなのかをまとめました。文中の事実はすべて公開データで検証できます(<a href="#verify">§10</a>)。</p>
 </header>
+
+<div class="card accent"><b>3 行まとめ</b>
+<ul style="margin:6px 0 0">
+  <li>メンバーの投票は<b>今までどおり Snapshot・ガス代 0 円</b>。変わりません。</li>
+  <li>その後の「結果を確認して Nouns DAO に投票する」人手作業(年 8〜28 時間)を、<b>署名をオンチェーンで検証して自動投票する仕組み</b>に置き換えます。費用はトレジャリーからガス代 年 500〜1,100 円ほど。</li>
+  <li>テストネットで<b>通し検証済み・第三者(AI)監査 15 回</b>。本番はまず「投票しない見学モード」から始め、いつでも 1 操作で手動運用に戻せます。</li>
+</ul></div>
+
 <div class="card"><b>用語</b>
 <div class="legend">
 <span><span class="pill local">ローカル</span> アールグレイの自宅 PC</span>
@@ -63,7 +82,20 @@
 <span><span class="tag h">人</span>人の作業　<span class="tag a">自動</span>プログラム</span>
 </div></div>
 
-<h2>1. 提案 1 本ごとの流れ</h2>
+<nav class="toc"><b style="display:block;margin-bottom:4px">目次</b>
+<a href="#flow">1. 提案 1 本ごとの流れ</a>
+<a href="#keys">2. 誰が何を持つか — 権限と鍵</a>
+<a href="#proof">3. 「集計が正しい」と言える理由</a>
+<a href="#limits">4. 補えること・補えないこと</a>
+<a href="#record">5. Nouns DAO に何が記録されるか</a>
+<a href="#outage">6. クラウドが止まったら</a>
+<a href="#cost">7. 費用</a>
+<a href="#tests">8. 動作確認の状況</a>
+<a href="#rules">9. 投票のルール / 導入の進め方</a>
+<a href="#verify">10. 自分で(AI で)検証する</a>
+</nav>
+
+<h2 id="flow"><span class="no">1.</span>提案 1 本ごとの流れ</h2>
 <div class="cmp">
   <div class="col now"><h3>いまの仕組み</h3><div class="body"><ol>
     <li><span class="tag a">自動</span><span class="pill local">ローカル</span> 自宅 PC が Nouns の新提案を検知し、AI で日本語要約を作る</li>
@@ -75,8 +107,8 @@
     <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> Discord に結果を報告</li>
   </ol></div></div>
   <div class="col new"><h3>新しい仕組み</h3><div class="body"><ol>
-    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Nouns の新提案を検知(自宅 PC 不要)</li>
-    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Snapshot に投票ページを作成。<b>本文は Nouns の提案文をそのまま転記</b>(長すぎる場合のみ末尾を省略し、原文リンクを表示)</li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Nouns の新提案を検知(Cloudflare 上・自宅 PC 不要)</li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Snapshot に投票ページを作成(GitHub 上)。<b>本文は Nouns の提案文をそのまま転記</b>(長すぎる場合のみ末尾を省略し、原文リンクを表示)</li>
     <li><span class="tag a">自動</span><span class="pill chain">オンチェーン</span> 「この Snapshot 投票は Nouns の第 N 号議案のもの」という対応付けを記録</li>
     <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Discord に告知(投票リンク・締切つき)</li>
     <li><span class="tag h">メンバー</span><span class="pill cloud">クラウド</span> Snapshot で投票 <b>(画面も手順も変わりません・ガス代 0 円)</b></li>
@@ -87,65 +119,46 @@
 </div>
 <div class="card accent"><b>変わること</b>
 <ul style="margin:6px 0 0">
-  <li><b>人の作業がなくなります</b>(要約の承認・告知・Nouns への投票・結果報告)。自宅 PC への依存もなくなります。</li>
+  <li><b>人の作業がなくなります</b>(要約の承認・告知・Nouns への投票・結果報告)。集計から投票・報告までの流れは自宅 PC にも依存しません。</li>
   <li><b>Snapshot の提案文が「日本語要約」から「Nouns の原文(英語)そのまま」に変わります。</b>画像や見出しもそのまま表示されます。日本語の要約は別途 Discord に投稿する形を予定しています(自動化するかは検討中)。</li>
 </ul></div>
 <div class="card ok" style="margin-top:8px"><b>変わらないこと</b>: メンバーの投票体験。今までどおり Snapshot で、署名だけ・ガス代 0 円で投票します(ETH を持っていないウォレットでも投票できます)。</div>
 
-<h2>2. 誰が何を持っているか</h2>
+<h2 id="keys"><span class="no">2.</span>誰が何を持つか — 権限と鍵</h2>
 <div class="cmp">
   <div class="col now"><h3>いまの仕組み</h3><div class="body"><ul>
     <li><b>Nouns の投票権</b> … マルチシグ → <b>アールグレイ個人のウォレット</b>に委任</li>
     <li><b>投票の判断</b> … 人が Snapshot の結果を読んで手で実行</li>
-    <li>Snapshot の結果とオンチェーンの投票の対応は、<b>外部から検証できない</b></li>
+    <li>Snapshot の結果と Nouns への投票の一致は、<b>人が正しくやったと信じるしかない</b></li>
     <li>アールグレイが不在・多忙だと止まる</li>
   </ul></div></div>
   <div class="col new"><h3>新しい仕組み</h3><div class="body"><ul>
     <li><b>Nouns の投票権</b> … マルチシグ → <b>コントラクト</b>に委任(個人は持たない)</li>
     <li><b>投票の判断</b> … コントラクトが署名を検証して自動集計。<b>運営もクラウドも結果を変えられない</b></li>
-    <li><b>集計の内訳が Nouns DAO の記録に残る</b>(下記)。誰でも Snapshot の公開署名から検算できる</li>
-    <li>クラウドが止まっても投票は無効にならない。<b>誰でも代わりに反映・実行できる</b>(下記)</li>
+    <li><b>集計の内訳が Nouns DAO の記録に残る</b>(<a href="#record">§5</a>)。誰でも検算できる</li>
+    <li>クラウドが止まっても投票は無効にならない。<b>誰でも代わりに反映・実行できる</b>(<a href="#outage">§6</a>)</li>
   </ul></div></div>
 </div>
 
-<h3>この仕組みを動かす 3 つの鍵 — 誰が何をでき、何をできないか</h3>
-<p>自動化にはチェーンへ送信するための鍵(ウォレット)が要ります。ここで大事なのは<b>1 本の万能な鍵を作らないこと</b>です。用途ごとに 3 本に分け、それぞれに「できること」を最小限だけ持たせています。</p>
+<h3>この仕組みを動かす 4 つの鍵 — 誰が何をでき、何をできないか</h3>
+<p>自動化にはチェーンや Snapshot へ送信するための鍵(ウォレット)が要ります。大事なのは<b>1 本の万能な鍵を作らないこと</b>です。役割ごとに独立した鍵に分け、それぞれに「できること」を最小限だけ持たせます。この分担はテストネット上で実際に構成して動作確認済みです。</p>
 <div class="tbl"><table>
 <tr><th>役</th><th>できること</th><th>できないこと</th><th>置き場所</th><th>出番</th></tr>
 <tr><td><b>リレイヤー</b></td><td>Snapshot の署名をチェーンに運ぶ</td><td>票の偽造・改変・勝手な投票<br>(できるのは遅らせることだけ)</td><td><span class="pill cloud">Cloudflare</span></td><td>毎分</td></tr>
-<tr><td><b>登録係</b></td><td>「この Snapshot 投票は Nouns の第 N 号議案のもの」と登録(<b>自動処理</b>。提案作成と同じプログラムが続けて行うので、人が ID を書き写す場面はありません)</td><td>票に関する一切の操作</td><td><span class="pill local">自宅 PC の専用鍵</span></td><td>提案ごとに 1 回</td></tr>
+<tr><td><b>登録係</b></td><td>「この Snapshot 投票は Nouns の第 N 号議案のもの」と登録(<b>自動処理</b>。提案作成と同じプログラムが続けて行うので、人が ID を書き写す場面はありません)</td><td>票に関する一切の操作</td><td><span class="pill cloud">GitHub</span> または <span class="pill local">自宅 PC</span>(導入時に決定)</td><td>提案ごとに 1 回</td></tr>
+<tr><td><b>Snapshot bot</b></td><td>Snapshot に投票ページを作る(現行から引き続き。pNouns 1 枚保有)</td><td>オンチェーンの一切の操作</td><td><span class="pill cloud">GitHub</span></td><td>提案ごとに 1 回</td></tr>
 <tr><td><b>管理者</b></td><td>緊急停止、ガス代の管理、除外設定</td><td>票の作成・改変、Nouns への任意の投票</td><td>pNouns マルチシグ</td><td>ほぼ出番なし</td></tr>
 </table></div>
-<p style="font-size:14px"><b>いちばん漏れやすい場所(クラウド)に、いちばん弱い権限しか置かない</b>という考え方です。仮にクラウドの鍵が盗まれても、できるのは「運ぶのを止める・遅らせる」ことだけで、票の偽造も勝手な投票もできません。対処は鍵の差し替えだけで済みます。</p>
+<p style="font-size:14px"><b>いちばん漏れやすい場所(クラウド)に、いちばん弱い権限しか置かない</b>という考え方です。仮にクラウドの鍵が盗まれても、できるのは「運ぶのを止める・遅らせる」ことだけで、票の偽造も勝手な投票もできません。対処は鍵の差し替えだけで済みます。本番では 4 つの鍵が同一アドレスだとプログラムが起動を拒否する仕掛けも入っています。</p>
 
-<h3>この仕組みで補えること・補えないこと</h3>
-<p>Snapshot には「署名だけ・ガス代 0 円で投票できる」という大きな長所がある一方、投票結果がブロックチェーンの外にあることから来る弱点もあります。新しい仕組みは<b>長所をそのまま残したまま弱点を補う</b>ことを狙っていますが、<b>すべてが補えるわけではありません</b>。分けて書きます。</p>
+<h2 id="proof"><span class="no">3.</span>「集計が正しい」と言える理由</h2>
+<p>いちばん大事な前提: <b>コントラクトは「集計結果」を受け取りません</b>。受け取るのは<b>1 票ずつの署名データ</b>で、正しさを自分で確かめ、集計も自分で行います。「誰かが計算した結果を信じる」場面がそもそも存在しません。</p>
 
-<h4 style="margin:18px 0 6px;font-size:15px">A. 補えるもの</h4>
-<div class="tbl"><table>
-<tr><th>いまの弱点</th><th>新しい仕組みでどうなるか</th></tr>
-<tr><td>結果が Snapshot の中にしかなく、<b>Nouns DAO には自動で反映されない</b>(人が手で投票するしかない)</td><td><b>解消</b>: 集計と反映をコントラクトが行います(人手ゼロ)</td></tr>
-<tr><td>Snapshot が出した集計結果を<b>信じるしかない</b></td><td><b>解消</b>: 信じません。コントラクトが署名を検証し、NFT の保有を 1 枚ずつ確かめて<b>自分で数え直します</b></td></tr>
-<tr><td>Snapshot の結果と Nouns DAO への投票が<b>一致している保証がない</b><br><span style="font-size:13px;color:var(--ink-2)">※ Snapshot の票を数えて Nouns の投票と見比べれば、いまでも人力で確認はできます。問題は「一致させる強制力がない」こと、そして<b>ズレても誰も自動では気づかない</b>ことです</span></td><td><b>解消</b>: 一致は「人が守るルール」ではなく<b>コントラクトの処理そのもの</b>になります(集計した結果がそのまま投票になるので、ズレる余地がありません)。加えて集計の内訳が Nouns DAO の記録に残るので、Snapshot の公開署名から誰でも機械的に検算できます</td></tr>
-<tr><td>Snapshot のサービスが消えたら結果も失われる</td><td><b>解消</b>: 反映後は集計も 1 票ごとの内訳もオンチェーンに永久に残ります</td></tr>
-</table></div>
-
-<h4 style="margin:18px 0 6px;font-size:15px">B. 補えないもの(弱点として残るもの)</h4>
-<div class="tbl"><table>
-<tr><th>残る弱点</th><th>なぜ残るか / どう向き合うか</th></tr>
-<tr><td>投票期間中に <b>Snapshot が止まると投票できない</b></td><td>投票の入り口を Snapshot のままにする設計なので、ここは変わりません(署名が集まらなければ、反映すべきものもありません)</td></tr>
-<tr><td>「この投票がどの Nouns 議案のものか」は<b>署名の中に入っていない</b></td><td>Snapshot の仕様上、外から対応付けを与えるしかありません。登録は自動ですが、<b>そのプログラムと鍵は信頼が必要</b>です(後述の 4 段の備えでカバーします)</td></tr>
-<tr><td>投票資格を数える<b>時点がわずかにズレる</b></td><td>Snapshot は提案作成時点の保有、コントラクトは反映時点の保有で数えます。<b>投票期間中に NFT を売買した場合だけ</b>差が出ます</td></tr>
-</table></div>
-<div class="card ok"><b>ひとことで言うと</b>: 「Snapshot の使い勝手(署名だけ・ガス 0 円)を残したまま、その結果を<b>誰も信じなくてよい形</b>でオンチェーンに引き上げ、Nouns DAO への反映まで自動化した」仕組みです。逆に、投票の入り口が Snapshot であること自体は変えていないので、そこ由来の依存は残ります。</div>
-
-<h3>「集計が正しい」とどうやって分かるのか</h3>
-<p>いちばん大事な前提として、<b>コントラクトは「集計結果」を受け取りません</b>。受け取るのは<b>1 票ずつの署名データ</b>で、正しさを自分で確かめ、集計も自分で行います。「誰かが計算した結果を信じる」場面がそもそも存在しません。</p>
-<p>1 票が届くと、次の 8 つの確認をすべて通ったものだけが集計に入ります。1 つでも合わなければ、その票は受け付けられません。</p>
+<details><summary>1 票が通る 8 つの確認(実装そのまま)</summary><div class="din">
 <div class="tbl"><table>
 <tr><th>#</th><th>確認すること</th><th>どうやって確かめるか</th></tr>
 <tr><td>1</td><td>この投票はどの Nouns 議案のものか</td><td>署名に含まれる Snapshot 提案 ID から、事前に登録された対応表を引く(未登録なら受け付けない)</td></tr>
-<tr><td>2</td><td>対応表が登録された直後ではないか</td><td>登録から一定時間(24 時間を想定)は票を受け付けない(誤った対応付けを取り消せる猶予。理由は下記)</td></tr>
+<tr><td>2</td><td>対応表が登録された直後ではないか</td><td>登録から一定時間(本番は 24 時間)は票を受け付けない(誤った対応付けを取り消せる猶予。理由は下記)</td></tr>
 <tr><td>3</td><td><b>署名が本物か</b></td><td>受け取ったデータ(投票所名・議案 ID・選択肢・時刻・投票者など)から<b>コントラクトが自分でハッシュを計算し直し</b>、署名から投票者のアドレスを復元。申告と一致しなければ拒否</td></tr>
 <tr><td>4</td><td>Safe など<b>複数人で承認するウォレット</b>からの投票か</td><td>この種のウォレットは自分では署名鍵を持たないため、確認 3 の方法が使えません。代わりに<b>ウォレット本体に「この署名を有効と認めるか」を直接問い合わせ</b>、認めた場合だけ受け付けます(EIP-1271 という共通規格)</td></tr>
 <tr><td>5</td><td><b>本当に投票権があるか</b></td><td>添えられた NFT 番号を<b>1 枚ずつ pNouns NFT に照会</b>し、現在の持ち主が署名者本人か確認</td></tr>
@@ -153,41 +166,71 @@
 <tr><td>7</td><td>投票のやり直しの整合性</td><td>同じ投票者の署名は、時刻がより新しいものだけ有効(古い署名の再提出は拒否)</td></tr>
 <tr><td>8</td><td>期限内か</td><td>Nouns 側の議案が投票可能な状態で、締切前であることを確認</td></tr>
 </table></div>
-<h4 style="margin:18px 0 6px;font-size:15px">なぜ書き換えられないのか</h4>
-<ul>
-  <li><b>署名は 1 文字でも変えると別人の署名になります。</b>「賛成」を「反対」に書き換えて送っても、確認 3 で復元されるアドレスが変わり、本人と一致せず弾かれます。運営もクラウドも中身をいじれません。</li>
+</div></details>
+
+<details><summary>なぜ運営にもクラウドにも書き換えられないのか</summary><div class="din">
+<ul style="margin-top:10px">
+  <li><b>署名は 1 文字でも変えると別人の署名になります。</b>「賛成」を「反対」に書き換えて送っても、確認 3 で復元されるアドレスが変わり、本人と一致せず弾かれます。</li>
   <li><b>票の重みは水増しできません。</b>署名には「何枚持っているか」は入っていません。運ぶ側が NFT 番号を添えますが、コントラクトが 1 枚ずつ実際の持ち主を照会するため、他人の NFT や架空の保有は通りません。</li>
   <li><b>別の投票所の署名は使えません。</b>対象の Snapshot スペース名がコントラクトに焼き込まれており、ハッシュ計算に使われます。攻撃者が自分で作った投票所の署名を持ち込んでも成立しません。</li>
 </ul>
-<h4 style="margin:18px 0 6px;font-size:15px">運ぶ側(クラウド)にできてしまうこと</h4>
-<p style="margin:0 0 8px">「運ばない・遅らせる」ことと、「NFT 番号を少なめに申告して重みを削る」ことの 2 つだけです。どちらにも対策があります: 署名は Snapshot 上で公開されているので<b>誰でも代わりに運べます</b>。少なめに申告された場合は、<b>同じ署名で未計上の NFT だけを後から追加</b>できます(第三者監査の指摘を受けて実装しました)。</p>
-<h4 style="margin:18px 0 6px;font-size:15px">唯一、暗号で保証できない部分</h4>
+</div></details>
+
+<h3>運ぶ側(クラウド)にできてしまうことと、その対策</h3>
+<p style="margin:0 0 8px">できるのは「運ばない・遅らせる」ことと、「NFT 番号を少なめに申告して重みを削る」ことの 2 つだけです。どちらにも対策があります。</p>
+<ul>
+  <li>署名は Snapshot 上で公開されているので、<b>誰でも代わりに運べます</b>。</li>
+  <li>少なめに申告された場合は、<b>同じ署名で未計上の NFT だけを後から追加</b>できます(第三者監査の指摘を受けて実装)。</li>
+  <li><b>締切時の最終照合</b>: 確定の直前に「Snapshot 上の投票者数」と「チェーン上に反映済みの投票者数」を突き合わせ、<b>足りないままなら本番では自動確定しません</b>(警告を出して人の判断を仰ぎます)。運び漏れ・出し渋りが最終結果になることを防ぎます(第三者監査の指摘を受けて実装)。</li>
+</ul>
+
+<h3>唯一、暗号で保証できない部分 — 対応表</h3>
 <div class="card warn" style="margin-top:6px">
-  <p style="margin:0 0 6px">確認 1 の<b>対応表(この Snapshot 投票 ＝ Nouns の第 N 号議案)</b>だけは、コントラクトが自力で確かめられません。Snapshot の投票署名に Nouns の議案番号が含まれていないためです(Snapshot の仕様)。</p>
-  <p style="margin:0 0 6px">運用としては<b>全自動</b>です(提案を作ったプログラムが、その場で対応表も登録します。人が番号を書き写す場面はありません)。ただし「そのプログラムと鍵を信頼している」という意味で、ここだけは他の確認と性質が異なります。</p>
+  <p style="margin:0 0 6px">確認 1 の<b>対応表(この Snapshot 投票 ＝ Nouns の第 N 号議案)</b>だけは、コントラクトが自力で確かめられません。Snapshot の投票署名に Nouns の議案番号が含まれていないためです(Snapshot の仕様)。運用は<b>全自動</b>ですが、「そのプログラムと鍵を信頼している」という意味で、ここだけは性質が異なります。</p>
   <p style="margin:0 0 6px"><b>そのための備えを 4 段用意しています。</b></p>
-  <ol style="margin:0 0 10px">
-    <li><b>登録から一定時間(24 時間を想定)は、その議案の票を受け付けない</b></li>
-    <li><b>プログラムが自分で対応付けを検算し、食い違えば警告して止まる</b></li>
-    <li><b>対応表はオンチェーンに公開</b>され、Discord の告知にも Snapshot と Nouns 両方の ID が出るので、誰でも見比べられる</li>
+  <ol style="margin:0 0 4px">
+    <li><b>登録から 24 時間は、その議案の票を受け付けない</b>(間違いに気づいて登録し直せる時間を必ず確保)</li>
+    <li><b>プログラムが自分で対応付けを検算</b>し、食い違えば警告して本番では止まる</li>
+    <li><b>対応表はオンチェーンに公開</b>され、Discord の告知にも両方の ID が出るので、誰でも見比べられる</li>
     <li>最終手段として<b>管理者(pNouns マルチシグ)が停止できる</b></li>
   </ol>
-  <p style="margin:0 0 6px;font-size:14px"><b>①がなぜ「備え」になるのか</b>: 対応表は<b>Snapshot 経由の票が 1 票でも受け付けられると、もう取り消せない仕様</b>にしてあります(すでに数えた票の行き先が消えてしまうため、あえてそうしています)。裏を返すと<b>「票を受け付けていない時間」＝「間違えても必ずやり直せる時間」</b>です。登録した瞬間から票を受け付けてしまうと、誤登録に気づいたときにはもう手遅れ、ということが起こり得ます。24 時間の空白を置くことで、間違いに気づいて登録し直す余地を必ず確保しています。この 24 時間は<b>登録した時点で確定し、あとから管理者が短縮することもできません</b>。</p>
-  <p style="margin:0;font-size:14px"><b>②の中身と、その限界</b>: Snapshot に作る提案には、元の Nouns 提案ページの URL(<code>nouns.wtf/vote/第 N 号</code>)が必ず入っています。プログラムは対応表を使うたびに<b>「この Snapshot 提案は本当に第 N 号議案を指しているか」を自動で照合</b>し、食い違っていれば Discord に⚠️警告を出し、本番環境ではその議案の処理を停止します。ただし<b>これは万能ではありません</b>。URL は提案を作った人が書いた自己申告なので、<b>この照合が捕まえられるのは「別の提案を取り違えて登録した」類の事故まで</b>で、偽の提案と対応表を同じ相手が同時に用意できる場合(登録係の鍵や作成プログラムが乗っ取られた場合)は見抜けません。そこは①③④で受け止める設計です。</p>
 </div>
+<details><summary>①と②の詳しい理屈(なぜこれが備えになるのか・限界はどこか)</summary><div class="din">
+  <p style="margin:10px 0 6px;font-size:14px"><b>①がなぜ「備え」になるのか</b>: 対応表は<b>Snapshot 経由の票が 1 票でも受け付けられると、もう取り消せない仕様</b>にしてあります(すでに数えた票の行き先が消えてしまうため、あえてそうしています)。裏を返すと<b>「票を受け付けていない時間」＝「間違えても必ずやり直せる時間」</b>です。24 時間の空白を置くことで、誤登録に気づいて登録し直す余地を必ず確保しています。この 24 時間は<b>登録した時点で確定し、あとから管理者が短縮することもできません</b>。なお猶予中にメンバーが投票しても問題ありません — 票は Snapshot に残り、猶予が明けてから自動で反映されます(テスト済み)。</p>
+  <p style="margin:0;font-size:14px"><b>②の中身と、その限界</b>: Snapshot に作る提案には、元の Nouns 提案ページの URL(<code>nouns.wtf/vote/第N号</code>)が必ず入っています。プログラムは対応表を使うたびに<b>「この Snapshot 提案は本当に第 N 号議案を指しているか」を自動で照合</b>し、食い違っていれば Discord に⚠️警告を出し、本番ではその議案の処理を停止します。ただし<b>万能ではありません</b>。URL は提案を作った人の自己申告なので、捕まえられるのは「別の提案を取り違えて登録した」類の<b>事故</b>までで、偽の提案と対応表を同じ相手が同時に用意できる場合(登録係の鍵と作成プログラムが同時に乗っ取られた場合)は見抜けません。そこは①③④で受け止める設計です。</p>
+</div></details>
 
-<h3>Nouns DAO に何が記録されるのか</h3>
-<p>Nouns DAO の投票は「賛成/反対/棄権」だけでなく<b>理由文</b>を添えられます。新しい仕組みでは、そこに pNouns 側の集計を自動で書き込みます。テストネットでの実際の記録:</p>
+<h2 id="limits"><span class="no">4.</span>補えること・補えないこと</h2>
+<p>Snapshot には「署名だけ・ガス代 0 円」という大きな長所がある一方、結果がブロックチェーンの外にあることから来る弱点もあります。新しい仕組みは<b>長所を残したまま弱点を補う</b>ことを狙っていますが、<b>すべては補えません</b>。分けて書きます。</p>
+<h3>A. 補えるもの</h3>
+<div class="tbl"><table>
+<tr><th>いまの弱点</th><th>新しい仕組みでどうなるか</th></tr>
+<tr><td>結果が Snapshot の中にしかなく、<b>Nouns DAO には自動で反映されない</b></td><td><b>解消</b>: 集計と反映をコントラクトが行います(人手ゼロ)</td></tr>
+<tr><td>Snapshot が出した集計結果を<b>信じるしかない</b></td><td><b>解消</b>: 信じません。コントラクトが署名を検証し、NFT の保有を 1 枚ずつ確かめて<b>自分で数え直します</b></td></tr>
+<tr><td>Snapshot の結果と Nouns への投票が<b>一致している保証がない</b><br><span style="font-size:13px;color:var(--ink-2)">※ 人力で見比べれば今でも確認はできます。問題は「一致させる強制力がない」ことと、<b>ズレても自動では気づけない</b>こと</span></td><td><b>解消</b>: 一致は「人が守るルール」ではなく<b>コントラクトの処理そのもの</b>になります(集計した結果がそのまま投票になるので、ズレる余地がありません)</td></tr>
+<tr><td>Snapshot のサービスが消えたら結果も失われる</td><td><b>解消</b>: 反映後は集計も 1 票ごとの内訳もオンチェーンに永久に残ります</td></tr>
+</table></div>
+<h3>B. 補えないもの(弱点として残るもの)</h3>
+<div class="tbl"><table>
+<tr><th>残る弱点</th><th>なぜ残るか / どう向き合うか</th></tr>
+<tr><td>投票期間中に <b>Snapshot が止まると投票できない</b></td><td>投票の入り口を Snapshot のままにする設計なので、ここは変わりません</td></tr>
+<tr><td>「どの Nouns 議案の投票か」は<b>署名に入っていない</b></td><td>対応表を外から与えるしかありません(<a href="#proof">§3</a> の 4 段の備えでカバー)</td></tr>
+<tr><td>投票資格を数える<b>時点がわずかにズレる</b></td><td>Snapshot は提案作成時点の保有、コントラクトは反映時点の保有で数えます。<b>投票期間中に NFT を売買した場合だけ</b>差が出ます</td></tr>
+</table></div>
+<div class="card ok"><b>ひとことで言うと</b>: 「Snapshot の使い勝手(署名だけ・ガス 0 円)を残したまま、その結果を<b>誰も信じなくてよい形</b>でオンチェーンに引き上げ、Nouns DAO への反映まで自動化した」仕組みです。投票の入り口が Snapshot であること自体は変えていないので、そこ由来の依存は残ります。</div>
+
+<h2 id="record"><span class="no">5.</span>Nouns DAO に何が記録されるか</h2>
+<p>Nouns DAO の投票には<b>理由文</b>を添えられます。新しい仕組みは、そこに pNouns 側の集計を自動で書き込みます。テストネットでの実際の記録:</p>
 <div class="tbl"><table>
 <tr><th>記録先</th><th>内容</th></tr>
 <tr><td><b>Nouns DAO</b>(VoteCast)</td><td>投票者 = pNouns Voter コントラクト ／ 議案番号 ／ 賛否 ／ 票数 ／ <b>理由文「pNouns holders voted on Snapshot …: FOR (tokens for/against/abstain = 3/0/3, voters = 2/0/1)」</b></td></tr>
 <tr><td><b>pNouns Voter</b>(Executed)</td><td>最終集計(賛成/反対/棄権の枚数と投票者数)</td></tr>
 <tr><td><b>pNouns Voter</b>(1 票ごと)</td><td>誰が・どの選択肢に・何枚で・いつの署名で投票したか</td></tr>
 </table></div>
-<p>理由文は nouns.wtf の提案ページにコメントとして表示されるため、<b>Nouns コミュニティ全体から「pNouns がどういう内訳でその判断をしたか」が見えます</b>。また Snapshot の署名は誰でも取得できるので、第三者が自分で集計し直して記録と突き合わせる検証も可能です。</p>
+<p>理由文は nouns.wtf の提案ページにコメントとして表示されるため、<b>Nouns コミュニティ全体から「pNouns がどういう内訳でその判断をしたか」が見えます</b>。Snapshot の署名は誰でも取得できるので、第三者が自分で集計し直して突き合わせる検証も可能です(<a href="#verify">§10</a> に手順)。</p>
 
-<h3>クラウド(Cloudflare)が止まったらどうなるか</h3>
-<p>票そのものは Snapshot に残っているので消えません。締切まで 24 時間の余裕を持たせているので、<b>ほとんどの障害は自動で吸収されます</b>。手動の出番は、長時間の停止が締切に重なった場合だけです。</p>
+<h2 id="outage"><span class="no">6.</span>クラウド(Cloudflare)が止まったらどうなるか</h2>
+<p>票そのものは Snapshot に残っているので消えません。締切まで 24 時間の余裕を持たせているので、<b>ほとんどの障害は自動で吸収されます</b>。</p>
 <div class="tbl"><table>
 <tr><th>状況</th><th>どうなるか</th><th>必要な操作</th></tr>
 <tr><td>数分〜数時間の停止<br>(ほとんどのケース)</td><td>復旧後に<b>自動で取りこぼしを取り戻します</b>。どこまで反映したかはチェーン上の記録で判断するため、二重計上も取りこぼしも起きません</td><td><b>なし</b></td></tr>
@@ -195,9 +238,12 @@
 <tr><td>Cloudflare ごと停止したまま締切</td><td>仕組みとしては運営以外の誰でも実行できます</td><td><b>技術的な操作が必要</b>: Etherscan の画面からコントラクトの <code>execute</code> を呼ぶ(ウォレット操作に慣れている方向け)。未反映の票がある場合は、公開しているプログラムの実行が必要(開発者向け)</td></tr>
 <tr><td>誰も実行しなかった</td><td>その提案について Nouns DAO への投票が行われません(＝いまの仕組みで投票し忘れたときと同じ結果)</td><td>—</td></tr>
 </table></div>
-<p style="font-size:14px">正直に言うと、最後の手段(Etherscan からの実行)は<b>どなたでも気軽に、とまでは言えません</b>。ウォレット操作に慣れた方であれば運営抜きでも実行できる、という位置づけです。ここで大事なのは<b>「運営だけが持つ特権ではない」</b>こと — 運営が対応できない状況でも、仕組みが誰かの手で前に進められる余地が残してある、という点です(手順書は用意します)。</p>
+<p style="font-size:14px">正直に言うと、最後の手段(Etherscan からの実行)は<b>どなたでも気軽に、とまでは言えません</b>。ウォレット操作に慣れた方であれば運営抜きでも実行できる、という位置づけです。大事なのは<b>「運営だけが持つ特権ではない」</b>ことです(手順書は用意します)。</p>
 
-<h2>3. 費用 — いまとの差分</h2>
+<h3>Cloudflare の中身は検証できるのか(正直な答え)</h3>
+<p style="font-size:14.5px"><b>直接は検証できません。</b>Cloudflare 上で実際に動いているプログラムが、公開しているソースコードと同一であることを第三者が証明する方法はありません(これは世の中のあらゆるサーバーに共通の限界です)。<b>だからこそ、この設計はクラウドを信頼しないことを前提にしています</b>: クラウドにできるのは署名を「運ぶ」ことだけで、票の中身はすべてオンチェーンのコントラクト(こちらは<b>ソースコードとの一致を誰でも検証可能</b>)が確かめます。クラウドの動きも外から観測はできます — 送信したトランザクションは全部チェーン上に残り、設定は公開 API(<a href="#verify">§10</a>)で見えます。<b>「中身は見えないが、悪さをしても票には触れず、サボれば公開データから分かる」</b>という位置づけです。</p>
+
+<h2 id="cost"><span class="no">7.</span>費用 — いまとの差分</h2>
 <div class="tbl"><table>
 <tr><th>項目</th><th>いまの仕組み</th><th>新しい仕組み</th></tr>
 <tr><td>メンバーの投票</td><td>0 円(署名のみ)</td><td><b>0 円</b>(同じ)</td></tr>
@@ -208,40 +254,45 @@
 <tr><td><b>年間の追加費用</b><br><span style="font-size:13px;color:var(--ink-2)">年 50〜110 本で試算(下記)</span></td><td>—</td><td><b><big>年 500 〜 1,100 円</big></b>(現在の相場)<br>ガスが混雑し続けた場合で 年 0.8〜1.8 万円</td></tr>
 <tr><td>アールグレイの手作業<br><span style="font-size:13px;color:var(--ink-2)">締切の見張り・結果確認・Nouns への投票・結果報告</span></td><td>提案ごとに 10〜15 分<br>= <b>年 8〜28 時間</b></td><td><b>0 時間</b></td></tr>
 </table></div>
-<h3>試算に使った提案数</h3>
-<p>pNouns の Snapshot に実際に立った提案数を数えたところ、<b>直近 1 年で 111 本</b>、<b>直近半年で 33 本(年 67 本ペース)</b>、<b>直近 3 ヶ月で 13 本(年 53 本ペース)</b>でした。近年は減少傾向のため、上の表は<b>年 50〜110 本</b>の幅で試算しています(Nouns DAO 側の提案ペースが上がれば当然この幅も動きます)。手作業の時間も同じ本数 × 10〜15 分から出しています。</p>
+<div class="card"><b>要するに</b>: トレジャリーの年 500〜1,100 円程度のガス代で、年 8〜28 時間の手作業と「投票し忘れ」のリスクをなくし、さらに「集計を誰でも検算できる」透明性が手に入る、というトレードオフです。</div>
 
-<h3>ガス代はどこから出て、誰の負担になるのか</h3>
-<p>新しく増える費用は「投票をチェーンに記録するガス」と「議案の対応付けのガス」の 2 つだけで、どちらも<b>pNouns トレジャリーから預ける 0.05 ETH(約 1.5 万円)のガス代プール</b>から出ます。お金の流れは次のとおりです。</p>
+<details><summary>試算に使った提案数(実測)</summary><div class="din">
+<p style="margin-top:10px">pNouns の Snapshot に実際に立った提案数を数えたところ、<b>直近 1 年で 111 本</b>、<b>直近半年で 33 本(年 67 本ペース)</b>、<b>直近 3 ヶ月で 13 本(年 53 本ペース)</b>でした。近年は減少傾向のため、<b>年 50〜110 本</b>の幅で試算しています(Nouns DAO 側の提案ペースが上がれば当然この幅も動きます)。手作業の時間も同じ本数 × 10〜15 分から出しています。</p>
+</div></details>
+
+<details><summary>ガス代はどこから出て、誰の負担になるのか(お金の流れ)</summary><div class="din">
+<p style="margin-top:10px">新しく増える費用は「投票をチェーンに記録するガス」と「議案の対応付けのガス」の 2 つだけで、どちらも<b>pNouns トレジャリーから預ける 0.05 ETH(約 1.5 万円)のガス代プール</b>から出ます。</p>
 <div class="flow c4">
-  <div class="step"><span class="who">① 預け入れ</span><span class="pill chain">オンチェーン</span><b>トレジャリー → プール</b><small>pNouns トレジャリーからコントラクトへ 0.05 ETH を送金。これが原資です。<b>最初に 1 回だけ</b>。</small></div>
-  <div class="step"><span class="who">② 立て替え</span><span class="pill cloud">クラウド</span><b>リレイヤーがガスを払う</b><small>票を運ぶ送信料を、まずリレイヤーのウォレットが自分の ETH で支払います。</small></div>
-  <div class="step"><span class="who">③ 返金</span><span class="pill chain">オンチェーン</span><b>プール → リレイヤー</b><small>同じ処理の中で、コントラクトが立て替え分をプールから自動で返します。上限つきなので、使いすぎは起きません。</small></div>
-  <div class="step"><span class="who">④ 補充</span><span class="pill human">人</span><b>減ったら足す</b><small>残高が下がると Discord に自動で⚠️警告。トレジャリーから追加送金します。余りは<b>いつでも全額回収できます</b>。</small></div>
+  <div class="step"><span class="who">① 預け入れ</span><span class="pill chain">オンチェーン</span><b>トレジャリー → プール</b><small>コントラクトへ 0.05 ETH を送金。これが原資。<b>最初に 1 回だけ</b>。</small></div>
+  <div class="step"><span class="who">② 立て替え</span><span class="pill cloud">クラウド</span><b>リレイヤーがガスを払う</b><small>票を運ぶ送信料を、まずリレイヤーのウォレットが支払う。</small></div>
+  <div class="step"><span class="who">③ 返金</span><span class="pill chain">オンチェーン</span><b>プール → リレイヤー</b><small>同じ処理の中で、立て替え分をプールから自動で返す。上限つき。</small></div>
+  <div class="step"><span class="who">④ 補充</span><span class="pill human">人</span><b>減ったら足す</b><small>残高が下がると Discord に⚠️警告。余りは<b>いつでも全額回収可</b>。</small></div>
 </div>
 <div class="tbl"><table>
 <tr><th>誰が</th><th>最終的にいくら負担するか</th></tr>
 <tr><td>投票するメンバー</td><td><b>0 円</b>(Snapshot の署名だけ。いまと同じ)</td></tr>
-<tr><td>リレイヤー(クラウド)</td><td><b>実質 0 円</b>(立て替えた分は同じ処理の中でプールから返る)</td></tr>
-<tr><td>Nouns DAO への投票そのもの</td><td><b>0 円</b>(Nouns DAO 側の返金制度が使われるため。いまと同じ)</td></tr>
-<tr><td><b>pNouns トレジャリー</b></td><td><b>年 500〜1,100 円</b>(現在の相場)。ここだけが実質的な負担です</td></tr>
+<tr><td>リレイヤー(クラウド)</td><td><b>実質 0 円</b>(立て替えた分はプールから返る)</td></tr>
+<tr><td>Nouns DAO への投票そのもの</td><td><b>0 円</b>(Nouns DAO 側の返金制度。いまと同じ)</td></tr>
+<tr><td><b>pNouns トレジャリー</b></td><td><b>年 500〜1,100 円</b>(現在の相場)。ここだけが実質的な負担</td></tr>
 </table></div>
-<p style="font-size:14px">0.05 ETH は<b>現在の相場なら十数年分</b>、ガスが 15 倍に混雑し続けたとしても<b>1 年以上もつ</b>見込みです。多めに預けているのは、混雑時に途中で切れて投票を落とすことを避けるためで、使い切る前提の金額ではありません。<b>残高も支出の 1 件ずつも誰でもオンチェーンで確認でき</b>、運営が別の用途に動かすことはできません(引き出せる先はトレジャリーだけです)。</p>
-<div class="card"><b>要するに</b>: トレジャリーの年 500〜1,100 円程度のガス代で、年 8〜28 時間の手作業と「投票し忘れ」のリスクをなくし、さらに「集計を誰でも検算できる」透明性が手に入る、というトレードオフです。</div>
+<p style="font-size:14px">0.05 ETH は<b>現在の相場なら十数年分</b>、ガスが 15 倍に混雑し続けても<b>1 年以上もつ</b>見込みです。多めに預けるのは、混雑時に途中で切れて投票を落とさないためで、使い切る前提ではありません。<b>残高も支出も誰でもオンチェーンで確認でき</b>、引き出せる先はトレジャリーだけです。</p>
+</div></details>
 
-<h2>4. 動作確認の状況</h2>
+<h2 id="tests"><span class="no">8.</span>動作確認の状況</h2>
 <div class="card ok">
   <p style="margin:0 0 8px"><b>テスト環境</b>: 投票は<b>本物の Snapshot</b>(テスト用スペース)。Nouns DAO 側は公式テストネット(Sepolia)にある、<b>Nouns 開発チームが公開している本番と同一プログラムのテスト版 DAO</b>。pNouns NFT も本物と同じプログラムの複製を使用。</p>
   <ul style="margin:0">
-    <li><b>人手ゼロの通し(複数回)</b>: Snapshot の票を自動で集計 → Nouns DAO へ投票 → Discord 報告まで確認。賛否が同数のときの判定、投票がゼロのときに投票しない挙動も確認済み。</li>
-    <li><b>実際の画面からの投票</b>: アールグレイが snapshot.box から普段どおり投票し、保有枚数分が集計に反映されて Nouns DAO へ自動投票されることを確認。</li>
-    <li><b>過去の本物の投票で検証</b>: Prop 989 に実際に投じられた 3 票の署名を使い、オンチェーン検証と集計が成立することを確認(投票の重みも保有枚数と一致)。</li>
-    <li><b>第三者による監査を 9 回実施</b>(AI 監査ツール Codex)。重大な欠陥はゼロ。指摘された 50 件超はすべて修正・再検証済み。</li>
+    <li><b>人手ゼロの通しを多数回</b>: Snapshot の票を自動で集計 → Nouns DAO へ投票 → Discord 報告まで確認。賛否同数の判定、投票ゼロのときに投票しない挙動、24 時間猶予中の票が失われず猶予明けに反映される挙動も確認済み。</li>
+    <li><b>実際の画面からの投票</b>: アールグレイが snapshot.box から普段どおり投票し、保有枚数分が集計されて Nouns DAO へ自動投票されることを確認。</li>
+    <li><b>過去の本物の投票で検証</b>: Prop 989 に実際に投じられた 3 票の署名でオンチェーン検証と集計が成立(投票の重みも保有枚数と一致)。</li>
+    <li><b>本番相当の鍵の分離を実施済み</b>: 管理者・登録係・リレイヤーを別々の鍵にした構成でテストネット稼働中。管理者権限の移管(マルチシグへの引き継ぎ相当)の往復も演習済み。</li>
+    <li><b>第三者(AI 監査ツール Codex)による監査を 15 回実施</b>: 指摘 80 件超。修正可能なものはすべて修正して再監査で確認済み。修正でなく「設計上の割り切り」とした 5 件は、本資料の §3・§4 に弱点として明記しているものと同じ内容です。自動テストはコントラクト 19 本 + 自動処理系 44 本が全通過。</li>
   </ul>
 </div>
-<p><b>残っている確認</b>: ① 新しい形式(Nouns 原文の転記)での提案作成 ② 本番と同じ鍵の分担(管理者・登録係・リレイヤーを別の鍵にする)での通し ③ メインネットでの「見学モード」。①②はテストネットで数日中に、③はメンバーの皆さんの合意後に行います。</p>
+<p><b>残っている確認</b>: ① 新しい形式(Nouns 原文の転記)での提案作成の通し(実施中) ② メインネットでの「見学モード」(メンバー合意後)。</p>
 
-<h2>5. 投票のルール(コントラクトに固定)</h2>
+<h2 id="rules"><span class="no">9.</span>投票のルール / 導入の進め方</h2>
+<h3>投票のルール(コントラクトに固定)</h3>
 <ul>
   <li>重み = 保有 pNouns 枚数(チェーン上で検証)。トレジャリー分(13 枚)は数えない。定足数なし。</li>
   <li>同数なら投票者数が多い方、それも同数なら棄権 <b>(暫定 — ご意見で変更可能)</b>。誰も投票しなければ Nouns にも投票しない。</li>
@@ -249,19 +300,113 @@
   <li>締切は Nouns の投票終了の 24 時間前(いまの Snapshot 48 時間より長く投票できます)。</li>
   <li>コントラクトは後から書き換え不可。<b>NFT や資産は預けません</b>(預けるのはガス代のみ)。</li>
 </ul>
-
-<h2>6. 導入の進め方</h2>
+<h3>導入の進め方(段階ごとに機械チェックを通します)</h3>
 <ol>
-  <li><b>見学モードで設置</b> — Nouns には投票せず、集計だけを実際の提案で数回行い、いまの手動運用と結果が一致するか確認します。</li>
+  <li><b>見学モードで設置</b> — Nouns には投票せず、集計だけを実際の提案で数回行い、手動運用の結果と一致するか確認します。ガス代プールの預け入れはこの段階で行います(集計の送信にガスが要るため)。</li>
   <li>一致を確認 → <b>メンバーの合意</b>。</li>
-  <li>マルチシグが投票権の委任先をコントラクトへ変更(1 トランザクション・いつでも戻せる)＋ トレジャリーからガス代を預ける → 本番開始。</li>
+  <li>マルチシグが投票権の委任先をコントラクトへ変更(1 トランザクション・いつでも戻せる)→ 本番開始。</li>
 </ol>
+<p style="font-size:14px">各段階の後に、設定・鍵の分離・委任・残高を機械的に照合するチェックを実行し、全項目が通るまで次へ進みません(手順書と照合プログラムは作成済み・テストネットで検証済み)。</p>
+<div class="card warn">やめたくなったら、マルチシグが委任を戻すだけで元の手動運用に戻せます(Nouns の仕様上、切り戻しは以後の提案から有効。進行中の提案は管理者が停止スイッチで止められます)。</div>
 <div class="card"><b>本番移行時に必要な準備</b>
 <ul style="margin:6px 0 0">
-  <li><b>Discord の通知先の切り替え</b>: 現在テストの通知はアールグレイのサーバーに送っています。本番では <b>pNouns⚡DAO サーバーの Webhook</b> を発行し、告知(📢)・反映(🗳️)・投票完了(✅)・障害警告(⚠️)を pNouns のチャンネルに流します。投稿先チャンネルとロールメンションの有無は、事前に相談させてください。</li>
-  <li><b>3 つの鍵の準備</b>: 管理者(pNouns マルチシグ)・登録係・リレイヤーを別々に用意します。</li>
-  <li><b>ガス代の預け入れ</b>: トレジャリーから 0.05 ETH 程度。</li>
+  <li><b>Discord の通知先の切り替え</b>: 現在テストの通知はアールグレイのサーバー宛てです。本番では <b>pNouns⚡DAO サーバーの Webhook</b> を発行し、告知(📢)・反映(🗳️)・投票完了(✅)・障害警告(⚠️)を pNouns のチャンネルに流します。投稿先チャンネルとロールメンションの有無は事前に相談させてください。</li>
+  <li><b>4 つの鍵の準備</b>: 管理者(pNouns マルチシグ)・登録係・リレイヤー・Snapshot bot を別々に用意(テストネットでは構成済み)。</li>
+  <li><b>ガス代の預け入れ</b>: トレジャリーから 0.05 ETH 程度(見学モード開始時)。</li>
 </ul></div>
-<div class="card warn">やめたくなったら、マルチシグが委任を戻すだけで元の手動運用に戻せます(Nouns の仕様上、切り戻しは以後の提案から有効。進行中の提案は管理者が停止スイッチで止められます)。</div>
-<footer>技術詳細・監査記録・テスト履歴はリポジトリ pnouns-voter に公開しています。質問は #🔥｜p⚡雑談 かアールグレイまで。</footer>
+
+<h2 id="verify"><span class="no">10.</span>自分で(または AI で)検証する</h2>
+<p>この資料の主張は、公開データだけで第三者が検証できるように作っています。<b>このページ全体をお使いの AI に渡して「検証して」と頼めば</b>、下のアドレスと手順から実際に確かめられます。</p>
+
+<h3>テストネット(Sepolia)で現在動いているもの</h3>
+<div class="tbl"><table>
+<tr><th>もの</th><th>アドレス / URL</th></tr>
+<tr><td><b>pNouns Voter コントラクト</b>(検証対象の本体)</td><td><code>0x64CdACeA6857c6560F3124c532AA4ed34152693F</code><br><a href="https://sepolia.etherscan.io/address/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Etherscan</a> ・ <a href="https://eth-sepolia.blockscout.com/address/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Blockscout</a> ・ <a href="https://repo.sourcify.dev/contracts/full_match/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Sourcify(全ソースコード)</a></td></tr>
+<tr><td>テスト用 Snapshot スペース</td><td><a href="https://snapshot.box/#/s:earl-grey.eth">snapshot.box/#/s:earl-grey.eth</a>(本番は <code>pnounsdao.eth</code>)</td></tr>
+<tr><td>Sepolia の Nouns DAO(公式テスト版)</td><td><code>0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57</code></td></tr>
+<tr><td>Sepolia の Nouns Token(公式テスト版)</td><td><code>0x4C4674bb72a096855496a7204962297bd7e12b85</code></td></tr>
+<tr><td>pNouns NFT(Sepolia 複製)</td><td><code>0x2dc16A3EC98A825e731b09512B602fDDC5246Ad6</code></td></tr>
+<tr><td>管理者(テストでは開発用。本番はマルチシグ)</td><td><code>0x10849D31FfEaEca7727af6711A8D1b0a9b738925</code></td></tr>
+<tr><td>登録係(独立鍵)</td><td><code>0xfE07E953BfdBbDA576551e047Bb9166C34d7c9ae</code></td></tr>
+<tr><td>リレイヤー(独立鍵・Cloudflare)</td><td><code>0xBbE0b0fe2181586a947cF8660D7704926A9eD561</code></td></tr>
+<tr><td>自動処理(Worker)の公開設定 API</td><td><a href="https://pnouns-voter.x402-adsb-worker.workers.dev/api/config">pnouns-voter.x402-adsb-worker.workers.dev/api/config</a></td></tr>
+</table></div>
+
+<h3>本番(メインネット)で対象になるもの(参考)</h3>
+<div class="tbl"><table>
+<tr><td>pNouns NFT</td><td><code>0x4bE962499cE295b1ed180F923bf9c73b6357DE80</code></td></tr>
+<tr><td>Nouns DAO</td><td><code>0x6f3E6272A167e8AcCb32072d08E0957F9c79223d</code></td></tr>
+<tr><td>Nouns Token</td><td><code>0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03</code></td></tr>
+</table></div>
+
+<details><summary>AI に渡す検証手順(コピーして質問に添えてください)</summary><div class="din">
+<pre>
+あなたは独立した検証者です。以下の主張を、公開データを取得して事実確認してください。
+推測で埋めず、確認できなかった項目は「未確認」と報告してください。
+
+【対象】Sepolia (chainId 11155111) の PNounsSnapVoter
+  0x64CdACeA6857c6560F3124c532AA4ed34152693F
+
+【主張1】ソースコードが公開され、デプロイ済みコードと完全一致している
+  → Sourcify API: https://sourcify.dev/server/v2/contract/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F
+    "match": "exact_match" を確認。ソース全文は
+    https://repo.sourcify.dev/contracts/full_match/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F
+
+【主張2】コントラクトは Snapshot の署名を自分で検証している
+  → 上記ソースの castSnapshotVotes() / _castVote() を読む。
+    確認点: EIP-712 ハッシュの再計算、ecrecover/EIP-1271、ownerOf() による
+    NFT 保有照会、_votedBitmap による二重計上防止、timestamp による再投票制御、
+    spaceHash の固定(コンストラクタで keccak256("earl-grey.eth"))
+
+【主張3】対応表の誤登録に 24 時間の取消猶予がある(本番設定)
+  → ソースの registerProposal() で eligibleAtBlock = block.number + registrationDelayBlocks、
+    unregisterProposal() は snapshotVotesAccepted != 0 なら revert、
+    setRegistrationDelayBlocks() が既登録の eligibleAtBlock に影響しないことを確認。
+    (テストネットの現在値は eth_call registrationDelayBlocks() = 5(実験用)。本番は 7200)
+
+【主張4】管理者にも票の偽造・改変・任意の Nouns 投票をする権限がない
+  → ソースの onlyOwner 関数を列挙する。setExcluded / setMarginBlocks / setLiveMode /
+    setRegistrar / setRegistrationDelayBlocks / setRefundEnabled / setRefundCapPerProposal /
+    sweep(+ OpenZeppelin Ownable 標準の transferOwnership / renounceOwnership)のみで、
+    票を作る・書き換える・execute の結果を指定する関数がないこと。
+    (registerProposal / unregisterProposal は owner も呼べるが、猶予と取消不能条件は §3 のとおり)
+
+【主張5】鍵が分離されている(テストネットで実証中)
+  → eth_call: owner() = 0x10849D31…8925, registrar() = 0xfE07E953…c9ae。
+    リレイヤー 0xBbE0b0fe…D561 は https://pnouns-voter.x402-adsb-worker.workers.dev/api/config
+    の "relayer" と一致し、3 者が互いに異なること。
+
+【主張6】Nouns の投票権が委任されており、実際に自動投票が成立している
+  → Nouns Token (Sepolia 0x4C4674bb…2b85) の getCurrentVotes(0x64CdACe…693F) > 0。
+    Sepolia Nouns DAO (0x35d2670d…4A57) の VoteCast イベントで、
+    voter = 0x64CdACe…693F の投票と reason 文(集計内訳)を確認。
+    例: 提案 #527 (2026-08-21 に自動実行。賛成 6 / 反対 2 / 棄権 1 → FOR)
+
+【主張7】Snapshot の票は誰でも取得でき、集計を検算できる
+  → https://hub.snapshot.org/graphql に POST:
+    { proposals(where:{space:"earl-grey.eth"}, first:5, orderBy:"created",
+      orderDirection:desc) { id title choices scores votes } }
+    任意の提案 id について { votes(where:{proposal:"&lt;id&gt;"}) { voter choice created ipfs } }
+    で 1 票ずつの署名レコードを取得し、上の VoteCast の内訳と突き合わせる。
+
+【注意】
+- Cloudflare 上で動くプログラム(リレイヤー)の実行コードは外部から証明できません。
+  これは仕様であり、上記のとおり「クラウドを信頼しなくても票が守られる」設計かどうかを
+  ソースコード(主張2)で判断してください。
+- テストネットの管理者と一部の鍵は開発用です。本番構成(マルチシグ管理者・
+  猶予 7200 ブロック・pnounsdao.eth)は導入時に同じ手順で再検証してください。
+</pre>
+</div></details>
+
+<h3>公開されているもの・いないもの</h3>
+<div class="tbl"><table>
+<tr><th>もの</th><th>公開状態</th><th>検証できること</th></tr>
+<tr><td>コントラクトのソースコード</td><td><b>公開済み</b>(Sourcify・完全一致検証つき)</td><td>票の検証・集計・投票のロジック全部。<b>ここが信頼の本体です</b></td></tr>
+<tr><td>Snapshot の提案・票・署名</td><td><b>公開</b>(Snapshot の公開 API)</td><td>誰が・何に・いつ投票したか。集計の検算</td></tr>
+<tr><td>オンチェーンの全記録</td><td><b>公開</b>(Etherscan 等)</td><td>対応表の登録・1 票ごとの反映・最終投票・ガスの出入り</td></tr>
+<tr><td>自動処理(リレイヤー等)のソースコード</td><td>リポジトリは<b>公開準備中</b>(導入までに GitHub で公開します)</td><td>公開後: 検知・投函・通知のロジック。ただし「実際に動いているものがこのコードか」は下記のとおり証明不能</td></tr>
+<tr><td>Cloudflare 上で実際に動くコード</td><td><b>非公開・証明不能</b>(あらゆるサーバー共通の限界)</td><td>挙動の観測のみ(送信 tx・公開 API・通知)。<b>信頼しなくても票が守られる設計</b>で補います(§6)</td></tr>
+</table></div>
+
+<footer>コントラクトの全ソースは Sourcify で公開・検証済み(上記リンク)。自動処理側のリポジトリと運用手順書・監査記録 15 回分は導入までに公開します。質問は #🔥｜p⚡雑談 かアールグレイまで。</footer>
 </div>

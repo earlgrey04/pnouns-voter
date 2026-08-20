@@ -24,13 +24,14 @@ Sepolia でのリハーサル実績: 2026-08-20 (registrar/relayer 分離・tran
 
 ```bash
 OWNER=0x<マルチシグ> REGISTRAR=0x<registrar> EXCLUDED=0x<pNouns トレジャリー> \
-REG_DELAY=7200 MARGIN=300 \
+REG_DELAY=7200 MARGIN=7200 \
   npx hardhat run scripts/mainnet/deploy-snapvoter.js --network mainnet
 ```
 
 (スクリプトはフォークで検証済み。`DRY_RUN=1` で引数確認のみ可)
 
 - `REG_DELAY=7200` (約 24 時間)。Worker の下限は 300 だが、運用値は 7200
+- `MARGIN=7200` (約 24 時間 — 決定済みの運用値。締切 = Nouns 投票終了の 24 時間前)
 - `OWNER` は**最初からマルチシグを指定**(EOA を経由しない)
 - 必須値に fallback はない。読み戻し検証に失敗すると非ゼロで終了する
 - デプロイ後、**liveMode は false のまま**。`setLiveMode(true)` は最終段まで呼ばない
@@ -44,7 +45,7 @@ REG_DELAY=7200 MARGIN=300 \
 ```bash
 ENV="NETWORK=mainnet EXPECT_OWNER=0x… EXPECT_REGISTRAR=0x… EXPECT_RELAYER=0x… \
      EXPECT_DELEGATOR=0x<Nouns 保有マルチシグ> EXPECT_EXCLUDED=0x<トレジャリー> \
-     EXPECT_BOT=0x<Snapshot bot> EXPECT_MARGIN=300"
+     EXPECT_BOT=0x<Snapshot bot> EXPECT_MARGIN=7200"
 # (シェルの制約上、変数展開をコマンドとして実行できないため env を前置する)
 # 手順 2 の後:            env $ENV node scripts/check-deploy.mjs --stage deployed
 # 手順 4 の後:            env $ENV node scripts/check-deploy.mjs --stage worker
