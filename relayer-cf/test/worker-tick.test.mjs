@@ -2,7 +2,8 @@
 // 方針: clients() のみ差し替え、KV は偽の env.STATE、Discord/Snapshot ハブは fetch の mock で応答する。
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { keccak256, stringToBytes, parseEther } from "viem";
+import { keccak256, stringToBytes, parseEther, ContractFunctionRevertedError } from "viem";
+import { METAGOV_ABI } from "../src/abi.js";
 import { tick, __setClientsForTests, __resetWorkerStateForTests } from "../src/worker.js";
 
 const VOTER = "0x1000000000000000000000000000000000000001";
@@ -47,11 +48,12 @@ function fakePC(h) {
     async getBalance() { calls.push("getBalance"); return parseEther("1"); },
     async getTransactionReceipt() { throw new Error("not found"); },
     async estimateContractGas(x) { calls.push("estimateGas:" + x.functionName); return 100000n; },
+    async simulateContract(x) { calls.push("simulate:" + x.functionName); if (h.simulateContract) return h.simulateContract(x); return { request: {} }; },
   };
 }
 
 // ---- fetch mock: ハブと Discord を演じる ----
-const F = { hub: [], discordStatus: 200, discordBodies: [], hubCalls: 0 };
+const F = { hub: [], discordStatus: 200, discordBodies: [], hubCalls: 0, envelope: null };
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u.startsWith(HUB)) {
@@ -62,6 +64,7 @@ globalThis.fetch = async (url, init) => {
     return new Response(JSON.stringify({ data: r ?? { proposals: [] } }), { status: 200 });
   }
   if (u === WEBHOOK) { F.discordBodies.push(JSON.parse(init.body).content); return new Response("", { status: F.discordStatus }); }
+  if (u.includes("/ipfs")) { return F.envelope ? new Response(JSON.stringify(F.envelope), { status: 200 }) : new Response("nf", { status: 404 }); }
   throw new Error("unexpected fetch: " + u);
 };
 
@@ -102,7 +105,7 @@ const setup = (h, envOver = {}, wallet = null) => {
 };
 const putsOf = (kv, part) => kv.ops.filter(([op, k]) => op === "put" && k.includes(part));
 
-beforeEach(() => { F.hub = []; F.discordStatus = 200; F.discordBodies = []; F.hubCalls = 0; __setClientsForTests(null); });
+beforeEach(() => { F.hub = []; F.discordStatus = 200; F.discordBodies = []; F.hubCalls = 0; F.envelope = null; __setClientsForTests(null); });
 
 test("ハブ障害: tick 全体が fail-closed(告知なし・KV 書き込みなし)", async () => {
   const { kv, env } = setup(handlers());
@@ -214,9 +217,9 @@ test("締切後: 対応付け済みで票ゼロなら 'no votes' を確定し、
 
 test("第13回監査 High: 登録猶予中は投函せず、票を dead-letter に数えない", async () => {
   const wallet = { account: { address: RELAYER } };
-  // ケース A: 猶予中(eligibleAt=300 > block=100) → 対応付け解決後、票の取得にすら行かない
+  // ケース A: 猶予中(block=100 < eligibleAt=150 < 締切) → 対応付け解決後、票の取得にすら行かない
   {
-    const { kv, env } = setup(handlers({ eligibleAtBlock: () => 300n }), {}, wallet);
+    const { kv, env } = setup(handlers({ eligibleAtBlock: () => 150n }), {}, wallet);
     F.hub = [hubProposal("https://nouns.wtf/vote/1")];
     await tick(env);
     assert.equal(F.hubCalls, 1, "ハブ呼び出しは対応付けの 1 回だけ(votes クエリなし)");
@@ -268,4 +271,70 @@ test("確定 tx 通知の失敗は pendingnotes に積まれ、次 tick で再�
   await tick(env);
   assert.ok(F.discordBodies.some((b) => b.includes("反映しました")), "持ち越した通知が再送される");
   assert.equal(kv.data.has(`${ns}pendingnotes`), false, "キューが空になり削除される");
+});
+
+test("第14回監査: 猶予明けが締切に間に合わない登録は警告し、告知も抑止する", async () => {
+  const wallet = { account: { address: RELAYER } };
+  const { kv, env } = setup(handlers({ eligibleAtBlock: () => 300n }), {}, wallet); // 300 > 締切195
+  F.hub = [hubProposal("https://nouns.wtf/vote/1")];
+  await tick(env);
+  assert.ok(F.discordBodies.some((b) => b.includes("登録が遅すぎます")), "専用警告");
+  assert.equal(putsOf(kv, "flag:gracewarn:1").length, 1);
+  assert.equal(putsOf(kv, "announced").length, 0, "投函できない提案を告知しない");
+});
+
+// ---- 実投函経路(第14回監査 Low: mock で票 1 件を最後まで通す) ----
+const VOTER_A = "0x3000000000000000000000000000000000000001";
+const CID = "bafytest1";
+const TS = 1700000000;
+function submitHandlers(over = {}) {
+  return handlers({
+    totalSupply: () => 2n,
+    ownerOf: () => VOTER_A, // token 1,2 とも voterA 保有
+    voterRec: () => [false, 0, false, 0n, "0x" + "00".repeat(32)],
+    hasTokenVoted: () => false,
+    ...over,
+  });
+}
+const hubWithVote = () => [hubProposal("https://nouns.wtf/vote/1"), { votes: [{ voter: VOTER_A, ipfs: CID, choice: 1, created: TS }] }];
+const goodEnvelope = () => ({ data: { message: { from: VOTER_A, timestamp: TS, proposal: SNAP_ID, choice: 1, reason: "", app: "", metadata: "" } }, sig: "0x" + "11".repeat(65) });
+
+test("実投函: 票 1 件が simulate → writeContract → snapsent 保存まで通る", async () => {
+  const writes = [];
+  const wallet = { account: { address: RELAYER }, writeContract: async (x) => { writes.push(x.functionName); return "0x" + "ee".repeat(32); } };
+  const { kv, env } = setup(submitHandlers(), {}, wallet);
+  F.hub = hubWithVote(); F.envelope = goodEnvelope();
+  await tick(env);
+  assert.deepEqual(writes, ["castSnapshotVotes"], "投函 tx が送られる");
+  assert.equal(putsOf(kv, "snapsent:1").length, 1, "送信中レコードが保存される");
+  assert.equal(putsOf(kv, "snapdrop").length, 0);
+});
+
+test("実投函: RegistrationTooRecent の revert は ABI で復号され、drop に数えない", async () => {
+  const writes = [];
+  const wallet = { account: { address: RELAYER }, writeContract: async (x) => { writes.push(x.functionName); return "0x" + "ee".repeat(32); } };
+  // selector 0x33ab63b9 = RegistrationTooRecent()。ABI に定義があるので errorName が復号される
+  const revert = () => { throw new ContractFunctionRevertedError({ abi: METAGOV_ABI, data: "0x33ab63b9", functionName: "castSnapshotVotes" }); };
+  const { kv, env } = setup(submitHandlers({ simulateContract: revert }), {}, wallet);
+  F.hub = hubWithVote(); F.envelope = goodEnvelope();
+  await tick(env);
+  assert.equal(writes.length, 0, "投函しない");
+  assert.equal(putsOf(kv, "snapdrop").length, 0, "transient なので drop に数えない");
+});
+
+test("実投函: 復号可能な恒久 revert(StaleVote)は drop に数える", async () => {
+  const wallet = { account: { address: RELAYER }, writeContract: async () => "0x" + "ee".repeat(32) };
+  const revert = () => { throw new ContractFunctionRevertedError({ abi: METAGOV_ABI, data: "0x3d7ac07d", functionName: "castSnapshotVotes" }); }; // StaleVote()
+  const { kv, env } = setup(submitHandlers({ simulateContract: revert }), {}, wallet);
+  F.hub = hubWithVote(); F.envelope = goodEnvelope();
+  await tick(env);
+  assert.equal(putsOf(kv, "snapdrop:1").length, 1, "恒久 revert は従来どおり数える");
+});
+
+test("猶予境界: block == eligibleAt では投函が始まる", async () => {
+  const wallet = { account: { address: RELAYER }, writeContract: async () => "0x" + "ee".repeat(32) };
+  const { env } = setup(submitHandlers({ eligibleAtBlock: () => 100n }), {}, wallet); // block=100
+  F.hub = hubWithVote(); F.envelope = goodEnvelope();
+  await tick(env);
+  assert.ok(F.hubCalls >= 2, "votes クエリに到達(off-by-one なし)");
 });

@@ -1,5 +1,35 @@
-// PNounsSnapVoter の必要最小限 ABI
+// PNounsSnapVoter の必要最小限 ABI。
+// custom error の定義を必ず含めること: viem はこの ABI で revert データを復号するため、
+// 欠けていると revertErrorName() が null になり RegistrationTooRecent の transient 判定が死ぬ(第14回監査)。
 export const METAGOV_ABI = [
+ {"inputs": [], "name": "AlreadyExecuted", "type": "error"},
+ {"inputs": [], "name": "AlreadyRegistered", "type": "error"},
+ {"inputs": [], "name": "ECDSAInvalidSignature", "type": "error"},
+ {"inputs": [{"internalType": "uint256", "name": "length", "type": "uint256"}], "name": "ECDSAInvalidSignatureLength", "type": "error"},
+ {"inputs": [{"internalType": "bytes32", "name": "s", "type": "bytes32"}], "name": "ECDSAInvalidSignatureS", "type": "error"},
+ {"inputs": [{"internalType": "address", "name": "voter", "type": "address"}], "name": "ExcludedVoter", "type": "error"},
+ {"inputs": [], "name": "FromMismatch", "type": "error"},
+ {"inputs": [], "name": "InvalidChoice", "type": "error"},
+ {"inputs": [], "name": "InvalidContractSignature", "type": "error"},
+ {"inputs": [], "name": "InvalidFromAddress", "type": "error"},
+ {"inputs": [], "name": "InvalidSpace", "type": "error"},
+ {"inputs": [], "name": "MixedProposals", "type": "error"},
+ {"inputs": [], "name": "NoTokenIds", "type": "error"},
+ {"inputs": [], "name": "NoVotes", "type": "error"},
+ {"inputs": [], "name": "NotRegistered", "type": "error"},
+ {"inputs": [], "name": "NotRegistrar", "type": "error"},
+ {"inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}, {"internalType": "address", "name": "owner", "type": "address"}], "name": "NotTokenOwner", "type": "error"},
+ {"inputs": [], "name": "NothingCounted", "type": "error"},
+ {"inputs": [{"internalType": "address", "name": "owner", "type": "address"}], "name": "OwnableInvalidOwner", "type": "error"},
+ {"inputs": [{"internalType": "address", "name": "account", "type": "address"}], "name": "OwnableUnauthorizedAccount", "type": "error"},
+ {"inputs": [{"internalType": "uint8", "name": "state", "type": "uint8"}], "name": "ProposalNotVotable", "type": "error"},
+ {"inputs": [], "name": "ReentrancyGuardReentrantCall", "type": "error"},
+ {"inputs": [], "name": "RegistrationTooRecent", "type": "error"},
+ {"inputs": [], "name": "StaleVote", "type": "error"},
+ {"inputs": [], "name": "VotesAlreadyCounted", "type": "error"},
+ {"inputs": [], "name": "VotingClosed", "type": "error"},
+ {"inputs": [], "name": "VotingNotClosed", "type": "error"},
+ {"inputs": [], "name": "WrongSpace", "type": "error"},
  {
   "anonymous": false,
   "inputs": [

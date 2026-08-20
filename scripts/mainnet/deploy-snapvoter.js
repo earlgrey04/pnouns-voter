@@ -1,5 +1,5 @@
 // mainnet 用デプロイ(RUNBOOK-MAINNET 手順 2)。liveMode は false のまま・委任も行わない。
-// 使い方(必須値はすべて明示。fallback なし):
+// 使い方(アドレスは必須・明示。REG_DELAY/MARGIN には運用既定値 7200/300 がある):
 //   OWNER=0x<マルチシグ> REGISTRAR=0x<registrar> EXCLUDED=0x<トレジャリー>[,0x…] \
 //     REG_DELAY=7200 MARGIN=300 npx hardhat run scripts/mainnet/deploy-snapvoter.js --network mainnet
 //   DRY_RUN=1 … 引数の検証と表示のみ / OUT=<path> … 出力先(フォークでのテスト用)
@@ -16,9 +16,15 @@ async function main() {
   const delay = Number(process.env.REG_DELAY || 7200);
   const margin = Number(process.env.MARGIN || 300);
   if (!owner || !registrar) throw new Error("OWNER(マルチシグ)と REGISTRAR を明示してください");
+  // アドレスの厳格検証(第14回監査): checksum 不正・ゼロアドレスをデプロイ前に弾く
+  for (const [k, a] of [["OWNER", owner], ["REGISTRAR", registrar], ...excluded.map((a, i) => [`EXCLUDED[${i}]`, a])]) {
+    const norm = ethers.getAddress(a); // 不正なら throw
+    if (norm === ethers.ZeroAddress) throw new Error(`${k} がゼロアドレスです`);
+  }
   if (owner.toLowerCase() === registrar.toLowerCase()) throw new Error("owner と registrar は別アドレスにしてください");
   if (!excluded.length) throw new Error("EXCLUDED(トレジャリー等の除外アドレス)を明示してください");
   if (!Number.isInteger(delay) || delay < 300) throw new Error("REG_DELAY は 300 以上(運用値 7200 = 約 24 時間)");
+  if (!Number.isInteger(margin) || margin < 10 || margin > 7200) throw new Error("MARGIN は 10〜7200 の整数(運用値 300 = 約 1 時間)");
   const out = process.env.OUT || path.join(__dirname, "..", "..", "deployments", "mainnet.json");
   if (fs.existsSync(out) && JSON.parse(fs.readFileSync(out, "utf8")).snapVoter && process.env.FORCE !== "1") throw new Error(`${out} に既存デプロイがあります(上書きは FORCE=1)`);
   const [deployer] = await ethers.getSigners();

@@ -517,14 +517,26 @@ export async function tick(env) {
             if (sent) await store.setFlag(`endwarn:${p.id}`, 86400 * 7);
           }
         }
+        // 第14回監査: 登録が遅すぎて「猶予明けが締切(排出時間込み)以降」になると、
+        // 票を一度も投函できないまま締切を迎え、"no votes" が確定してしまう。専用に検出する。
+        let graceBad = false;
+        if (c.snapshotSpace && snapInfo && mg.eligibleAt && mg.deadline) {
+          const drainBlocks = Math.ceil((c.cronSec + c.submitBufferSec) / 12);
+          graceBad = mg.eligibleAt + drainBlocks >= mg.deadline;
+          if (graceBad && !(await store.getFlag(`gracewarn:${p.id}`))) {
+            const sent = await notify(c, [`⚠️ Prop ${p.id}: 対応表の登録が遅すぎます。猶予明け(block ${mg.eligibleAt})が締切(block ${mg.deadline})に間に合わず、票を投函できません。`, c.network === "mainnet" ? "mainnet は安全側に停止しました(このままでは票ゼロで確定してしまうため)。取消して手動対応を検討してください。" : "テスト環境のため処理は継続します。"].join("\n"));
+            if (sent) await store.setFlag(`gracewarn:${p.id}`, 86400 * 7);
+          }
+        }
         // M-1: 告知は照合・締切チェックを通ってから。不一致の Snapshot 提案 URL を
         // 「投票してください」と先に流してしまうと、誤った提案へ投票を誘導したうえ
         // 「告知済み」が記録されて正しい URL の再告知も止まる。
-        if (c.announce && !linkBad && !(timelineBad && c.network === "mainnet")) {
+        if (c.announce && !linkBad && !graceBad && !(timelineBad && c.network === "mainnet")) {
           await announceNew(c, pc, store, p, block, snapInfo);
         }
         if (linkBad && c.network === "mainnet") continue;
         if (timelineBad && c.network === "mainnet") continue;
+        if (graceBad && c.network === "mainnet") continue;
         if (!wc) continue;
         if (block < mg.deadline) {
           if (c.snapshotSpace) {

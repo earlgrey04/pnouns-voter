@@ -43,12 +43,14 @@ REG_DELAY=7200 MARGIN=300 \
 
 ```bash
 ENV="NETWORK=mainnet EXPECT_OWNER=0x… EXPECT_REGISTRAR=0x… EXPECT_RELAYER=0x… \
-     EXPECT_DELEGATOR=0x<Nouns 保有マルチシグ> EXPECT_EXCLUDED=0x<トレジャリー> EXPECT_BOT=0x<Snapshot bot>"
-# 手順 2 の後:            $ENV node scripts/check-deploy.mjs --stage deployed
-# 手順 4 の後:            $ENV node scripts/check-deploy.mjs --stage worker
-# プール入金の後:         $ENV node scripts/check-deploy.mjs --stage funded
-# 手順 6-1(委任)の後:     $ENV node scripts/check-deploy.mjs --stage delegated
-# 手順 6-3(live 化)の後:  $ENV node scripts/check-deploy.mjs --stage live
+     EXPECT_DELEGATOR=0x<Nouns 保有マルチシグ> EXPECT_EXCLUDED=0x<トレジャリー> \
+     EXPECT_BOT=0x<Snapshot bot> EXPECT_MARGIN=300"
+# (シェルの制約上、変数展開をコマンドとして実行できないため env を前置する)
+# 手順 2 の後:            env $ENV node scripts/check-deploy.mjs --stage deployed
+# 手順 4 の後:            env $ENV node scripts/check-deploy.mjs --stage worker
+# プール入金の後:         env $ENV node scripts/check-deploy.mjs --stage funded
+# 手順 6-1(委任)の後:     env $ENV node scripts/check-deploy.mjs --stage delegated
+# 手順 6-3(live 化)の後:  env $ENV node scripts/check-deploy.mjs --stage live
 ```
 
 mainnet では EXPECT_* が欠けていると fail する。live 未満の段階では liveMode=false で

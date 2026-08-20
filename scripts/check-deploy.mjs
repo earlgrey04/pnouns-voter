@@ -6,9 +6,9 @@
 //   --stage delegated … + Nouns 委任(delegates(EXPECT_DELEGATOR) == voter)
 //   --stage live      … + liveMode=true (既定。live 未満の段階では liveMode=false を要求[mainnet])
 //
-// mainnet では EXPECT_OWNER / EXPECT_REGISTRAR / EXPECT_EXCLUDED が必須。
-// worker 段階以降は EXPECT_RELAYER、delegated 以降は EXPECT_DELEGATOR も必須。
-// EXPECT_DELAY(既定 7200)・EXPECT_BOT(任意: 4 者分離の検査)も参照する。
+// mainnet では EXPECT_OWNER / EXPECT_REGISTRAR / EXPECT_EXCLUDED / EXPECT_MARGIN が必須。
+// worker 段階以降は EXPECT_RELAYER と EXPECT_BOT(4 者分離)、delegated 以降は EXPECT_DELEGATOR も必須。
+// EXPECT_DELAY は既定 7200。
 //
 //   NETWORK=sepolia node scripts/check-deploy.mjs
 //   NETWORK=mainnet EXPECT_OWNER=0x… EXPECT_REGISTRAR=0x… EXPECT_EXCLUDED=0x… node scripts/check-deploy.mjs --stage deployed
@@ -63,7 +63,7 @@ async function main() {
   check("space が想定どおり", space === expSpace, `${space} (想定 ${expSpace})`);
   const expDelay = Number(E("EXPECT_DELAY") || (MAIN ? 7200 : 1));
   check(`registrationDelayBlocks >= ${expDelay}`, Number(delay) >= expDelay, String(delay));
-  if (E("EXPECT_MARGIN")) check("marginBlocks が想定どおり", Number(margin) === Number(E("EXPECT_MARGIN")), String(margin));
+  if (requireEnv("EXPECT_MARGIN", "締切マージン")) if (E("EXPECT_MARGIN")) check("marginBlocks が想定どおり", Number(margin) === Number(E("EXPECT_MARGIN")), String(margin));
   check("refundEnabled", refund === true);
   // liveMode: live 段階では true、それ未満の段階では(mainnet は)false であること
   if (stageN >= STAGES.indexOf("live")) check("liveMode = true", liveMode === true);
@@ -100,6 +100,7 @@ async function main() {
       check("relayer が Worker から取得できた", !!relayer, relayer || "(デプロイ伝搬直後は旧版が返ることがある → 再実行)");
       if (requireEnv("EXPECT_RELAYER", "リレイヤー")) if (E("EXPECT_RELAYER") && relayer) check("relayer が想定どおり", low(relayer) === low(E("EXPECT_RELAYER")), relayer);
     }
+    if (requireEnv("EXPECT_BOT", "Snapshot bot(4 者分離)")) { /* 下の分離検査で使う */ }
     const roles = { owner, registrar, relayer, bot: E("EXPECT_BOT") };
     const addrs = Object.values(roles).filter(Boolean).map(low);
     const distinct = new Set(addrs).size === addrs.length;

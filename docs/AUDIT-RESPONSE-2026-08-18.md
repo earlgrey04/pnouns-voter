@@ -238,3 +238,24 @@ create-and-register の副作用なし fail(dry-run/fetch 失敗)、非 Snapshot
 テストフックの本番無影響、/api/config の relayer 公開。
 
 **要 Sepolia 追随**: なし(コントラクト無変更)。Worker は再デプロイ済み。
+
+---
+
+## 第14回監査 (2026-08-20, Codex CLI / read-only) — 第13回修正の最終確認
+
+対象: 1be9d16。生ログ: `docs/audit-14-codex-raw.md`
+総括: High 0。第13回 High の主修正(eligibleAtBlock ゲート)は「off-by-one なし・正しく修正」と確認。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | Medium | **二重防御②が機能していない**: METAGOV_ABI に error 定義が 1 件もなく、viem が RegistrationTooRecent を復号できない(revertErrorName は常に null)。eligibleAtBlock の読取だけが失敗した場合(allowFailure)にゲートが素通りし、再び snapdrop が増え得る | 修正: コントラクトの custom error 全 28 個を METAGOV_ABI に追加。復号された RegistrationTooRecent が drop に数えられないこと・恒久 revert(StaleVote)は数えることを、実際の ContractFunctionRevertedError を構築するテストで確認 ※ABI 欠落は Codex 報告前にこちらでも特定済み |
+| 2 | Medium | 登録が遅すぎて猶予明けが締切以降になる場合、専用警告なく「票ゼロ」で確定する(timelineSafe は eligibleAt を見ない) | 修正: `eligibleAt + 排出時間 >= deadline` を graceBad として検出。警告を出し、告知を抑止し、mainnet では処理を停止。テスト追加 ※この欠陥もこちらで事前に特定し監査依頼に明記していたもの |
+| 3 | Medium | MARGIN 未検証・EXPECT_MARGIN/EXPECT_BOT が任意・アドレスの checksum/ゼロ検証なし | 修正: deploy 側で MARGIN 10〜7200 の整数・全アドレスの getAddress + ゼロ拒否。check-deploy 側で mainnet の EXPECT_MARGIN(deployed 段階)・EXPECT_BOT(worker 段階)を必須化 |
+| 4 | Medium | RUNBOOK の `$ENV node …` は bash では実行できない(変数展開はコマンド扱い) | 修正: `env $ENV node …` に統一 |
+| 5 | Low | 実投函経路が未テスト | 修正: 票 1 件を simulate → writeContract → snapsent 保存まで通すテスト、復号 revert の振り分け(transient/恒久)、猶予境界 block==eligibleAt の 4 本を追加(計 17 シナリオ / relayer 43 テスト) |
+
+問題なし: 猶予ゲートの境界(block==eligibleAt で即投函・1 tick の無駄なし)、preflight の正当性
+(owner による登録は正常系)、deploy の読み戻し・FORCE 保護、stage 分割と RUNBOOK の整合、
+pendingnotes の id 重複排除。
+
+テスト: relayer 43 pass / contracts 19 pass。コントラクト無変更(Worker のみ再デプロイ)。
