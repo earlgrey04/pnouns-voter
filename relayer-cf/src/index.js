@@ -19,7 +19,10 @@ app.use("*", async (ctx, next) => {
 app.get("/api/config", (ctx) => {
   const c = cfg(ctx.env);
   const snap = !!c.snapshotSpace;
-  return ctx.json({ mode: snap ? "snapshot" : "direct", network: c.network, chainId: c.chainId, metagov: c.metagov, pnouns: c.pnouns, nounsDAO: c.nounsDAO, explorer: c.explorer, blockscout: c.blockscout, snapshotSpace: c.snapshotSpace, domain: snap ? null : domain(c), types: snap ? null : VOTE_TYPES });
+  // relayer アドレスは tx 送信時にオンチェーンで公開される情報。照合スクリプト(check-deploy)が
+  // 「稼働中 Worker の鍵」と「意図した鍵」の一致を機械確認できるよう返す(秘密鍵は含まない)。
+  const relayer = clients(c).account?.address || null;
+  return ctx.json({ mode: snap ? "snapshot" : "direct", network: c.network, chainId: c.chainId, metagov: c.metagov, pnouns: c.pnouns, nounsDAO: c.nounsDAO, explorer: c.explorer, blockscout: c.blockscout, snapshotSpace: c.snapshotSpace, relayer, domain: snap ? null : domain(c), types: snap ? null : VOTE_TYPES });
 });
 
 app.get("/api/proposals", async (ctx) => {

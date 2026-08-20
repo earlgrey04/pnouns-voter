@@ -414,10 +414,21 @@ export async function notifyError(c, where, e) {
 
 let lastBalanceCheck = 0;
 let spaceCheckedAt = 0;
+
+// ---- テスト用フック(本番経路では未使用) ----
+// tick() は viem クライアント・KV・Discord に密結合しているため、状態遷移テストでは
+// clients() だけ差し替え、KV は env.STATE に偽物を渡し、fetch はテスト側で mock する。
+let _clients = clients;
+export function __setClientsForTests(f) { _clients = f || clients; }
+export function __resetWorkerStateForTests(o = {}) {
+  lastErrNotify = o.errNotifiedAt ?? 0;
+  lastBalanceCheck = o.balanceCheckedAt ?? 0;
+  spaceCheckedAt = o.spaceCheckedAt ?? 0;
+}
 const SPACE_RECHECK_MS = 30 * 60 * 1000; // owner が事後に delay を下げた場合を検知するため定期再確認
 export async function tick(env) {
   const c = cfg(env);
-  const { publicClient: pc, walletClient: wc } = clients(c);
+  const { publicClient: pc, walletClient: wc } = _clients(c);
   const store = makeStore(env.STATE, storeNs(c));
   try {
     try { await flushPendingNotes(c, store); } catch (e) { console.warn("[worker] pending notes flush failed", e.message); }
