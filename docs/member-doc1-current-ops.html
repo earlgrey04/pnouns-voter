@@ -1,17 +1,17 @@
 <title>pNouns 現行運用のしくみ</title>
 <style>
-  :root { --ground:#f3f5f1; --surface:#fff; --ink:#172019; --ink-2:#4c5750; --line:#d9ded8; --accent:#d22209; --accent-soft:#fbe9e6; --link:#1c5aa8; --ok:#1f7a45; --ok-soft:#e4f2e9; --warn:#8a5a00; --warn-soft:#fbf0d6;
+  :root { --ground:#f3f5f1; --surface:#fff; --ink:#172019; --ink-2:#4c5750; --line:#d9ded8; --accent:#d22209; --accent-soft:#fbe9e6; --link:#1c5aa8; --ok:#1f7a45; --ok-soft:#e4f2e9; --warn:#8a5a00; --warn-soft:#fbf0d6; --cloud:#1c5aa8; --cloud-soft:#e3edf9; --chain:#5b3fa8; --chain-soft:#ece6f8;
     --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; --sans:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif; }
-  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ground:#10161a; --surface:#182024; --ink:#e6ece8; --ink-2:#a9b4ad; --line:#2c363a; --accent:#ff5a43; --accent-soft:#3a1c18; --link:#7fb0ff; --ok:#6ccb8f; --ok-soft:#173224; --warn:#f0c060; --warn-soft:#3a2f12; } }
-  :root[data-theme="dark"] { --ground:#10161a; --surface:#182024; --ink:#e6ece8; --ink-2:#a9b4ad; --line:#2c363a; --accent:#ff5a43; --accent-soft:#3a1c18; --link:#7fb0ff; --ok:#6ccb8f; --ok-soft:#173224; --warn:#f0c060; --warn-soft:#3a2f12; }
-  * { box-sizing:border-box; } body { margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans); line-height:1.75; font-size:16px; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ground:#10161a; --surface:#182024; --ink:#e6ece8; --ink-2:#a9b4ad; --line:#2c363a; --accent:#ff5a43; --accent-soft:#3a1c18; --link:#7fb0ff; --ok:#6ccb8f; --ok-soft:#173224; --warn:#f0c060; --warn-soft:#3a2f12; --cloud:#7fb0ff; --cloud-soft:#16283f; --chain:#b79df2; --chain-soft:#251c3a; } }
+  :root[data-theme="dark"] { --ground:#10161a; --surface:#182024; --ink:#e6ece8; --ink-2:#a9b4ad; --line:#2c363a; --accent:#ff5a43; --accent-soft:#3a1c18; --link:#7fb0ff; --ok:#6ccb8f; --ok-soft:#173224; --warn:#f0c060; --warn-soft:#3a2f12; --cloud:#7fb0ff; --cloud-soft:#16283f; --chain:#b79df2; --chain-soft:#251c3a; }
+  * { box-sizing:border-box; } body { margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans); line-height:1.8; font-size:16px; }
   a { color:var(--link); } .wrap { max-width:780px; margin:0 auto; padding:40px 20px 80px; }
-  header { border-bottom:3px solid var(--accent); padding-bottom:20px; margin-bottom:32px; }
+  header { border-bottom:3px solid var(--accent); padding-bottom:20px; margin-bottom:28px; }
   .eyebrow { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-2); font-weight:600; }
-  h1 { font-size:28px; line-height:1.35; margin:8px 0 10px; text-wrap:balance; letter-spacing:-.01em; }
+  h1 { font-size:27px; line-height:1.4; margin:8px 0 10px; text-wrap:balance; letter-spacing:-.01em; }
   .lede { color:var(--ink-2); margin:0; font-size:15px; }
   h2 { font-size:20px; margin:40px 0 12px; } h3 { font-size:16px; margin:20px 0 6px; }
-  p { margin:0 0 12px; } ul,ol { margin:0 0 12px; padding-left:1.4em; } li { margin:2px 0; }
+  p { margin:0 0 12px; } ul,ol { margin:0 0 12px; padding-left:1.4em; } li { margin:3px 0; }
   .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }
   .card.ok { border-color:var(--ok); background:var(--ok-soft); } .card.warn { border-color:var(--warn); background:var(--warn-soft); } .card.accent { border-left:4px solid var(--accent); }
   table { border-collapse:collapse; width:100%; font-size:14px; background:var(--surface); }
@@ -24,49 +24,58 @@
   .flow.c4 { grid-template-columns:repeat(4,1fr); } .flow.c5 { grid-template-columns:repeat(5,1fr); }
   @media (max-width:680px) { .flow.c4,.flow.c5 { grid-template-columns:1fr; } }
   .step { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:11px 12px; font-size:13.5px; }
-  .step b { display:block; margin-bottom:3px; font-size:14px; } .step small { color:var(--ink-2); display:block; }
-  .step .who { font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; color:var(--accent); display:block; }
-  .step.human .who { color:var(--warn); } .step.human { border-color:var(--warn); }
-  .step.auto .who { color:var(--ok); }
-  .pill { display:inline-block; font-size:11px; padding:1px 8px; border-radius:999px; font-weight:600; }
-  .pill.h { background:var(--warn-soft); color:var(--warn); } .pill.a { background:var(--ok-soft); color:var(--ok); }
+  .step b { display:block; margin:2px 0 3px; font-size:14px; } .step small { color:var(--ink-2); display:block; }
+  .who { font-size:11px; letter-spacing:.06em; text-transform:uppercase; font-weight:700; color:var(--accent); display:block; }
+  .pill { display:inline-block; font-size:11px; padding:1px 8px; border-radius:999px; font-weight:700; vertical-align:1px; }
+  .pill.local { background:var(--warn-soft); color:var(--warn); }
+  .pill.cloud { background:var(--cloud-soft); color:var(--cloud); }
+  .pill.chain { background:var(--chain-soft); color:var(--chain); }
+  .pill.human { background:var(--accent-soft); color:var(--accent); }
+  .pill.zero { background:var(--ok-soft); color:var(--ok); }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:13px; color:var(--ink-2); margin:8px 0 0; }
   footer { margin-top:44px; padding-top:14px; border-top:1px solid var(--line); color:var(--ink-2); font-size:13px; }
 </style>
 <div class="wrap">
 <header>
   <div class="eyebrow">pNouns ⚡ DAO ・ 資料 1/3 — 現行の運用</div>
-  <h1>いまの「Snapshot 投票 → Nouns DAO 反映」のしくみ（ヒト＋自動化）</h1>
-  <p class="lede">2026年8月20日 ・ アールグレイ ・ Nouns DAO の提案を pNouns の Snapshot に映して投票し、結果を Nouns DAO に反映するまでの現行フロー。<span class="pill a">自動</span>と<span class="pill h">ヒト</span>の分担を整理しました。</p>
+  <h1>いまの「Snapshot 投票 → Nouns DAO 反映」のしくみ</h1>
+  <p class="lede">2026年8月20日 ・ アールグレイ ・ Nouns DAO の提案を pNouns の Snapshot に映して投票し、結果を Nouns DAO に届けるまでの現行フロー。どの作業が「人」で、どれが「自動」で、それぞれ「どこで」動いているかを整理しました。</p>
 </header>
+<div class="card"><b>この資料での場所の表し方</b>
+<div class="legend">
+<span><span class="pill local">ローカル</span> アールグレイの自宅 PC で動くもの(PC が止まると止まる)</span>
+<span><span class="pill cloud">クラウド</span> インターネット上のサービス(GitHub、Cloudflare、Snapshot、Discord など)</span>
+<span><span class="pill chain">オンチェーン</span> Ethereum ブロックチェーン上(誰も改ざんできず、誰でも検証できる)</span>
+</div></div>
 
-<h2>1. 全体の流れ</h2>
+<h2>1. 全体の流れ(提案 1 本あたり)</h2>
 <div class="flow c5">
-  <div class="step auto"><span class="who">自動(ローカルPC)</span><b>① 提案の検知・要約</b><small>この PC の常駐ジョブ(15分ごと)が Nouns DAO の新提案(投票開始)を検知し、AI が日本語要約を生成。GitHub にドラフト(Pull Request)を作成。</small></div>
-  <div class="step human"><span class="who">ヒト</span><b>② 承認</b><small>アールグレイが PR の要約文を確認・修正してマージ。</small></div>
-  <div class="step auto"><span class="who">自動(GitHub Actions)</span><b>③ Snapshot に提案作成</b><small>マージを合図に GitHub Actions が bot ウォレット(pNouns 1 枚保有)の署名で pnounsdao.eth に提案を投稿。投票期間 48 時間。</small></div>
-  <div class="step human"><span class="who">ヒト(半自動)</span><b>④ 告知</b><small>下書きは自動生成 → アールグレイの承認後、本人アカウントで Discord #🔥｜p⚡雑談 に「Prop N をあげました」を投稿。</small></div>
-  <div class="step human"><span class="who">メンバー→ヒト</span><b>⑤ 投票と反映</b><small>メンバーは Snapshot で署名投票(ガス0)。締切後、<b>アールグレイが結果を確認し、委任先ウォレットから手動で Nouns DAO に castVote</b>。結果報告も手動。</small></div>
+  <div class="step"><span class="who">自動</span><span class="pill local">ローカル</span><b>① 検知・要約</b><small>自宅 PC の常駐プログラムが 15 分ごとに Nouns DAO を見張り、新しい提案(投票開始)を見つけると AI で日本語要約を作り、GitHub に下書きを提出。</small></div>
+  <div class="step"><span class="who">人</span><span class="pill cloud">クラウド</span><b>② 承認</b><small>アールグレイが GitHub 上で要約文を確認・修正して承認(マージ)。</small></div>
+  <div class="step"><span class="who">自動</span><span class="pill cloud">クラウド</span><b>③ Snapshot に提案作成</b><small>承認を合図に GitHub Actions が、bot 用ウォレット(pNouns 1 枚保有)の署名で Snapshot(pnounsdao.eth)に投票ページを作成。期間 48 時間。</small></div>
+  <div class="step"><span class="who">人(下書きは自動)</span><span class="pill cloud">クラウド</span><b>④ 告知</b><small>告知文は自動生成 → アールグレイが確認し、本人アカウントで Discord の #🔥｜p⚡雑談 に投稿。</small></div>
+  <div class="step"><span class="who">メンバー → 人</span><span class="pill cloud">クラウド</span>→<span class="pill chain">オンチェーン</span><b>⑤ 投票と反映</b><small>メンバーは Snapshot で投票(署名のみ・<b>ガス代 0 円</b>)。締切後、<b>アールグレイが結果を確認し、Nouns の投票権を委任されたウォレットから手動で Nouns DAO に投票</b>(ここだけオンチェーンの操作)。結果報告も手動。</small></div>
 </div>
 
-<h2>2. 登場する構成要素</h2>
+<h2>2. 構成要素と動作場所</h2>
 <div class="tbl"><table>
-<tr><th>要素</th><th>役割</th><th>種別</th></tr>
-<tr><td>pnouns-mirror(このPCの常駐ジョブ)</td><td>Nouns 提案の検知、日本語要約の生成、GitHub へのドラフト作成</td><td>自動</td></tr>
-<tr><td>GitHub リポジトリ + Actions</td><td>要約の承認フロー(PR)と、Snapshot への提案投稿(bot ウォレットの鍵は Actions の secret)</td><td>自動(承認はヒト)</td></tr>
-<tr><td>Snapshot(pnounsdao.eth)</td><td>メンバーの投票。重み = pNouns 保有枚数、定足数 210、期間 48h。投票は署名のみでガス不要</td><td>外部サービス</td></tr>
-<tr><td>告知ジョブ + Discord</td><td>Snapshot 投稿を検知して告知文を下書き → 承認後に投稿</td><td>半自動</td></tr>
-<tr><td>Nouns NFT 保有マルチシグ → 委任先ウォレット</td><td>Nouns DAO への投票権(2票)。<b>投票操作は毎回ヒト</b></td><td>ヒト</td></tr>
+<tr><th>要素</th><th>場所</th><th>役割</th></tr>
+<tr><td>検知・要約プログラム(pnouns-mirror)</td><td><span class="pill local">ローカル</span></td><td>Nouns 提案の検知、日本語要約、GitHub への下書き提出</td></tr>
+<tr><td>GitHub(リポジトリ + Actions)</td><td><span class="pill cloud">クラウド</span></td><td>要約の承認フローと、Snapshot への提案作成の実行(bot ウォレットの鍵を保管)</td></tr>
+<tr><td>Snapshot(pnounsdao.eth)</td><td><span class="pill cloud">クラウド</span></td><td>メンバーの投票所。投票は「署名」だけなので<b>ガス代は一切かからない</b>。重み = pNouns 保有枚数、定足数 210、期間 48h</td></tr>
+<tr><td>告知プログラム + Discord</td><td><span class="pill local">ローカル</span>+<span class="pill cloud">クラウド</span></td><td>Snapshot 投稿を検知して告知文を下書き → 人の承認後に投稿</td></tr>
+<tr><td>Nouns NFT(2 枚)を持つマルチシグと、その委任先ウォレット</td><td><span class="pill chain">オンチェーン</span></td><td>Nouns DAO への投票権。<b>投票の操作(トランザクション送信)は毎回、人が手動</b>。このガス代(数十円〜)は Nouns DAO から自動で払い戻される</td></tr>
 </table></div>
 
 <h2>3. 現行の課題</h2>
 <div class="card warn">
   <ul style="margin:0">
-    <li><b>最後の反映が手動</b>: Snapshot 締切の監視 → 結果確認 → Nouns DAO への投票 → 結果報告、が毎回ヒト。遅れ・忘れのリスクが残る。</li>
-    <li><b>鍵の運用</b>: 委任先ウォレットの秘密鍵で毎回手動送信している。</li>
-    <li><b>属人化</b>: ②④⑤がアールグレイに依存。不在時は止まる。</li>
-    <li>Snapshot の結果とオンチェーンの投票の対応が、外からは追いにくい。</li>
+    <li><b>最後の反映(⑤)が手動</b>: 締切の見張り → 結果確認 → Nouns DAO への投票 → 結果報告、が毎回人の作業。遅れ・忘れのリスク。</li>
+    <li><b>属人化</b>: ②④⑤がアールグレイひとりに依存。不在時は止まる。</li>
+    <li><b>ローカル PC 依存</b>: ①の検知は自宅 PC が動いている前提。</li>
+    <li>「Snapshot の結果」と「Nouns DAO 上の投票」のつながりが、外部からは確認しにくい。</li>
   </ul>
 </div>
-<p>この「⑤の手動部分」をなくすために、次の資料 2(テストネットで実証済みの自動化)と資料 3(Snapshot をそのまま使う次の案)を用意しました。</p>
-<footer>資料 2「Sepolia で実証した自動化(pNouns Voter)」、資料 3「B3 案: Snapshot をそのまま使う自動化」へ続く。質問は #🔥｜p⚡雑談 かアールグレイまで。</footer>
+<p>この⑤の手動をなくす仕組みを作り、テスト環境で動かしたのが資料 2 です。</p>
+<footer>続き: 資料 2「テストネットで実証済みの自動化(pNouns Voter)」/ 資料 3「Snapshot をそのまま使う改良案」。質問は #🔥｜p⚡雑談 かアールグレイまで。</footer>
 </div>
