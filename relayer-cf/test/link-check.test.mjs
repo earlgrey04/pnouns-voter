@@ -40,3 +40,26 @@ test("正規表現メタ文字を含む入力で壊れない", () => {
   assert.equal(ref("https://nouns.wtf/vote/989", "9+8"), false);
   assert.equal(ref("https://nouns.wtf/vote/.*", 989), false);
 });
+
+// 第11回監査 M-3: URL 解析化による検出回帰(末尾句読点・全角後置文字・Markdown)
+test("URL の直後に句読点や日本語が続いても検出する", () => {
+  assert.equal(ref("詳細は https://nouns.wtf/vote/989。", 989), true, "全角句点");
+  assert.equal(ref("詳細は https://nouns.wtf/vote/989.", 989), true, "半角ピリオド");
+  assert.equal(ref("https://nouns.wtf/vote/989, および他", 989), true, "カンマ");
+  assert.equal(ref("https://nouns.wtf/vote/989、他", 989), true, "読点");
+  assert.equal(ref("https://nouns.wtf/vote/989後に投票", 989), true, "直後に日本語");
+  assert.equal(ref("「https://nouns.wtf/vote/989」を参照", 989), true, "全角かぎ括弧で囲む");
+  assert.equal(ref("[議案](https://nouns.wtf/vote/989)", 989), true, "Markdown リンク");
+  assert.equal(ref("https://nouns.wtf/vote/989\n次の行", 989), true, "改行が続く");
+  assert.equal(ref("https://nouns.wtf/vote/989?tab=x。", 989), true, "クエリ + 句点");
+});
+
+test("末尾処理で別 ID に化けない", () => {
+  assert.equal(ref("https://nouns.wtf/vote/9890。", 989), false);
+  assert.equal(ref("https://nouns.wtf/vote/989。", 9890), false);
+  assert.equal(ref("https://evilnouns.wtf/vote/989。", 989), false, "末尾処理をしてもドメイン判定は維持");
+});
+
+test("改行で分断された URL は検出しない(仕様)", () => {
+  assert.equal(ref("https://nouns.wtf/vote/\n989", 989), false);
+});

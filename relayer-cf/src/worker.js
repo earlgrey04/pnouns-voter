@@ -35,14 +35,15 @@ async function announceNew(c, pc, store, p, block, snapInfo) {
     if (!snapInfo) return; // Snapshot 提案が対応付けられるまで告知しない
     const minutes = Math.max(0, Math.round(((mg.deadline || p.endBlock) - block) * 12 / 60));
     const jst = new Date(Date.now() + minutes * 60000).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
-    await store.putAnnounced(p.id, `${new Date().toISOString()}|${snapInfo.snapId}`);
-    await notify(c, [
+    const lines = [
       `📢 Nouns Prop ${p.id}「${snapInfo.title || ""}」の投票受付を開始しました。`,
       `いつもどおり Snapshot から投票してください(ガス不要)。結果は自動で Nouns DAO に反映されます。`,
       `締切: ${jst} ごろ (block ${mg.deadline})`,
       `投票: https://snapshot.box/#/s:${c.snapshotSpace}/proposal/${snapInfo.snapId}`,
       `提案の内容: https://nouns.wtf/vote/${p.id}`,
-    ].join("\n"));
+    ];
+    // 送信できたときだけ「告知済み」にする。先に記録すると、Discord 障害時に永久に未告知になる
+    if (await notify(c, lines.join("\n"))) await store.putAnnounced(p.id, `${new Date().toISOString()}|${snapInfo.snapId}`);
     return;
   }
   const title = await proposalTitle(c, pc, store, p.id, p.creationBlock, p.state);
@@ -103,13 +104,13 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
     changed = true;
     if (rc && rc.status === "success") {
       if (await store.getFlag(`notified:${tx}`)) continue; // 通知の重複防止(KV の結果整合性対策)
-      await store.setFlag(`notified:${tx}`, 86400);
       const mg = await metagovInfo(c, pc, proposalId);
-      await notify(c, [
+      const sent = await notify(c, [
         `🗳️ Prop ${proposalId}: ${vs.length} 票を pNouns Voter に投函しました (gas ${rc.gasUsed})。`,
         `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
         `tx: ${explorerTx(c, tx)}`,
       ].join("\n"));
+      if (sent) await store.setFlag(`notified:${tx}`, 86400);
     } else {
       console.warn(`[worker] prop ${proposalId} tx ${tx} ${rc ? "reverted" : "not mined in 10 min"} → re-evaluated ${vs.length} votes`);
     }
@@ -138,13 +139,13 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     await store.kvRaw.delete(sentK);
     // cursor はここでは進めない(次 tick に voterRec を見て、確定したものだけ「解決済み」として前進する)
     if (anySuccess && !(await store.getFlag(`notified:${pending.txs[0]}`))) {
-      await store.setFlag(`notified:${pending.txs[0]}`, 86400);
       const mg = await metagovInfo(c, pc, nounsId);
-      await notify(c, [
+      const sent = await notify(c, [
         `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${gasTotal})。`,
         `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
         `tx: ${explorerTx(c, pending.txs[0])}`,
       ].join("\n"));
+      if (sent) await store.setFlag(`notified:${pending.txs[0]}`, 86400);
     }
     return;
   }
@@ -351,8 +352,8 @@ async function checkBalance(c, pc, wc, store) {
     const eth = Number(await pc.getBalance({ address: ck.address })) / 1e18;
     if (eth >= threshold) continue; // 回復時の削除は書込み節約のため行わず TTL 失効に任せる
     if (await store.getFlag(ck.key)) continue;
-    await store.setFlag(ck.key, 86400);
-    await notify(c, [`⚠️ ${ck.label}が少なくなっています: ${eth.toFixed(5)} ETH (閾値 ${threshold} ETH)`, `アドレス: ${ck.address} (${c.network})`, ck.hint].join("\n"));
+    const sent = await notify(c, [`⚠️ ${ck.label}が少なくなっています: ${eth.toFixed(5)} ETH (閾値 ${threshold} ETH)`, `アドレス: ${ck.address} (${c.network})`, ck.hint].join("\n"));
+    if (sent) await store.setFlag(ck.key, 86400);
   }
 }
 
@@ -398,22 +399,36 @@ export async function tick(env) {
     await reconcileRecent(c, pc, wc, store, proposals);
     // B3: Snapshot 提案 ↔ Nouns 提案の対応付けを解決(SNAPSHOT_SPACE 設定時)
     let snapByNouns = new Map();
+    let unresolvedIds = new Set();
     let mappingsResolved = false;
     if (c.snapshotSpace) {
       // H03: コントラクトの spaceHash と設定の SNAPSHOT_SPACE が一致しなければ fail-closed
-      if (Date.now() - spaceCheckedAt > SPACE_RECHECK_MS) {
-        const [onchain, delay] = await pc.multicall({ contracts: [
+      // mainnet は毎 tick 確認(owner による事後の短縮を最大 30 分見逃さないため)
+      if (c.network === "mainnet" || Date.now() - spaceCheckedAt > SPACE_RECHECK_MS) {
+        const [onchain, delay, ownerAddr, registrarAddr] = await pc.multicall({ contracts: [
           { address: c.metagov, abi: METAGOV_ABI, functionName: "spaceHash" },
           { address: c.metagov, abi: METAGOV_ABI, functionName: "registrationDelayBlocks" },
+          { address: c.metagov, abi: METAGOV_ABI, functionName: "owner" },
+          { address: c.metagov, abi: METAGOV_ABI, functionName: "registrar" },
         ], allowFailure: false });
+        // 第11回監査 M-14: mainnet で 3 つの役割が同一アドレスなら、鍵の分離ができていない。
+        // 「分離したつもり」で本番に入る事故を止める(テストネットは意図的に同一なので対象外)。
+        if (c.network === "mainnet") {
+          const relayerAddr = wc?.account?.address || null;
+          const same = [ownerAddr, registrarAddr, relayerAddr].filter(Boolean).map((a) => String(a).toLowerCase());
+          if (new Set(same).size < same.length) { await notifyError(c, "config", new Error(`owner/registrar/relayer に同一アドレスが含まれます (owner=${ownerAddr} registrar=${registrarAddr} relayer=${relayerAddr})`)); return; }
+        }
         if (onchain !== keccak256(stringToBytes(c.snapshotSpace))) { await notifyError(c, "config", new Error(`SNAPSHOT_SPACE "${c.snapshotSpace}" がコントラクトの spaceHash と一致しません`)); return; }
-        if (c.network === "mainnet" && Number(delay) < c.minRegistrationDelay) { await notifyError(c, "config", new Error(`registrationDelayBlocks(${delay}) が最低値 ${c.minRegistrationDelay} 未満です`)); return; } // H02R: fail-closed
+        // H02R: fail-closed。環境変数で下限を下げられないよう、コード上の絶対下限 300 を併用する
+        const floor = Math.max(300, c.minRegistrationDelay);
+        if (c.network === "mainnet" && Number(delay) < floor) { await notifyError(c, "config", new Error(`registrationDelayBlocks(${delay}) が最低値 ${floor} 未満です`)); return; }
         spaceCheckedAt = Date.now();
       }
       try {
         const active = proposals.filter((p) => p.state === 0 || p.state === 1).map((p) => p.id);
-        const { mappings } = await resolveMappings(c, pc, active);
+        const { mappings, unresolved } = await resolveMappings(c, pc, active);
         snapByNouns = new Map(mappings.map((m) => [Number(m.nounsId), m]));
+        unresolvedIds = new Set((unresolved || []).map(Number));
         mappingsResolved = true;
       }
       catch (e) { await notifyError(c, "snapshot hub", e); }
@@ -427,6 +442,16 @@ export async function tick(env) {
       if (p.state !== 0 && p.state !== 1) continue;
       try {
         const snapInfo = snapByNouns.get(p.id) || null;
+        // H-1(第11回監査): ハブが正常応答でも「オンチェーンに対応表があるのに Snapshot 提案を
+        // 特定できない」ことがある(ハブが 0 件を返す/200 件より古い等)。これを安全と扱うと
+        // 締切後に maybeExecute() へ入り、部分集計や "no votes" が確定してしまう。提案単位で止める。
+        if (c.snapshotSpace && !snapInfo && unresolvedIds.has(p.id)) {
+          if (!(await store.getFlag(`unresolved:${p.id}`))) {
+            const sent = await notify(c, [`⚠️ Prop ${p.id}: 対応表はオンチェーンに登録されていますが、対応する Snapshot 提案を取得できません。`, `安全側に停止しました(投函・集計の確定を行いません)。Snapshot ハブの障害か、提案が取得範囲より古い可能性があります。`].join("\n"));
+            if (sent) await store.setFlag(`unresolved:${p.id}`, 86400 * 7);
+          }
+          continue;
+        }
         const mg = await metagovInfo(c, pc, p.id);
         // 対応付けの自動照合(誤登録の検出): Snapshot 提案が当該 Nouns 議案を参照していなければ警告し、mainnet では止める
         const linkBad = !!(c.snapshotSpace && snapInfo && snapInfo.linkOk === false);
@@ -461,7 +486,11 @@ export async function tick(env) {
             }
           }
           else await submitPending(c, pc, wc, store, String(p.id), block, mg.deadline);
-        } else await maybeExecute(c, pc, wc, store, p, block, mg);
+        } else if (!c.snapshotSpace || snapInfo) {
+          // Snapshot モードでは対応付けの取れた提案のみ確定させる。未登録の提案を
+          // "no votes" として確定してしまうと、登録が遅れただけの提案を切り捨てる。
+          await maybeExecute(c, pc, wc, store, p, block, mg);
+        }
       } catch (e) {
         await notifyError(c, `worker prop ${p.id}`, e);
       }

@@ -50,9 +50,12 @@ export function referencesNounsProposal(text, nounsId) {
   if (!Number.isSafeInteger(id) || id <= 0) return false;
   const s = String(text || "");
   if (!s) return false;
-  for (const raw of s.match(/https?:\/\/[^\s<>"'`)\]]+/gi) || []) {
+  for (const raw of s.match(/https?:\/\/[^\s<>"'`]+/gi) || []) {
+    // URL の直後に続く句読点・閉じ括弧・日本語などを落としてから解析する。
+    // 例: "…/vote/989。" "…/vote/989)" "[議案](…/vote/989)" "…/vote/989後"
+    const trimmed = raw.replace(/[)\]}>,.;:!?、。」』】）〕｝＞…]+$/u, "").replace(/[^\u0021-\u007e]+$/u, "");
     let u;
-    try { u = new URL(raw); } catch { continue; }
+    try { u = new URL(trimmed); } catch { continue; }
     if (u.hostname.toLowerCase().replace(/^www\./, "") !== "nouns.wtf") continue;
     if (u.pathname.replace(/\/+$/, "") === `/vote/${id}`) return true;
   }
@@ -72,6 +75,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     data.proposals.forEach((p, i) => { const n = Number(res[i]); if (n > 0) found.set(n, p.id); });
   }
   // 逆引き: まだ見つかっていない稼働中の Nouns 提案について nounsToSnap を引き、ハブから当該提案を取得
+  const unresolved = []; // オンチェーンに対応表があるのに、ハブ側の提案を特定できなかった Nouns 提案
   const missing = activeNounsIds.filter((id) => !found.has(Number(id)));
   if (missing.length) {
     const hashes = await pc.multicall({ contracts: missing.map((id) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "nounsToSnap", args: [BigInt(id)] })), allowFailure: false });
@@ -84,7 +88,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
       for (const n of need) {
         const p = byHash.get(n.hash);
         if (p) { found.set(n.id, p.id); meta.set(p.id, p); }
-        else console.warn(`[snap] prop ${n.id}: 対応する Snapshot 提案がハブで見つかりません`);
+        else { unresolved.push(n.id); console.warn(`[snap] prop ${n.id}: 対応する Snapshot 提案がハブで見つかりません`); }
       }
     }
   }
@@ -97,7 +101,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     const linkOk = referencesNounsProposal(m.discussion, nounsId) || referencesNounsProposal(m.body, nounsId);
     return { snapId, nounsId, title: m.title, snapEnd: Number(m.end || 0), linkOk, discussion: m.discussion || "" };
   });
-  return { mappings };
+  return { mappings, unresolved };
 }
 
 /// 純関数: ハブの行とオンチェーン記録から「送るもの」と「進めてよい cursor」を決める。

@@ -246,6 +246,22 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
       await voterC.unregisterProposal(777777).catch(() => {});
     });
 
+    it("第11回監査 Info-5: 同じ Nouns ID へ再登録すると eligibleAtBlock が新しい猶予で再設定される", async function () {
+      await voterC.setRegistrationDelayBlocks(1000);
+      const SNAP_A = "0x" + "6d".repeat(32), SNAP_B = "0x" + "6e".repeat(32);
+      await voterC.registerProposal(SNAP_A, 666666);
+      const first = await voterC.eligibleAtBlock(666666);
+      await voterC.unregisterProposal(666666);
+      expect(await voterC.eligibleAtBlock(666666)).to.equal(0n, "取消で解禁ブロックも消える");
+      await voterC.setRegistrationDelayBlocks(50);
+      await voterC.registerProposal(SNAP_B, 666666); // 別の Snapshot 提案に張り替え
+      const second = await voterC.eligibleAtBlock(666666);
+      expect(second).to.not.equal(first);
+      expect(second).to.be.greaterThan(BigInt(await ethers.provider.getBlockNumber()), "再登録でも猶予が確保される");
+      await voterC.unregisterProposal(666666);
+      await voterC.setRegistrationDelayBlocks(0);
+    });
+
     it("H02R 対策: 猶予期間中は直接投票も不可。直接投票だけなら取消できる", async function () {
       const { id: pid4, snap: SNAP4 } = await newProposalWithSnap("r");
       await voterC.setRegistrationDelayBlocks(1000);

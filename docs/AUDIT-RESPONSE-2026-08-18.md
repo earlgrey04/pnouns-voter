@@ -150,3 +150,45 @@ Codex による修正(timestamp cursor 廃止 → KV offset の巡回、1 バッ
 問題なしと確認された点: `linkwarn` の KV write 予算 (1 提案 7 日につき 1 write)、`continue` による cursor/offset/dead-letter の整合性、delay の全投票入口への適用、`spaceHash` と `space` の一致。
 
 **要コントラクト再デプロイ**: #5 (`eligibleAtBlock`)、#8 (`InvalidSpace`)。Sepolia は次回テスト前に再デプロイする。
+
+---
+
+## 第11回監査 (2026-08-20, Codex CLI / read-only) — Sepolia 再デプロイの実地検証
+
+対象: 第10回対応 (75025cc) と Sepolia 再デプロイ (e11b170)。生ログ: `docs/audit-11-codex-raw.md`
+※ Codex のサンドボックスは RPC に到達できず、B 項目 (オンチェーン) は Codex 側「未確認」。
+　こちらで実測した結果を下表に併記する。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | **High** | fail-closed が「ハブ例外」しか止めていない。ハブが正常に 0 件を返した場合や、登録済みなのに取得範囲 (200 件) 外で Snapshot 提案を特定できない場合は `mappingsResolved=true` のまま `snapInfo=null` で進み、締切後に `maybeExecute()` へ到達して部分集計や "no votes" が確定しうる | 修正: `resolveMappings()` が「登録済みだが未解決」の Nouns ID を返すようにし、該当提案は告知・投函・execute・"no votes" 確定をすべて停止 (警告つき)。あわせて Snapshot モードでは対応付けの取れた提案のみ execute 対象にした |
+| 2 | Info | 自己申告 URL の限界と取消条件の資料修正は妥当。コードと主張が一致 | 対応不要 |
+| 3 | Medium | URL 解析化により、旧正規表現では拾えていた「末尾の句読点」「直後の日本語」の検出が回帰していた | 修正: URL 候補末尾の句読点・閉じ括弧・非 ASCII を除去してから解析。Markdown リンク・全角句読点・改行を含む 9 ケースのテストを追加 |
+| 4 | Low | 告知済みレコードを Discord 送信より先に保存しており、送信失敗で永久に未告知になる | 修正: 送信 2xx 後に保存 |
+| 5 | Info | `eligibleAtBlock` の登録時確定は正しい実装 | 再登録の境界テストを追加 |
+| 6 | Low | `notified:tx`・残高警告・告知が通知前にフラグを立てている | 修正: いずれも送信成功後に立てる |
+| 7 | Low | 回帰テストが純関数のみ。Worker 経路 (ハブ 0 件・告知順序・mainnet 差分等) が未検証 | 一部対応 (URL 25 ケース + 再登録テスト)。**Worker レベルの状態遷移テストは未着手** — `tick()` の RPC/Hub/KV/通知を注入可能にする改修が必要 |
+| 8 | Info | `InvalidSpace` の 1〜64 bytes は妥当 | 対応不要 |
+| 13 | Medium | mainnet の登録猶予下限が「30 分ごとの確認」かつ環境変数で下げられるため、厳密な保証ではない | 修正: mainnet は毎 tick 確認。下限をコード上の絶対値 300 と `MIN_REGISTRATION_DELAY` の大きい方に固定 |
+| 14 | Medium | 3 者分離時の落とし穴 (registrar 鍵の fallback、owner の緊急上書き権限、マルチシグ移管漏れ、KV namespace 移行) | 一部対応: mainnet で `REGISTRAR_MNEMONIC` 未設定を失敗させ、owner/registrar/relayer が同一アドレスなら Worker を fail-closed に。**runbook (デプロイ後の機械照合、liveMode=false → 委任 → liveMode=true の順序固定) は未作成** |
+
+### B. デプロイ確認 (Codex は未確認 → こちらで実測)
+
+| 項目 | 実測値 | 判定 |
+|---|---|---|
+| `keccak256(eth_getCode)` | `0x918a038a53b1672897f73100e684200a72767fc50950d9c9cd553a92c3184327` | Codex がソースから独立に算出した期待値と**完全一致** |
+| runtime サイズ | 14,780 bytes | 期待どおり |
+| `space` / `spaceHash` | `earl-grey.eth` / `0x069910a7…2730` | keccak256(space) と一致。Codex の期待値とも一致 |
+| `registrationDelayBlocks` / `marginBlocks` | 5 / 5 | 意図どおり |
+| `liveMode` / `refundEnabled` | true / true | 意図どおり |
+| `owner` / `registrar` | ともに `0x10849D31…8925` | テストネットは意図的に同一 |
+| 新コントラクト残高 | 0.02 ETH | 意図どおり |
+| 旧コントラクト残高 | 0 ETH | 回収済み |
+| Nouns 委任 | delegator → 新アドレス。新 2 票 / 旧 0 票 | 移行済み |
+| トレジャリー `excluded` | true | 意図どおり |
+| Worker `/api/config` | network=sepolia, metagov=`0x64CdACe…693F` | 稼働中 Worker も新アドレス |
+
+### 残課題 (mainnet 移行の前提)
+
+- Worker レベルの状態遷移テスト (指摘 7)
+- 本番構成 runbook と 3 者分離のリハーサル (指摘 14)
