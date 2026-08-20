@@ -1,0 +1,87 @@
+<title>B3 案 — Snapshot 署名のオンチェーン検証</title>
+<style>
+  :root { --ground:#f3f5f1; --surface:#fff; --ink:#172019; --ink-2:#4c5750; --line:#d9ded8; --accent:#d22209; --accent-soft:#fbe9e6; --link:#1c5aa8; --ok:#1f7a45; --ok-soft:#e4f2e9; --warn:#8a5a00; --warn-soft:#fbf0d6;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; --sans:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ground:#10161a; --surface:#182024; --ink:#e6ece8; --ink-2:#a9b4ad; --line:#2c363a; --accent:#ff5a43; --accent-soft:#3a1c18; --link:#7fb0ff; --ok:#6ccb8f; --ok-soft:#173224; --warn:#f0c060; --warn-soft:#3a2f12; } }
+  :root[data-theme="dark"] { --ground:#10161a; --surface:#182024; --ink:#e6ece8; --ink-2:#a9b4ad; --line:#2c363a; --accent:#ff5a43; --accent-soft:#3a1c18; --link:#7fb0ff; --ok:#6ccb8f; --ok-soft:#173224; --warn:#f0c060; --warn-soft:#3a2f12; }
+  * { box-sizing:border-box; } body { margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans); line-height:1.75; font-size:16px; }
+  a { color:var(--link); } .wrap { max-width:780px; margin:0 auto; padding:40px 20px 80px; }
+  header { border-bottom:3px solid var(--accent); padding-bottom:20px; margin-bottom:32px; }
+  .eyebrow { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-2); font-weight:600; }
+  h1 { font-size:28px; line-height:1.35; margin:8px 0 10px; text-wrap:balance; letter-spacing:-.01em; }
+  .lede { color:var(--ink-2); margin:0; font-size:15px; }
+  h2 { font-size:20px; margin:40px 0 12px; } h3 { font-size:16px; margin:20px 0 6px; }
+  p { margin:0 0 12px; } ul,ol { margin:0 0 12px; padding-left:1.4em; } li { margin:2px 0; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }
+  .card.ok { border-color:var(--ok); background:var(--ok-soft); } .card.warn { border-color:var(--warn); background:var(--warn-soft); } .card.accent { border-left:4px solid var(--accent); }
+  table { border-collapse:collapse; width:100%; font-size:14px; background:var(--surface); }
+  .tbl { overflow-x:auto; border:1px solid var(--line); border-radius:8px; margin:12px 0; }
+  th,td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-2); background:var(--ground); }
+  tr:last-child td { border-bottom:0; }
+  code,.mono { font-family:var(--mono); font-size:13px; } code { background:var(--ground); padding:1px 5px; border-radius:4px; }
+  .flow { display:grid; gap:8px; margin:14px 0; }
+  .flow.c4 { grid-template-columns:repeat(4,1fr); } .flow.c5 { grid-template-columns:repeat(5,1fr); }
+  @media (max-width:680px) { .flow.c4,.flow.c5 { grid-template-columns:1fr; } }
+  .step { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:11px 12px; font-size:13.5px; }
+  .step b { display:block; margin-bottom:3px; font-size:14px; } .step small { color:var(--ink-2); display:block; }
+  .step .who { font-size:11px; letter-spacing:.08em; text-transform:uppercase; font-weight:700; color:var(--accent); display:block; }
+  .step.human .who { color:var(--warn); } .step.human { border-color:var(--warn); }
+  .step.auto .who { color:var(--ok); }
+  .pill { display:inline-block; font-size:11px; padding:1px 8px; border-radius:999px; font-weight:600; }
+  .pill.h { background:var(--warn-soft); color:var(--warn); } .pill.a { background:var(--ok-soft); color:var(--ok); }
+  footer { margin-top:44px; padding-top:14px; border-top:1px solid var(--line); color:var(--ink-2); font-size:13px; }
+</style>
+<div class="wrap">
+<header>
+  <div class="eyebrow">pNouns ⚡ DAO ・ 資料 3/3 — 次の一手(検討中の推奨案)</div>
+  <h1>B3 案: いまの Snapshot 投票をそのまま、Nouns DAO への反映だけ自動化する</h1>
+  <p class="lede">2026年8月20日 ・ アールグレイ ・ 資料 2 の仕組み(pNouns Voter)の安全性はそのままに、メンバーの投票体験を一切変えない改良案です。</p>
+</header>
+
+<h2>1. 発想</h2>
+<p>Snapshot の投票は、実は<b>メンバーがウォレットで署名したメッセージ</b>(どの提案に・どの選択肢か)で、署名データは誰でも取得できます。資料 2 のコントラクトは「専用ページで作った署名」を検証していますが、<b>検証する署名を Snapshot の署名そのものに差し替えれば、メンバーは今までどおり Snapshot で投票するだけ</b>で、あとは全自動になります。</p>
+
+<h2>2. しくみ</h2>
+<div class="flow c4">
+  <div class="step"><span class="who">メンバー</span><b>今までどおり Snapshot で投票</b><small>画面も手順も変化なし。ガス 0 円。</small></div>
+  <div class="step auto"><span class="who">リレイヤー</span><b>署名を取得して投函</b><small>Snapshot から投票署名を取得し、まとめてオンチェーンの pNouns Voter(B3 版)へ。ガスは預け金から払い戻し(誰が投函しても可)。</small></div>
+  <div class="step auto"><span class="who">コントラクト</span><b>検証・集計</b><small>「この署名は本当に pNouns 保有者が Snapshot のこの提案に投じたものか」をコントラクトが検証して集計。偽造・改ざん不可。</small></div>
+  <div class="step auto"><span class="who">→ Nouns DAO</span><b>自動で投票</b><small>締切後に execute → castVote。資料 2 と同一。</small></div>
+</div>
+
+<h2>3. 資料 2(A 案)との違い</h2>
+<div class="tbl"><table>
+<tr><th></th><th>A 案(pNouns Voter・完成済み)</th><th>B3 案(この資料)</th></tr>
+<tr><td>メンバーの投票場所</td><td>専用ページ(新しい)</td><td><b>今の Snapshot のまま</b></td></tr>
+<tr><td>安全性(信頼モデル)</td><td colspan="2">同じ: 本人署名＋NFT 保有をコントラクトが検証。リレイヤーは運搬のみ・誰でも代行可</td></tr>
+<tr><td>Snapshot への提案作成</td><td>不要になる</td><td><b>引き続き必要</b>(現行の自動投稿をそのまま使う)＋「Nouns 提案 ↔ Snapshot 提案」の対応付けを登録</td></tr>
+<tr><td>開発状況</td><td>完成。監査 6 回済み・テストネット稼働中</td><td>これから: 署名検証部分の差し替え＋再テスト＋再監査(コントラクトの集計・払い戻し・execute は A を流用)</td></tr>
+<tr><td>投票期間</td><td>Nouns 締切の 24h 前まで(約 3 日)</td><td>Snapshot の 48h(現行どおり)。締切後に投函→execute の時間余裕が必要</td></tr>
+</table></div>
+
+<h2>4. 検討した他の案(不採用の理由)</h2>
+<ul>
+  <li><b>結果報告型(オラクル)</b>: リレイヤーが「結果」を報告する方式。最も簡単だが、<b>報告者の鍵が事実上の投票権</b>になるため不採用。</li>
+  <li><b>oSnap(UMA)</b>: Snapshot 公式の実行機能。賛成/反対を選ぶ投票形式と相性が悪く、保証金・異議期間の運用も増えるため見送り。</li>
+  <li><b>L2 でオンチェーン投票</b>: L2→メインネットの正規ブリッジは 7 日かかり間に合わず、代わりにリレイヤーが橋渡しすると結局「報告型」と同じ信頼モデルに落ちる。メンバーの手間(L2 切替・tx)も増えるため不採用。メインネット投函は 1 票約 1 円なのでガス面の利点もない。</li>
+</ul>
+
+<h2>5. どの案でも共通で必要なこと</h2>
+<div class="card accent">
+  <ul style="margin:0">
+    <li><b>Nouns 投票権の委任先変更</b>: Nouns NFT を持つマルチシグが、新しいコントラクトへ delegate する(<b>1 tx・いつでも戻せる・NFT は動かさない</b>)。</li>
+    <li><b>シャドー運用から開始</b>: 委任前にメインネットへ「Nouns には投票しないモード」で置き、実際の提案で Snapshot の結果と突き合わせてから本番切替。</li>
+    <li><b>トレジャリーからガス用 ETH の預け入れ</b>(提案: 0.05 ETH ≒ 1.5 万円。残高はオンチェーンで透明、余りは回収可)。</li>
+  </ul>
+</div>
+
+<h2>6. 提案する進め方</h2>
+<ol>
+  <li>B3 版の技術調査(Snapshot の署名仕様・投票し直しの扱い)と実装 → Sepolia で再テスト → 再監査</li>
+  <li>メインネットにシャドー運用でデプロイ、実提案で Snapshot と一致することを数回確認</li>
+  <li>メンバー合意 → マルチシグが委任 → 本番運用(以後、Nouns への反映は無人)</li>
+</ol>
+<div class="card warn"><b>メンバーの皆さんに伺いたいこと</b>: ① この方向(B3)で進めてよいか ② 委任先変更とガス預け入れへの合意 ③ すぐの自動化を優先するなら完成済みの A 案(専用ページ)で先に始める選択もあります — どちらを先にするか。</div>
+<footer>技術的な詳細・監査記録はリポジトリ pnouns-voter の README / docs に全て公開しています。</footer>
+</div>
