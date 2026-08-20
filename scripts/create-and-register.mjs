@@ -51,7 +51,23 @@ async function main() {
   console.log(`choices: ${p.choices.join(" / ")} ・ 投票期間: ${period / 3600} 時間`);
   if (flag("dry-run")) { console.log("\n--- dry-run: 作成しません ---\n" + p.body.slice(0, 400) + "\n…"); return; }
 
-  const bot = ethers.HDNodeWallet.fromPhrase(process.env.SEPOLIA_MNEMONIC, undefined, "m/44'/60'/0'/0/0");
+  // ---- 鍵・設定の検証(第12回監査: Snapshot 提案を外部送信する「前」にすべて確認する。
+  //      送信後に落ちると、オンチェーン登録されない孤児提案が Snapshot に残ってしまう) ----
+  const dep = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", `${NETWORK}.json`), "utf8"));
+  const voter = dep.snapVoter || dep.voter;
+  if (!voter) throw new Error(`deployments/${NETWORK}.json に snapVoter がありません`);
+  const rpc = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
+  if (!rpc) throw new Error(`${NETWORK} の RPC URL が未設定です`);
+  // mainnet では提案作成(bot)と registrar の鍵をそれぞれ明示する(他の鍵への fallback は禁止)
+  const botPhrase = NETWORK === "mainnet" ? process.env.SNAPSHOT_BOT_MNEMONIC : process.env.SEPOLIA_MNEMONIC;
+  if (!botPhrase) throw new Error(NETWORK === "mainnet" ? "mainnet では SNAPSHOT_BOT_MNEMONIC の明示が必要です(fallback 禁止)" : "SEPOLIA_MNEMONIC が未設定です");
+  const registrarPhrase = process.env.REGISTRAR_MNEMONIC || (NETWORK === "mainnet" ? null : process.env.SEPOLIA_MNEMONIC);
+  if (!registrarPhrase) throw new Error("mainnet では REGISTRAR_MNEMONIC の明示が必要です(fallback 禁止)");
+  const bot = ethers.HDNodeWallet.fromPhrase(botPhrase, undefined, "m/44'/60'/0'/0/0");
+  const registrarWallet = ethers.HDNodeWallet.fromPhrase(registrarPhrase, undefined, "m/44'/60'/0'/0/0");
+  // mnemonic 文字列ではなく、実際に使う鍵から導出したアドレスで比較する
+  if (NETWORK === "mainnet" && bot.address === registrarWallet.address) throw new Error(`mainnet では提案作成(bot)と registrar の鍵を分けてください(どちらも ${bot.address})`);
+
   const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true });
   const now = Math.floor(Date.now() / 1000);
   const client = new snapshot.Client712(SEQ);
@@ -62,16 +78,8 @@ async function main() {
   });
   console.log(`\nSnapshot 提案を作成: https://snapshot.box/#/s:${SPACE}/proposal/${receipt.id}`);
 
-  // オンチェーンの対応付け(registrar)
-  const dep = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", `${NETWORK}.json`), "utf8"));
-  const voter = dep.snapVoter || dep.voter;
-  const rpc = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
-  // 第11回監査 M-14: mainnet で registrar 用の鍵が未設定のまま提案作成鍵に fallback すると、
-  // 3 者分離したつもりで同一鍵に戻ってしまう。mainnet では明示指定を必須にする。
-  if (NETWORK === "mainnet" && !process.env.REGISTRAR_MNEMONIC) throw new Error("mainnet では REGISTRAR_MNEMONIC の明示が必要です(提案作成鍵への fallback は禁止)");
-  const registrarPhrase = process.env.REGISTRAR_MNEMONIC || process.env.SEPOLIA_MNEMONIC;
-  if (NETWORK === "mainnet" && registrarPhrase === process.env.MAINNET_PROPOSER_MNEMONIC) throw new Error("mainnet では registrar と提案作成の鍵を分けてください");
-  const w = ethers.HDNodeWallet.fromPhrase(registrarPhrase, undefined, "m/44'/60'/0'/0/0").connect(new ethers.JsonRpcProvider(rpc));
+  // オンチェーンの対応付け(registrar) — 鍵と設定は送信前に検証済み
+  const w = registrarWallet.connect(new ethers.JsonRpcProvider(rpc));
   const abi = ["function registerProposal(string,uint256)", "function registrationDelayBlocks() view returns (uint256)"];
   const c = new ethers.Contract(voter, abi, w);
   const tx = await c.registerProposal(receipt.id, nounsId);

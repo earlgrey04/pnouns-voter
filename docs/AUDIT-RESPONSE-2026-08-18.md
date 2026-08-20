@@ -192,3 +192,27 @@ Codex による修正(timestamp cursor 廃止 → KV offset の巡回、1 バッ
 
 - Worker レベルの状態遷移テスト (指摘 7)
 - 本番構成 runbook と 3 者分離のリハーサル (指摘 14)
+
+---
+
+## 第12回監査 (2026-08-20, Codex CLI / read-only) — 第11回修正の検証
+
+対象: commit 3ca7528 のみ。生ログ: `docs/audit-12-codex-raw.md`
+総括: High 0 件。第11回 High の「提案単位 fail-closed」と、重点確認を依頼した
+「締切後の自己 DoS」は**問題なし**と確認された(unresolved の 4 分類・execute 到達
+条件・reconcile の安全性をコードで追跡のうえ)。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | Medium | 3 者分離チェックが機能していない。比較相手の `MAINNET_PROPOSER_MNEMONIC` はどこにも定義のない幻の変数で、常に発火しない死にコード。さらに検証が Snapshot 送信「後」のため、失敗時に孤児提案が残る | 修正: 鍵・RPC・deployments の検証をすべて Snapshot 送信前に移動。mainnet では `SNAPSHOT_BOT_MNEMONIC` と `REGISTRAR_MNEMONIC` を個別必須化(fallback 禁止)し、実際に使う鍵から導出したアドレス同士で比較 |
+| 2 | Medium | `MIN_REGISTRATION_DELAY=abc` 等の不正値で `Math.max(300, NaN)=NaN` となり、下限 300 が消える | 修正: `cfg()` で非負整数を検証、不正なら throw |
+| 3 | Low | 末尾除去の 2 段 replace の順序により `…/989.後` を取りこぼす。`…/989偽` を受理する仕様の曖昧さ | 修正: 句読点と非 ASCII を 1 つの選択式にまとめ 1 パスで除去。`989偽` は「後置の文」とみなす仕様と明記(実在しないパスのため安全側)。指定 6 ケースをテスト追加 |
+| 4 | Low | 確定 tx の通知は送信失敗するとトリガー(送信中レコード)が消えて再送されない | 修正: 失敗分を単一 KV キー `pendingnotes` に積み、次 tick 冒頭で再送(list API 不使用・上限 20 件・1 日で破棄) |
+| 5 | Low | 非 Snapshot モードの告知が通知前に「告知済み」を記録したまま | 修正: Snapshot 分岐と同じく送信成功後に記録 |
+
+問題なしと確認された点: unresolved の 4 分類(20 件ヒット/逆引きヒット/未登録/登録済み未発見)、
+締切後の自己 DoS 不在(execute 窓は margin 期間 = state Active 中で、必ず逆引き対象)、
+mainnet 毎 tick 確認と 3 者 Set 判定(読み取り専用モードの誤停止なし・ABI 一致)、
+unresolved 警告の KV 負荷(1 提案 1 write/7 日)。
+
+テスト: relayer 26 pass / contracts 19 pass。コントラクト無変更(Worker のみ再デプロイ)。

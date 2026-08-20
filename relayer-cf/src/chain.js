@@ -51,7 +51,7 @@ export function cfg(env) {
     snapshotHub: env.SNAPSHOT_HUB || "https://hub.snapshot.org",
     ipfsGateway: env.IPFS_GATEWAY || "https://snapshot.4everland.link/ipfs",
     cronSec: Number(env.CRON_SEC || (env.NETWORK === "mainnet" ? 120 : 60)), // cron 間隔(秒)。署名受付締切の計算に使う
-    minRegistrationDelay: Number(env.MIN_REGISTRATION_DELAY || 300), // mainnet で要求する登録猶予の下限(ブロック)
+    minRegistrationDelay: (() => { const n = Number(env.MIN_REGISTRATION_DELAY ?? 300); if (!Number.isInteger(n) || n < 0) throw new Error("MIN_REGISTRATION_DELAY must be a non-negative integer"); return n; })(), // mainnet で要求する登録猶予の下限(ブロック)。NaN で Math.max(300, NaN)=NaN となり下限が消える事故を防ぐ(第12回監査)
     rushBatches: (() => { const n = Number(env.RUSH_BATCHES || 2); if (!Number.isInteger(n) || n < 1 || n > 3) throw new Error("RUSH_BATCHES must be 1..3"); return n; })(), // 受付締切後、1 tick で連続投函するバッチ数
     submitBufferSec: Number(env.SUBMIT_BUFFER_SEC || 120), // KV 反映・送信・採掘の余裕
     discordWebhook: env.DISCORD_WEBHOOK_URL || null,

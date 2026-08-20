@@ -53,7 +53,8 @@ export function referencesNounsProposal(text, nounsId) {
   for (const raw of s.match(/https?:\/\/[^\s<>"'`]+/gi) || []) {
     // URL の直後に続く句読点・閉じ括弧・日本語などを落としてから解析する。
     // 例: "…/vote/989。" "…/vote/989)" "[議案](…/vote/989)" "…/vote/989後"
-    const trimmed = raw.replace(/[)\]}>,.;:!?、。」』】）〕｝＞…]+$/u, "").replace(/[^\u0021-\u007e]+$/u, "");
+    // 句読点と非 ASCII を交互に含む末尾("989.後" など)も 1 パスで除去できるよう、1 つの選択式にまとめる
+    const trimmed = raw.replace(/(?:[)\]}>,.;:!?、。」』】）〕｝＞…]|[^\u0021-\u007e])+$/u, "");
     let u;
     try { u = new URL(trimmed); } catch { continue; }
     if (u.hostname.toLowerCase().replace(/^www\./, "") !== "nouns.wtf") continue;

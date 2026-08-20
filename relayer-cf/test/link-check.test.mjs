@@ -63,3 +63,14 @@ test("末尾処理で別 ID に化けない", () => {
 test("改行で分断された URL は検出しない(仕様)", () => {
   assert.equal(ref("https://nouns.wtf/vote/\n989", 989), false);
 });
+
+// 第12回監査: 末尾処理の仕様確認ケース
+test("第12回監査の追加ケース", () => {
+  assert.equal(ref("https://nouns.wtf/vote/989abc", 989), false, "パスに英字が続けば別パス");
+  assert.equal(ref("https://nouns.wtf/vote/989%20foo", 989), false, "エンコード済み文字も別パス");
+  // 仕様: URL 直後の非 ASCII は「後置の文」とみなす。/vote/989偽 という提案パスは実在しないため安全側
+  assert.equal(ref("https://nouns.wtf/vote/989偽", 989), true);
+  assert.equal(ref("https://nouns.wtf/vote/989.後", 989), true, "句読点と日本語が交互でも 1 パスで除去");
+  assert.equal(ref("[t](https://nouns.wtf/vote/989)", 989), true);
+  assert.equal(ref("[t](https://nouns.wtf/vote/989?x=(y))", 989), true, "クエリ内括弧つき Markdown");
+});

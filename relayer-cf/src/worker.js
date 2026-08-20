@@ -16,6 +16,32 @@ async function notify(c, text) {
   catch (e) { console.warn("discord notify failed", e.message); return false; }
 }
 const explorerTx = (c, h) => `${c.explorer}/tx/${h}`;
+
+// 第12回監査: 確定 tx の通知はトリガー(送信中レコード)が次 tick で消えるため、送信失敗すると
+// 再送の機会がない。失敗分を単一の KV キーに積み、次 tick の冒頭で再送する(list API は使わない)。
+async function queueNotify(c, store, text) {
+  if (await notify(c, text)) return true;
+  const k = `${store.prefix}pendingnotes`;
+  const arr = (await store.kvRaw.get(k, "json")) || [];
+  arr.push({ text, at: Date.now() });
+  await store.kvRaw.put(k, JSON.stringify(arr.slice(-20)), { expirationTtl: 86400 });
+  return false;
+}
+async function flushPendingNotes(c, store) {
+  const k = `${store.prefix}pendingnotes`;
+  let arr;
+  try { arr = await store.kvRaw.get(k, "json"); } catch { return; }
+  if (!Array.isArray(arr) || !arr.length) return;
+  const rest = [];
+  for (const n of arr) {
+    if (!n || typeof n.text !== "string" || Date.now() - n.at > 86400 * 1000) continue; // 1 日超は破棄
+    if (!(await notify(c, n.text))) rest.push(n);
+  }
+  if (rest.length !== arr.length) {
+    if (rest.length) await store.kvRaw.put(k, JSON.stringify(rest), { expirationTtl: 86400 });
+    else await store.kvRaw.delete(k);
+  }
+}
 const WORDS = ["反対", "賛成", "棄権"];
 
 function isContractRevert(e) {
@@ -50,14 +76,14 @@ async function announceNew(c, pc, store, p, block, snapInfo) {
   const deadlineBlock = mg.deadline || p.endBlock;
   const minutes = Math.max(0, Math.round((deadlineBlock - block) * 12 / 60));
   const jst = new Date(Date.now() + minutes * 60000).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });
-  await store.putAnnounced(p.id, new Date().toISOString());
-  await notify(c, [
+  // 第12回監査: こちらの分岐も送信成功後にのみ「告知済み」を記録する
+  if (await notify(c, [
     `📢 Nouns Prop ${p.id}「${title}」の投票受付を開始しました。`,
     `pNouns 保有者は署名だけで投票できます(ガス不要)。`,
     `締切: ${jst} ごろ (block ${deadlineBlock})`,
     `投票ページ: ${c.publicUrl}`,
     `提案の内容: https://nouns.wtf/vote/${p.id}`,
-  ].join("\n"));
+  ].join("\n"))) await store.putAnnounced(p.id, new Date().toISOString());
 }
 
 // 票一覧。「前回 list 以降に受付があった(dirty > listedAt)」または「前回 list から forceAfterMs 経過」なら KV list(metadata のみ)してサマリーを更新。それ以外はサマリー(get 1 回)
@@ -105,7 +131,7 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
     if (rc && rc.status === "success") {
       if (await store.getFlag(`notified:${tx}`)) continue; // 通知の重複防止(KV の結果整合性対策)
       const mg = await metagovInfo(c, pc, proposalId);
-      const sent = await notify(c, [
+      const sent = await queueNotify(c, store, [
         `🗳️ Prop ${proposalId}: ${vs.length} 票を pNouns Voter に投函しました (gas ${rc.gasUsed})。`,
         `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
         `tx: ${explorerTx(c, tx)}`,
@@ -140,7 +166,7 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     // cursor はここでは進めない(次 tick に voterRec を見て、確定したものだけ「解決済み」として前進する)
     if (anySuccess && !(await store.getFlag(`notified:${pending.txs[0]}`))) {
       const mg = await metagovInfo(c, pc, nounsId);
-      const sent = await notify(c, [
+      const sent = await queueNotify(c, store, [
         `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${gasTotal})。`,
         `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
         `tx: ${explorerTx(c, pending.txs[0])}`,
@@ -394,6 +420,7 @@ export async function tick(env) {
   const { publicClient: pc, walletClient: wc } = clients(c);
   const store = makeStore(env.STATE, storeNs(c));
   try {
+    try { await flushPendingNotes(c, store); } catch (e) { console.warn("[worker] pending notes flush failed", e.message); }
     if (Date.now() - lastBalanceCheck > 10 * 60 * 1000) { lastBalanceCheck = Date.now(); try { await checkBalance(c, pc, wc, store); } catch (e) { console.warn("[worker] balance check failed", e.message); } }
     const { block, proposals } = await recentProposals(c, pc);
     await reconcileRecent(c, pc, wc, store, proposals);
