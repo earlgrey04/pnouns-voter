@@ -75,7 +75,9 @@ npx wrangler secret put DISCORD_WEBHOOK_URL --env mainnet   # pNouns 公式 Disc
 
 ## 5. シャドー運用 (liveMode=false)
 
-- 委任アドレス(0.111 ETH 保有)からコントラクトへ 0.05 ETH 送金(プール = コントラクト自体。トレジャリーの新規支出なし)
+- 委任アドレス(0.111 ETH 保有)から 3 箇所へ送金(トレジャリーの新規支出なし):
+  プール(コントラクト自体) 0.05 ETH / relayer 0.01 ETH / registrar 0.005 ETH = 計 0.065 ETH。
+  残り約 0.046 ETH は委任アドレス(当初 owner)の管理操作用に残す
 - 実際の Nouns 提案 2〜3 本で: Snapshot 提案作成 → 対応付け登録(自動) → 24h 猶予 →
   投票 → 投函 → 締切後に「🕶️ シャドー」通知が出て、**集計が Snapshot と一致**することを確認
 - この間、Nouns DAO へは一切投票されない(手動運用を継続する)
