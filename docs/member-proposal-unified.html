@@ -1,0 +1,110 @@
+<title>pNouns Voter 提案書</title>
+<style>
+  :root { --ground:#f3f5f1; --surface:#fff; --ink:#172019; --ink-2:#4c5750; --line:#d9ded8; --accent:#d22209; --accent-soft:#fbe9e6; --link:#1c5aa8; --ok:#1f7a45; --ok-soft:#e4f2e9; --warn:#8a5a00; --warn-soft:#fbf0d6; --cloud:#1c5aa8; --cloud-soft:#e3edf9; --chain:#5b3fa8; --chain-soft:#ece6f8;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; --sans:system-ui,-apple-system,"Segoe UI","Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ground:#10161a; --surface:#182024; --ink:#e6ece8; --ink-2:#a9b4ad; --line:#2c363a; --accent:#ff5a43; --accent-soft:#3a1c18; --link:#7fb0ff; --ok:#6ccb8f; --ok-soft:#173224; --warn:#f0c060; --warn-soft:#3a2f12; --cloud:#7fb0ff; --cloud-soft:#16283f; --chain:#b79df2; --chain-soft:#251c3a; } }
+  :root[data-theme="dark"] { --ground:#10161a; --surface:#182024; --ink:#e6ece8; --ink-2:#a9b4ad; --line:#2c363a; --accent:#ff5a43; --accent-soft:#3a1c18; --link:#7fb0ff; --ok:#6ccb8f; --ok-soft:#173224; --warn:#f0c060; --warn-soft:#3a2f12; --cloud:#7fb0ff; --cloud-soft:#16283f; --chain:#b79df2; --chain-soft:#251c3a; }
+  * { box-sizing:border-box; } body { margin:0; background:var(--ground); color:var(--ink); font-family:var(--sans); line-height:1.8; font-size:16px; }
+  a { color:var(--link); } .wrap { max-width:780px; margin:0 auto; padding:40px 20px 80px; }
+  header { border-bottom:3px solid var(--accent); padding-bottom:20px; margin-bottom:28px; }
+  .eyebrow { font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-2); font-weight:600; }
+  h1 { font-size:27px; line-height:1.4; margin:8px 0 10px; text-wrap:balance; letter-spacing:-.01em; }
+  .lede { color:var(--ink-2); margin:0; font-size:15px; }
+  h2 { font-size:20px; margin:40px 0 12px; } h3 { font-size:16px; margin:20px 0 6px; }
+  p { margin:0 0 12px; } ul,ol { margin:0 0 12px; padding-left:1.4em; } li { margin:3px 0; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:12px 0; }
+  .card.ok { border-color:var(--ok); background:var(--ok-soft); } .card.warn { border-color:var(--warn); background:var(--warn-soft); } .card.accent { border-left:4px solid var(--accent); }
+  table { border-collapse:collapse; width:100%; font-size:14px; background:var(--surface); }
+  .tbl { overflow-x:auto; border:1px solid var(--line); border-radius:8px; margin:12px 0; }
+  th,td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  th { font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-2); background:var(--ground); }
+  tr:last-child td { border-bottom:0; }
+  code,.mono { font-family:var(--mono); font-size:13px; } code { background:var(--ground); padding:1px 5px; border-radius:4px; }
+  .flow { display:grid; gap:8px; margin:14px 0; }
+  .flow.c4 { grid-template-columns:repeat(4,1fr); } .flow.c5 { grid-template-columns:repeat(5,1fr); }
+  @media (max-width:680px) { .flow.c4,.flow.c5 { grid-template-columns:1fr; } }
+  .step { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:11px 12px; font-size:13.5px; }
+  .step b { display:block; margin:2px 0 3px; font-size:14px; } .step small { color:var(--ink-2); display:block; }
+  .who { font-size:11px; letter-spacing:.06em; text-transform:uppercase; font-weight:700; color:var(--accent); display:block; }
+  .pill { display:inline-block; font-size:11px; padding:1px 8px; border-radius:999px; font-weight:700; vertical-align:1px; }
+  .pill.local { background:var(--warn-soft); color:var(--warn); }
+  .pill.cloud { background:var(--cloud-soft); color:var(--cloud); }
+  .pill.chain { background:var(--chain-soft); color:var(--chain); }
+  .pill.human { background:var(--accent-soft); color:var(--accent); }
+  .pill.zero { background:var(--ok-soft); color:var(--ok); }
+  .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:13px; color:var(--ink-2); margin:8px 0 0; }
+  footer { margin-top:44px; padding-top:14px; border-top:1px solid var(--line); color:var(--ink-2); font-size:13px; }
+</style>
+<div class="wrap">
+<header>
+  <div class="eyebrow">pNouns ⚡ DAO — 運営からの提案</div>
+  <h1>Snapshot 投票はそのまま、Nouns DAO への反映だけを全自動にする</h1>
+  <p class="lede">2026年8月20日 ・ アールグレイ ・ 提案する仕組みは、実際の Snapshot とテストネットの Nouns DAO を使って一気通貫の動作確認済みです。この 1 枚に、現状・新しい仕組み・実証結果・費用・進め方をまとめました。</p>
+</header>
+<div class="card"><b>この資料での場所の表し方</b>
+<div class="legend">
+<span><span class="pill local">ローカル</span> アールグレイの自宅 PC(PC が止まると止まる)</span>
+<span><span class="pill cloud">クラウド</span> インターネット上のサービス(Snapshot、Cloudflare、GitHub、Discord)</span>
+<span><span class="pill chain">オンチェーン</span> Ethereum ブロックチェーン上(改ざん不可・誰でも検証可)</span>
+</div></div>
+
+<h2>1. いまの運用と課題</h2>
+<div class="flow c5">
+  <div class="step"><span class="who">自動</span><span class="pill local">ローカル</span><b>① 検知・要約</b><small>自宅 PC の常駐プログラムが Nouns の新提案を検知し、日本語要約を生成。</small></div>
+  <div class="step"><span class="who">人</span><span class="pill cloud">クラウド</span><b>② 承認</b><small>アールグレイが GitHub 上で要約を確認・承認。</small></div>
+  <div class="step"><span class="who">自動</span><span class="pill cloud">クラウド</span><b>③ Snapshot に提案作成</b><small>GitHub Actions が bot の署名で投票ページを作成。</small></div>
+  <div class="step"><span class="who">メンバー</span><span class="pill cloud">クラウド</span><b>④ Snapshot で投票</b><small>署名のみ・ガス代 0 円。</small></div>
+  <div class="step"><span class="who">人</span><span class="pill chain">オンチェーン</span><b>⑤ Nouns へ反映(手動)</b><small><b>アールグレイが結果を確認し、手動で Nouns DAO に投票</b>。告知・報告も手動。</small></div>
+</div>
+<div class="card warn"><b>課題</b>: 最後の⑤(締切の見張り → 結果確認 → 投票 → 報告)が毎回人の作業で、遅れ・忘れ・属人化のリスクがある。①は自宅 PC 依存。</div>
+
+<h2>2. 提案 — メンバーは何も変えず、⑤を仕組みに置き換える</h2>
+<p>Snapshot での投票は、実は<b>本人のウォレットが作る「署名」</b>で、誰でも取得・検証できます。そこで、署名を検証して集計するコントラクト(<b>pNouns Voter</b>)をオンチェーンに置き、次の流れに置き換えます。</p>
+<div class="flow c4">
+  <div class="step"><span class="who">メンバー</span><span class="pill cloud">クラウド</span><b>今までどおり Snapshot で投票</b><small>画面も手順も一切変わりません。<b>ガス代 0 円</b>(ETH ゼロのウォレットでも可)。</small></div>
+  <div class="step"><span class="who">自動(リレイヤー)</span><span class="pill cloud">クラウド</span><b>署名を取得してチェーンへ送る</b><small>Cloudflare 上の自動プログラムが Snapshot から投票署名を取得し、まとめて 1 つのトランザクションでコントラクトへ送信。ガスは立て替え → コントラクトの預け金からその場で自動返金(誰が送っても損しない)。</small></div>
+  <div class="step"><span class="who">自動(コントラクト)</span><span class="pill chain">オンチェーン</span><b>検証・集計</b><small>「この署名は本当に pNouns 保有者がこの提案に投じたものか」を検証し、<b>NFT の保有数(1 枚 = 1 票)で集計</b>。同じ NFT の二重カウント不可。<b>誰も(運営もクラウドも)票を偽造・改ざんできません</b>。投票のやり直しは新しい署名が有効。</small></div>
+  <div class="step"><span class="who">自動(コントラクト)</span><span class="pill chain">オンチェーン</span><b>Nouns DAO へ投票</b><small>締切後に誰でも実行でき、集計どおりに投票(理由欄に pNouns の集計を永続記録)。ガスは Nouns DAO から返金。</small></div>
+</div>
+<p>Discord への「📢 受付開始 → 🗳️ 集計状況 → ✅ Nouns DAO へ投票完了」の通知も全自動になります。<b>変わらないもの: Snapshot での投票体験・要約の人による承認(②)。なくなるもの: ⑤の手動作業と自宅 PC 依存。</b></p>
+
+<h3>投票ルール</h3>
+<ul>
+  <li>重み = 保有 pNouns 枚数(オンチェーンで検証)。トレジャリー分(13 枚)は除外。定足数なし。</li>
+  <li>同数なら投票者数が多い方、それも同数なら棄権 <b>(暫定 — ご意見で変更可能)</b>。誰も投票しなければ Nouns には投票しない。</li>
+  <li>コントラクトは書き換え不可。<b>NFT や資産は預けない</b>(預けるのはガス返金用の ETH のみ)。やめる時はマルチシグが委任先を戻すだけ(1 トランザクション。以後の提案から有効)。</li>
+</ul>
+
+<h2>3. 実証済み — 本物の Snapshot ＋ テストネットの Nouns DAO で一気通貫</h2>
+<div class="card ok">
+  <p><b>テスト環境</b>: 投票は<b>本物の Snapshot</b>(テスト用スペース earl-grey.eth)。Nouns DAO 側は Ethereum 公式テストネット(Sepolia)にある <b>Nouns 開発チーム公開の本番と同一プログラムのテスト版 DAO</b>。pNouns NFT も本物と同じプログラムの複製を使用。</p>
+  <ul style="margin:0">
+    <li><b>無人の通し</b>: Snapshot の 3 票(賛成 3 枚/棄権 3 枚の同数 → 投票者数 2:1 で賛成)を自動集計し、Nouns DAO に賛成 2 票を記録。人手ゼロ・Discord 通知まで自動。</li>
+    <li><b>実際の UI からの投票</b>: アールグレイが snapshot.box の画面から通常どおり投票 → その 3 枚分が集計に反映され、Nouns DAO へ自動投票(<a href="https://eth-sepolia.blockscout.com/tx/0x2e4799238d9a44dec3e0e2097f61314319e9fa37cebc956ed876c54e1f7896b3?tab=logs">Nouns DAO 側の記録。理由欄に pNouns の集計つき</a>)。</li>
+    <li><b>本物の投票署名でも検証</b>: 過去の pNouns の Snapshot 投票(Prop 989 の実署名 3 票)を取得し、オンチェーン検証・集計が成立することを確認。投票パワー(1/5/9)も NFT 保有数と一致。</li>
+    <li><b>第三者監査</b>: 基盤部分は AI 監査(Codex)6 回で重大指摘ゼロ・全 32 件対応済み。今回の Snapshot 検証部分も追加監査を実施予定。</li>
+  </ul>
+</div>
+<div class="card"><dl class="kv">
+  <dt>コントラクト(Sepolia)</dt><dd><span class="mono">0xc181c8fB1268FD02b5849428013037d25F5B2206</span> — <a href="https://eth-sepolia.blockscout.com/address/0xc181c8fB1268FD02b5849428013037d25F5B2206">検証済みソース</a></dd>
+  <dt>状況ページ</dt><dd><a href="https://pnouns-voter.x402-adsb-worker.workers.dev">pnouns-voter.x402-adsb-worker.workers.dev</a>(集計・Nouns DAO 側の記録・手動実行ボタン)</dd>
+</dl></div>
+
+<h2>4. 費用</h2>
+<div class="tbl"><table>
+<tr><th>場面</th><th>ガス代</th><th>誰が払う → どう返る</th></tr>
+<tr><td>メンバーの投票(署名)</td><td><span class="pill zero">0 円</span></td><td>署名はブロックチェーンに書き込まないため発生しない</td></tr>
+<tr><td>署名をチェーンへ送る</td><td>提案 1 本 約 25 円(現在の相場)</td><td>送った人が立て替え → <b>コントラクトの預け金から同一トランザクション内で自動返金</b></td></tr>
+<tr><td>Nouns DAO への投票実行</td><td>約 25 円</td><td>実行した人が払い → <b>Nouns DAO から自動返金</b>(公式機能)</td></tr>
+<tr><td>預け金(返金の原資)</td><td>—</td><td>トレジャリーから 0.05 ETH(≒1.5 万円)を想定。残高・支出はオンチェーンで透明、余りは回収可、減れば Discord に自動警告</td></tr>
+</table></div>
+<p>年間の実費はガス相場次第で<b>約 600 円〜1.2 万円</b>(投票者 4 名・全提案投票の場合)。運用基盤(Cloudflare)は無料枠で開始します。</p>
+
+<h2>5. 進め方(メンバー合意なしに本番投票は始まりません)</h2>
+<ol>
+  <li><b>メインネットに「見学モード」で設置</b> — Nouns へは投票せず、実際の提案で集計だけ行い、いまの手動運用と結果を突き合わせる(数提案)。</li>
+  <li>結果の一致を確認 → <b>メンバー合意</b>。</li>
+  <li>マルチシグが Nouns 投票権の委任先をコントラクトへ変更(1 トランザクション・いつでも戻せる)+ トレジャリーから預け金 → 本番運用開始。以後、反映は無人。</li>
+</ol>
+<footer>技術詳細・監査記録・テスト履歴はすべてリポジトリ pnouns-voter に公開。質問は #🔥｜p⚡雑談 かアールグレイまで。</footer>
+</div>
