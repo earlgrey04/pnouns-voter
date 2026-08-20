@@ -19,11 +19,12 @@ const explorerTx = (c, h) => `${c.explorer}/tx/${h}`;
 
 // 第12回監査: 確定 tx の通知はトリガー(送信中レコード)が次 tick で消えるため、送信失敗すると
 // 再送の機会がない。失敗分を単一の KV キーに積み、次 tick の冒頭で再送する(list API は使わない)。
-async function queueNotify(c, store, text) {
+async function queueNotify(c, store, text, id = null) {
   if (await notify(c, text)) return true;
   const k = `${store.prefix}pendingnotes`;
   const arr = (await store.kvRaw.get(k, "json")) || [];
-  arr.push({ text, at: Date.now() });
+  if (id && arr.some((n) => n.id === id)) return false; // 同一 tx の通知は積み直さない(第13回監査)
+  arr.push({ id, text, at: Date.now() });
   await store.kvRaw.put(k, JSON.stringify(arr.slice(-20)), { expirationTtl: 86400 });
   return false;
 }
@@ -32,9 +33,10 @@ async function flushPendingNotes(c, store) {
   let arr;
   try { arr = await store.kvRaw.get(k, "json"); } catch { return; }
   if (!Array.isArray(arr) || !arr.length) return;
-  const rest = [];
+  const rest = []; const seen = new Set();
   for (const n of arr) {
     if (!n || typeof n.text !== "string" || Date.now() - n.at > 86400 * 1000) continue; // 1 日超は破棄
+    if (n.id) { if (seen.has(n.id)) continue; seen.add(n.id); }
     if (!(await notify(c, n.text))) rest.push(n);
   }
   if (rest.length !== arr.length) {
@@ -44,6 +46,12 @@ async function flushPendingNotes(c, store) {
 }
 const WORDS = ["反対", "賛成", "棄権"];
 
+// viem の ContractFunctionRevertedError からカスタムエラー名を取り出す(デコードできなければ null)
+function revertErrorName(e) {
+  let x = e;
+  for (let i = 0; i < 6 && x; i++) { if (x.data?.errorName) return x.data.errorName; x = x.cause; }
+  return null;
+}
 function isContractRevert(e) {
   // 明確なコントラクト revert のみ「無効な署名」とみなす(ZeroData や RPC 異常は再試行)
   let x = e;
@@ -135,7 +143,7 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
         `🗳️ Prop ${proposalId}: ${vs.length} 票を pNouns Voter に投函しました (gas ${rc.gasUsed})。`,
         `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
         `tx: ${explorerTx(c, tx)}`,
-      ].join("\n"));
+      ].join("\n"), tx);
       if (sent) await store.setFlag(`notified:${tx}`, 86400);
     } else {
       console.warn(`[worker] prop ${proposalId} tx ${tx} ${rc ? "reverted" : "not mined in 10 min"} → re-evaluated ${vs.length} votes`);
@@ -170,7 +178,7 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
         `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${gasTotal})。`,
         `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
         `tx: ${explorerTx(c, pending.txs[0])}`,
-      ].join("\n"));
+      ].join("\n"), pending.txs[0]);
       if (sent) await store.setFlag(`notified:${pending.txs[0]}`, 86400);
     }
     return;
@@ -241,12 +249,14 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [chunk], account: wc.account }); }
     catch (e) {
       if (!isContractRevert(e)) { console.warn(`[snap] simulate transient error prop ${nounsId}: ${(e.shortMessage || e.message || "").slice(0, 120)}`); break; }
+      // 第13回監査 High の二重防御: 猶予境界の競合など、票の欠陥ではない revert は数えずに次 tick へ
+      if (revertErrorName(e) === "RegistrationTooRecent") { console.warn(`[snap] prop ${nounsId}: registration delay not elapsed — retry next tick`); break; }
       const good = [];
       for (const a2 of chunk.slice(0, 10)) {
         try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a2]], account: wc.account }); good.push(a2); }
         catch (e2) {
           const cid = cidOf.get(a2);
-          if (isContractRevert(e2) && cid) { // 決定的な revert だけ回数を数え、5 回でデッドレター(後続票を塞がない)
+          if (isContractRevert(e2) && revertErrorName(e2) !== "RegistrationTooRecent" && cid) { // 決定的な revert だけ回数を数え、5 回でデッドレター(後続票を塞がない)
             drops[cid] = (drops[cid] || 0) + 1; dropChanged = true;
             if (drops[cid] === 5) await notify(c, [`⚠️ Prop ${nounsId}: 1 票がオンチェーンで受理されませんでした(5 回試行)。集計から除外します。`, `投票者: ${a2.from}`, `データ ID: ${cid}`].join("\n"));
           }
@@ -518,7 +528,10 @@ export async function tick(env) {
         if (!wc) continue;
         if (block < mg.deadline) {
           if (c.snapshotSpace) {
-            if (snapInfo) {
+            // 第13回監査 High: 登録猶予中はコントラクトが RegistrationTooRecent で revert する。
+            // これを投函失敗として数えると、猶予中(24h)に届いた正常票が dead-letter 化されるため、
+            // 解禁ブロックまで投函自体を行わない(票は Snapshot に残り、解禁後に投函される)。
+            if (snapInfo && !(mg.eligibleAt && block < mg.eligibleAt)) {
               const rush = shouldRushSubmit(c, block, mg.deadline);
               await submitFromSnapshot(c, pc, wc, store, snapInfo, p.id, rush);
             }

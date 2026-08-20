@@ -89,6 +89,7 @@ function handlers(over = {}) {
     currentResult: () => 2,
     getReceipt: () => ({ hasVoted: false, support: 0, votes: 0n }),
     liveMode: () => true,
+    eligibleAtBlock: () => 50n,
     ...over,
   };
 }
@@ -209,4 +210,62 @@ test("締切後: 対応付け済みで票ゼロなら 'no votes' を確定し、
     await tick(env);
     assert.equal(putsOf(kv, "executed").length, 0, "未登録の提案は確定させない");
   }
+});
+
+test("第13回監査 High: 登録猶予中は投函せず、票を dead-letter に数えない", async () => {
+  const wallet = { account: { address: RELAYER } };
+  // ケース A: 猶予中(eligibleAt=300 > block=100) → 対応付け解決後、票の取得にすら行かない
+  {
+    const { kv, env } = setup(handlers({ eligibleAtBlock: () => 300n }), {}, wallet);
+    F.hub = [hubProposal("https://nouns.wtf/vote/1")];
+    await tick(env);
+    assert.equal(F.hubCalls, 1, "ハブ呼び出しは対応付けの 1 回だけ(votes クエリなし)");
+    assert.equal(putsOf(kv, "snapdrop").length, 0, "drop を数えない");
+    assert.equal(kv.ops.filter(([op, k]) => k.includes("snapsent")).length, 0, "投函処理に入らない");
+    assert.equal(putsOf(kv, "announced").length, 1, "告知自体は行われる(Snapshot では投票できる)");
+  }
+  // ケース B: 解禁済み(eligibleAt=50 <= block=100) → 投函処理に入る(votes クエリが飛ぶ)
+  {
+    const { env } = setup(handlers(), {}, wallet);
+    F.hub = [hubProposal("https://nouns.wtf/vote/1"), { votes: [] }, { votes: [] }, { votes: [] }];
+    await tick(env);
+    assert.ok(F.hubCalls >= 2, `votes クエリに到達する (hubCalls=${F.hubCalls})`);
+  }
+});
+
+test("ハブが GraphQL errors を返した場合も fail-closed", async () => {
+  const { kv, env } = setup(handlers());
+  F.hub = [{ __errors: true }];
+  // fetch mock は data を包むので、errors 応答は直接 Response を作る
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).startsWith(HUB)) { F.hubCalls++; return new Response(JSON.stringify({ errors: [{ message: "boom" }] }), { status: 200 }); }
+    return orig(url, init);
+  };
+  try {
+    await tick(env);
+    assert.equal(putsOf(kv, "announced").length, 0, "告知しない");
+    assert.equal(putsOf(kv, "executed").length, 0, "確定もしない");
+  } finally { globalThis.fetch = orig; }
+});
+
+test("確定 tx 通知の失敗は pendingnotes に積まれ、次 tick で再送される", async () => {
+  const wallet = { account: { address: RELAYER } };
+  const { kv, env } = setup(handlers(), {}, wallet);
+  // 送信中レコードを仕込み、受信確認済み(receipt 成功)にして通知経路へ入れる
+  const ns = `11155111:${VOTER.toLowerCase()}:`;
+  kv.data.set(`${ns}snapsent:1`, JSON.stringify({ txs: ["0x" + "cd".repeat(32)], count: 1, at: new Date(Date.now() - 11 * 60 * 1000).toISOString() }));
+  const pc = fakePC(handlers());
+  pc.getTransactionReceipt = async () => ({ status: "success", gasUsed: 100000n });
+  __setClientsForTests(() => ({ publicClient: pc, walletClient: wallet }));
+  F.hub = [hubProposal("https://nouns.wtf/vote/1"), { votes: [] }, { votes: [] }, { votes: [] }];
+  F.discordStatus = 500;
+  await tick(env);
+  assert.equal(putsOf(kv, "pendingnotes").length, 1, "失敗した通知がキューに積まれる");
+  // 次 tick: Discord 復旧 → flush で再送され、キューが消える
+  F.hub = [hubProposal("https://nouns.wtf/vote/1"), { votes: [] }, { votes: [] }, { votes: [] }];
+  F.discordStatus = 200;
+  await tick(env);
+  assert.ok(F.discordBodies.some((b) => b.includes("反映しました")), "持ち越した通知が再送される");
+  assert.equal(kv.data.has(`${ns}pendingnotes`), false, "キューが空になり削除される");
 });

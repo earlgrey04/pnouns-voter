@@ -216,3 +216,25 @@ mainnet 毎 tick 確認と 3 者 Set 判定(読み取り専用モードの誤停
 unresolved 警告の KV 負荷(1 提案 1 write/7 日)。
 
 テスト: relayer 26 pass / contracts 19 pass。コントラクト無変更(Worker のみ再デプロイ)。
+
+---
+
+## 第13回監査 (2026-08-20, Codex CLI / read-only) — 第12回修正 + テスト/runbook/3者分離の検証
+
+対象: 3e02162, cc423e3。生ログ: `docs/audit-13-codex-raw.md`
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | **High** | **登録猶予中(mainnet 24h)の正常票が dead-letter 化される**。Worker は eligibleAtBlock を見ずに投函 simulate → RegistrationTooRecent の revert を「恒久的な署名不良」として snapdrop に加算 → 5 回(2 分 cron で約 10 分)で除外。告知は猶予前に出るため、普通に投票した票が全滅する | 修正(二重防御): ① metagovInfo に eligibleAtBlock を追加し、猶予中は submitFromSnapshot を呼ばない(票は Snapshot に残り解禁後に投函)。② revert エラー名を復号し、RegistrationTooRecent は一括・個別とも drop に数えず次 tick へ。必須とされた Worker テスト(猶予中: votes クエリなし・drop なし・告知は出る / 解禁後: 投函経路に入る)を追加 |
+| 2 | Medium | 孤児提案の経路が残存: 鍵は存在しても registrar 権限がない場合、Snapshot 送信後に NotRegistrar で落ちる | 修正: 送信前にオンチェーン preflight(コントラクト実在・registrar()/owner() との照合・nounsToSnap 未登録)を追加 |
+| 3 | Medium | runbook の照合が循環(手順 3 の全項目✅は手順 4 以降を要求)。参照する deploy スクリプトが存在しない | 修正: `scripts/mainnet/deploy-snapvoter.js` を実装しフォークで実デプロイ検証(読み戻し・excluded 確認つき、DRY_RUN あり)。check-deploy を `--stage deployed/worker/funded/delegated/live` に分割し、runbook を各手順直後の段階照合に書き換え |
+| 4 | Medium | check-deploy が危険な構成を成功扱い: excluded 未確認・EXPECT 未指定の素通り・EXPECT_RELAYER なし・bot の分離未検査・delegates(マルチシグ) 未確認・委任照会失敗が警告止まり・delay 7200 未検証 | 修正: mainnet では EXPECT_OWNER/REGISTRAR/EXCLUDED(+worker 以降 RELAYER、delegated 以降 DELEGATOR)を必須化。EXPECT_DELAY 既定 7200、EXPECT_BOT で 4 者分離、delegates() 照合、照会失敗は fail、live 前は liveMode=false を要求 |
+| 5 | Low | pendingnotes: 重複送信・トリガー消失窓・上限超過 | 一部修正: 通知に tx hash の id を持たせ、積み直しと flush の重複を排除。KV put 失敗窓と 20 件上限は accepted risk として本表に記録(通知は補助機能であり、票・集計の正しさには影響しない) |
+| 6 | Low | 「989偽 → true」は fail-open 仕様 | 仕様として文書化(snap.js コメント + 本表)。この照合は取り違え事故検出の補助であり、厳密な防止は猶予+取消+公開が担う |
+| 7 | Low | Worker テストの残り穴(実投函 simulate/write、supplement、dead-letter、reconcile、非 Snapshot モード等)と mock の限界(KV 強整合・receipt 未実装等) | 既知の制限として記録。今回 3 テスト追加(猶予ゲート・hub errors 応答・pendingnotes 再送)で計 12 シナリオ。実投函経路はフォーク E2E(contracts 19 テスト)と Sepolia 実機 E2E が担保 |
+
+問題なし: MIN_REGISTRATION_DELAY の縁ケース("" は 0 → Math.max で 300、"300.5" throw)、
+create-and-register の副作用なし fail(dry-run/fetch 失敗)、非 Snapshot 告知の順序統一、
+テストフックの本番無影響、/api/config の relayer 公開。
+
+**要 Sepolia 追随**: なし(コントラクト無変更)。Worker は再デプロイ済み。

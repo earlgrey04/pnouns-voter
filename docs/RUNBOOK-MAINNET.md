@@ -23,23 +23,37 @@ Sepolia でのリハーサル実績: 2026-08-20 (registrar/relayer 分離・tran
 ## 2. デプロイ (liveMode=false で開始)
 
 ```bash
-NETWORK=mainnet REG_DELAY=7200 MARGIN=300 SPACE=pnounsdao.eth FUND_ETH=0 \
+OWNER=0x<マルチシグ> REGISTRAR=0x<registrar> EXCLUDED=0x<pNouns トレジャリー> \
+REG_DELAY=7200 MARGIN=300 \
   npx hardhat run scripts/mainnet/deploy-snapvoter.js --network mainnet
 ```
 
+(スクリプトはフォークで検証済み。`DRY_RUN=1` で引数確認のみ可)
+
 - `REG_DELAY=7200` (約 24 時間)。Worker の下限は 300 だが、運用値は 7200
-- `owner_` は**最初からマルチシグを指定**(EOA を経由しない)。registrar_ は上記の registrar アドレス
-- デプロイ後、**liveMode は false のまま**(コンストラクタ既定)。`setLiveMode(true)` は最終段まで呼ばない
+- `OWNER` は**最初からマルチシグを指定**(EOA を経由しない)
+- 必須値に fallback はない。読み戻し検証に失敗すると非ゼロで終了する
+- デプロイ後、**liveMode は false のまま**。`setLiveMode(true)` は最終段まで呼ばない
 - Sourcify でソース検証 → exact_match を確認
 
-## 3. 機械照合
+## 3. 機械照合(段階ごとに実行する)
+
+`check-deploy.mjs` は `--stage` で「その段階までに満たすべき状態」だけを照合する。
+**各手順の直後に該当 stage で実行し、✅ になるまで次へ進まない。**
 
 ```bash
-NETWORK=mainnet EXPECT_OWNER=0x<マルチシグ> EXPECT_REGISTRAR=0x<registrar> node scripts/check-deploy.mjs
+ENV="NETWORK=mainnet EXPECT_OWNER=0x… EXPECT_REGISTRAR=0x… EXPECT_RELAYER=0x… \
+     EXPECT_DELEGATOR=0x<Nouns 保有マルチシグ> EXPECT_EXCLUDED=0x<トレジャリー> EXPECT_BOT=0x<Snapshot bot>"
+# 手順 2 の後:            $ENV node scripts/check-deploy.mjs --stage deployed
+# 手順 4 の後:            $ENV node scripts/check-deploy.mjs --stage worker
+# プール入金の後:         $ENV node scripts/check-deploy.mjs --stage funded
+# 手順 6-1(委任)の後:     $ENV node scripts/check-deploy.mjs --stage delegated
+# 手順 6-3(live 化)の後:  $ENV node scripts/check-deploy.mjs --stage live
 ```
 
-全項目 ✅ になるまで進まない。確認内容: spaceHash 一致 / delay >= 300 /
-3 者分離 / Worker 設定一致 / 残高。
+mainnet では EXPECT_* が欠けていると fail する。live 未満の段階では liveMode=false で
+あることも確認される(先走りの live 化を検出)。Worker のデプロイ直後は伝搬遅延で
+旧版の応答が返ることがある — その場合は 1 分待って再実行する。
 
 ## 4. Worker (Cloudflare) 設定
 
@@ -70,12 +84,16 @@ npx wrangler secret put DISCORD_WEBHOOK_URL --env mainnet   # pNouns 公式 Disc
 3. マルチシグから `setLiveMode(true)`
 4. 次の提案 1 本を全員で監視。理由文つきの投票が nouns.wtf に出ることを確認
 
-## 7. ロールバック
+## 7. ロールバック(この順で)
 
-いつでも可能・即時:
-- マルチシグから `setLiveMode(false)` → 集計のみ(シャドー)に戻る
-- マルチシグから `delegate(旧委任先)` → 手動運用に完全復帰
-- `sweep(トレジャリー)` → プール残額を回収
+1. マルチシグから `setLiveMode(false)` を送信し、**採掘を確認**(以後 Nouns DAO へ投票しない)
+2. マルチシグから `delegate(旧委任先)` → 手動運用に完全復帰
+3. Worker の cron を停止(`wrangler triggers deploy` で crons を空に、または Worker を削除)
+4. 提案作成ジョブ(GitHub Actions / create-and-register)を停止
+5. 未処理の状態を確認: 投函待ちの票・pending の execute が残っていないか(`/api/proposals`、KV)
+6. 誤登録が原因なら、票が入る前に `unregisterProposal`
+7. `sweep(トレジャリー)` → プール残額を回収
+8. 鍵の漏洩が疑われる場合: relayer secret・Discord webhook をローテーション、`setRegistrar` で差し替え
 
 ## 8. 障害時
 

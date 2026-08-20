@@ -68,6 +68,17 @@ async function main() {
   // mnemonic 文字列ではなく、実際に使う鍵から導出したアドレスで比較する
   if (NETWORK === "mainnet" && bot.address === registrarWallet.address) throw new Error(`mainnet では提案作成(bot)と registrar の鍵を分けてください(どちらも ${bot.address})`);
 
+  // オンチェーン preflight(第13回監査): registrar 権限・コントラクト実在・未登録を送信前に確認する。
+  // 「鍵は存在するが権限がない」場合、送信後に NotRegistrar で落ちると孤児提案が残るため。
+  const provider = new ethers.JsonRpcProvider(rpc);
+  const code = await provider.getCode(voter);
+  if (code === "0x") throw new Error(`${voter} にコントラクトがありません(deployments/${NETWORK}.json が古い可能性)`);
+  const pre = new ethers.Contract(voter, ["function registrar() view returns (address)", "function owner() view returns (address)", "function nounsToSnap(uint256) view returns (bytes32)"], provider);
+  const [reg, own, existing] = await Promise.all([pre.registrar(), pre.owner(), pre.nounsToSnap(nounsId)]);
+  const rAddr = registrarWallet.address.toLowerCase();
+  if (rAddr !== reg.toLowerCase() && rAddr !== own.toLowerCase()) throw new Error(`registrar 鍵 ${registrarWallet.address} は registrar(${reg}) でも owner(${own}) でもなく、登録できません`);
+  if (existing !== ethers.ZeroHash) throw new Error(`Nouns #${nounsId} には既に対応表が登録されています(${existing.slice(0, 18)}…)`);
+
   const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true });
   const now = Math.floor(Date.now() / 1000);
   const client = new snapshot.Client712(SEQ);
@@ -78,8 +89,8 @@ async function main() {
   });
   console.log(`\nSnapshot 提案を作成: https://snapshot.box/#/s:${SPACE}/proposal/${receipt.id}`);
 
-  // オンチェーンの対応付け(registrar) — 鍵と設定は送信前に検証済み
-  const w = registrarWallet.connect(new ethers.JsonRpcProvider(rpc));
+  // オンチェーンの対応付け(registrar) — 鍵・権限・未登録は送信前に検証済み
+  const w = registrarWallet.connect(provider);
   const abi = ["function registerProposal(string,uint256)", "function registrationDelayBlocks() view returns (uint256)"];
   const c = new ethers.Contract(voter, abi, w);
   const tx = await c.registerProposal(receipt.id, nounsId);

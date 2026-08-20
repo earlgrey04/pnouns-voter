@@ -14,6 +14,11 @@ module.exports = {
     overrides: {},
   },
   networks: {
+    mainnet: {
+      url: process.env.MAINNET_RPC_URL || "https://eth.llamarpc.com",
+      chainId: 1,
+      accounts: process.env.MAINNET_DEPLOYER_KEY ? [process.env.MAINNET_DEPLOYER_KEY] : [],
+    },
     sepolia: {
       url: process.env.SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com",
       chainId: 11155111,

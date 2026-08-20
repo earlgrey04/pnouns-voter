@@ -178,15 +178,17 @@ export async function metagovInfo(c, pc, proposalId) {
       { address: c.metagov, abi: METAGOV_ABI, functionName: "currentResult", args: [pid] },
       { address: c.nounsDAO, abi: DAO_ABI, functionName: "getReceipt", args: [pid, c.metagov] },
       { address: c.metagov, abi: METAGOV_ABI, functionName: "liveMode" },
+      { address: c.metagov, abi: METAGOV_ABI, functionName: "eligibleAtBlock", args: [pid] },
     ],
     allowFailure: true,
   }).then((r) => r.map((x) => (x.status === "success" ? x.result : null)));
-  const [t, deadline, votes, cur, rcpt, live] = [t0[0], t0[1], t0[2], t0[3], t0[4], t0[5]];
+  const [t, deadline, votes, cur, rcpt, live, elig] = [t0[0], t0[1], t0[2], t0[3], t0[4], t0[5], t0[6]];
   const tally = t || [[0n, 0n, 0n], [0n, 0n, 0n], false, 0];
   const [tokens, voters, executed, result] = tally;
   return {
     tokens: tokens.map(Number), voters: voters.map(Number), executed, result: Number(executed ? result : cur ?? 2),
     deadline: Number(deadline || 0n), metagovVotes: Number(votes || 0n),
+    eligibleAt: Number(elig || 0n), // 登録猶予の解禁ブロック(第13回監査 High: 猶予中は投函しない)
     nounsReceipt: rcpt ? { hasVoted: rcpt.hasVoted, support: Number(rcpt.support), votes: Number(rcpt.votes) } : null,
     liveMode: !!live,
   };
