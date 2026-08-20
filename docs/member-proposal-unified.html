@@ -52,8 +52,8 @@
 <div class="wrap">
 <header>
   <div class="eyebrow">pNouns ⚡ DAO — 運営からの提案</div>
-  <h1>Snapshot 投票はそのまま。Nouns DAO への反映だけを自動化します</h1>
-  <p class="lede">2026年8月20日 ・ アールグレイ ・ 「いまの仕組み」と「新しい仕組み」を並べて、何が変わり、何が変わらないのか、費用はどうなるのかをまとめました。提案する仕組みは実際の Snapshot とテストネットの Nouns DAO で動作確認済みです。</p>
+  <h1>Snapshot での投票はそのまま。その前後の手作業をなくします</h1>
+  <p class="lede">2026年8月20日 ・ アールグレイ ・ 「いまの仕組み」と「新しい仕組み」を並べて、何が変わり、何が変わらないのか、費用はどうなるのかをまとめました。提案する仕組みは、実際の Snapshot とテストネットの Nouns DAO で動作確認を進めています。</p>
 </header>
 <div class="card"><b>用語</b>
 <div class="legend">
@@ -66,60 +66,64 @@
 <h2>1. 提案 1 本ごとの流れ</h2>
 <div class="cmp">
   <div class="col now"><h3>いまの仕組み</h3><div class="body"><ol>
-    <li><span class="tag a">自動</span><span class="pill local">ローカル</span> 自宅 PC が Nouns の新提案を検知し、日本語要約を作る</li>
-    <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> アールグレイが要約を確認して承認</li>
-    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Snapshot に投票ページを作成</li>
+    <li><span class="tag a">自動</span><span class="pill local">ローカル</span> 自宅 PC が Nouns の新提案を検知し、AI で日本語要約を作る</li>
+    <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> アールグレイが要約を確認・修正して承認</li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Snapshot に投票ページを作成(本文＝日本語要約)</li>
     <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> Discord に「投票してください」と告知</li>
     <li><span class="tag h">メンバー</span><span class="pill cloud">クラウド</span> Snapshot で投票(署名・ガス代 0 円)</li>
     <li><span class="tag h">人</span><span class="pill chain">オンチェーン</span> <b>締切を見張り、結果を確認し、自分のウォレットから Nouns DAO に投票</b></li>
     <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> Discord に結果を報告</li>
   </ol></div></div>
   <div class="col new"><h3>新しい仕組み</h3><div class="body"><ol>
-    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Cloudflare 上のプログラムが Nouns の新提案を検知(自宅 PC 不要)</li>
-    <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> アールグレイが要約を確認して承認 <b>(ここは変わりません)</b></li>
-    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Snapshot に投票ページを作成</li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Nouns の新提案を検知(自宅 PC 不要)</li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Snapshot に投票ページを作成。<b>本文は Nouns の提案文をそのまま転記</b>(長すぎる場合のみ末尾を省略し、原文リンクを表示)</li>
+    <li><span class="tag a">自動</span><span class="pill chain">オンチェーン</span> 「この Snapshot 投票は Nouns の第 N 号議案のもの」という対応付けを記録</li>
     <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Discord に告知(投票リンク・締切つき)</li>
-    <li><span class="tag h">メンバー</span><span class="pill cloud">クラウド</span> Snapshot で投票 <b>(画面も手順も一切変わりません・ガス代 0 円)</b></li>
-    <li><span class="tag a">自動</span><span class="pill chain">オンチェーン</span> 投票の署名がチェーン上のコントラクトに届き、<b>本物か検証され、NFT の枚数で集計</b>される</li>
+    <li><span class="tag h">メンバー</span><span class="pill cloud">クラウド</span> Snapshot で投票 <b>(画面も手順も変わりません・ガス代 0 円)</b></li>
+    <li><span class="tag a">自動</span><span class="pill chain">オンチェーン</span> 投票の署名がコントラクトに届き、<b>本物か検証され、NFT の枚数で集計</b>される</li>
     <li><span class="tag a">自動</span><span class="pill chain">オンチェーン</span> 締切後、<b>コントラクトが集計どおり Nouns DAO に投票</b></li>
     <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Discord に結果を報告(検証リンクつき)</li>
   </ol></div></div>
 </div>
-<div class="card accent"><b>変わること</b>: ⑥⑦(結果の確認と Nouns への投票)が人からプログラムに置き換わり、告知・報告も自動になります。自宅 PC への依存もなくなります。<br>
-<b>変わらないこと</b>: メンバーの投票体験(Snapshot・ガス 0 円)、要約の人による承認。</div>
+<div class="card accent"><b>変わること</b>
+<ul style="margin:6px 0 0">
+  <li><b>人の作業がなくなります</b>(要約の承認・告知・Nouns への投票・結果報告)。自宅 PC への依存もなくなります。</li>
+  <li><b>Snapshot の提案文が「日本語要約」から「Nouns の原文(英語)そのまま」に変わります。</b>画像や見出しもそのまま表示されます。日本語の要約は別途 Discord に投稿する形を予定しています(自動化するかは検討中)。</li>
+</ul></div>
+<div class="card ok" style="margin-top:8px"><b>変わらないこと</b>: メンバーの投票体験。今までどおり Snapshot で、署名だけ・ガス代 0 円で投票します(ETH を持っていないウォレットでも投票できます)。</div>
 
 <h2>2. 誰が何を持っているか</h2>
 <div class="cmp">
   <div class="col now"><h3>いまの仕組み</h3><div class="body"><ul>
     <li><b>Nouns の投票権</b> … マルチシグ → <b>アールグレイ個人のウォレット</b>に委任</li>
     <li><b>投票の判断</b> … 人が Snapshot の結果を読んで手で実行</li>
-    <li>Snapshot の結果とオンチェーンの投票の対応は、<b>外部から検証できない</b>(人が正しく写したと信じるしかない)</li>
+    <li>Snapshot の結果とオンチェーンの投票の対応は、<b>外部から検証できない</b></li>
     <li>アールグレイが不在・多忙だと止まる</li>
   </ul></div></div>
   <div class="col new"><h3>新しい仕組み</h3><div class="body"><ul>
     <li><b>Nouns の投票権</b> … マルチシグ → <b>コントラクト</b>に委任(個人は持たない)</li>
-    <li><b>投票の判断</b> … コントラクトが署名を検証して自動集計。<b>人も運営もクラウドも結果を変えられない</b></li>
+    <li><b>投票の判断</b> … コントラクトが署名を検証して自動集計。<b>運営もクラウドも結果を変えられない</b></li>
     <li>集計内容が Nouns DAO の記録に残り、<b>誰でも Snapshot の公開署名から検算できる</b></li>
     <li>クラウドが止まっても、<b>誰でも代わりに実行できる</b>(ガスは返金される)</li>
   </ul></div></div>
 </div>
 
-<h3>新しい仕組みで登場する 3 つの鍵(役割分担)</h3>
+<h3>新しい仕組みで使う 3 つの鍵(役割分担)</h3>
 <div class="tbl"><table>
 <tr><th>役</th><th>できること</th><th>できないこと</th><th>置き場所</th><th>出番</th></tr>
 <tr><td><b>リレイヤー</b></td><td>Snapshot の署名をチェーンに運ぶ</td><td>票の偽造・改変・勝手な投票<br>(できるのは遅らせることだけ)</td><td><span class="pill cloud">Cloudflare</span></td><td>毎分</td></tr>
 <tr><td><b>登録係</b></td><td>「この Snapshot 投票は Nouns の第 N 号議案のもの」と登録</td><td>票に関する一切の操作</td><td><span class="pill local">自宅 PC の専用鍵</span></td><td>提案ごとに 1 回</td></tr>
 <tr><td><b>管理者</b></td><td>緊急停止、ガス代の管理、除外設定</td><td>票の作成・改変、Nouns への任意の投票</td><td>pNouns マルチシグ</td><td>ほぼ出番なし</td></tr>
 </table></div>
-<p style="font-size:14px">いちばん漏れやすい場所(クラウド)に、いちばん弱い権限しか置かない設計です。仮にクラウドが乗っ取られても、票の偽造はできず、対処は鍵の差し替えだけで済みます。</p>
+<p style="font-size:14px">いちばん漏れやすい場所(クラウド)に、いちばん弱い権限しか置かない設計です。仮にクラウドが乗っ取られても票の偽造はできず、対処は鍵の差し替えだけで済みます。誤った対応付けに備えて、登録から一定時間は票を受け付けない猶予も設けています。</p>
 
 <h2>3. 費用 — いまとの差分</h2>
 <div class="tbl"><table>
 <tr><th>項目</th><th>いまの仕組み</th><th>新しい仕組み</th></tr>
 <tr><td>メンバーの投票</td><td>0 円(署名のみ)</td><td><b>0 円</b>(同じ)</td></tr>
 <tr><td>Nouns DAO への投票のガス</td><td>Nouns から返金 → 実質 0 円</td><td><b>同じく返金 → 実質 0 円</b></td></tr>
-<tr><td>投票をチェーンに記録するガス</td><td>—(記録していない)</td><td class="num"><b>提案 1 本あたり 約 9 円</b>(現在の相場)/ 約 140 円(混雑時)</td></tr>
-<tr><td>議案の対応付けのガス</td><td>—</td><td class="num">提案 1 本あたり 約 1 円 / 約 22 円</td></tr>
+<tr><td>投票をチェーンに記録するガス</td><td>—(記録していない)</td><td>提案 1 本あたり <b>約 9 円</b>(現在の相場)/ 約 140 円(混雑時)</td></tr>
+<tr><td>議案の対応付けのガス</td><td>—</td><td>提案 1 本あたり 約 1 円 / 約 22 円</td></tr>
 <tr><td>サーバー費用</td><td>0 円(自宅 PC)</td><td>0 円(Cloudflare 無料枠)</td></tr>
 <tr><td><b>年間の追加費用</b>(約 130 提案)</td><td>—</td><td><b><big>年 1,300 円 〜 2 万円</big></b>(ガス相場次第)</td></tr>
 <tr><td>アールグレイの手作業</td><td>提案ごとに 10〜15 分 = <b>年 20〜30 時間</b></td><td><b>0 時間</b></td></tr>
@@ -129,19 +133,21 @@
 
 <h2>4. 動作確認の状況</h2>
 <div class="card ok">
-  <p style="margin:0 0 8px"><b>テスト環境</b>: 投票は<b>本物の Snapshot</b>。Nouns DAO 側は公式テストネット(Sepolia)にある、<b>Nouns 開発チームが公開している本番と同一プログラムのテスト版 DAO</b> を使用。</p>
+  <p style="margin:0 0 8px"><b>テスト環境</b>: 投票は<b>本物の Snapshot</b>(テスト用スペース)。Nouns DAO 側は公式テストネット(Sepolia)にある、<b>Nouns 開発チームが公開している本番と同一プログラムのテスト版 DAO</b>。pNouns NFT も本物と同じプログラムの複製を使用。</p>
   <ul style="margin:0">
-    <li><b>人手ゼロの通し</b>: Snapshot の票を自動集計 → Nouns DAO へ投票 → Discord 報告まで確認(同数の場合の判定も含む)。</li>
-    <li><b>実際の画面からの投票</b>: アールグレイが snapshot.box から普段どおり投票し、保有 3 枚分が集計に反映されて Nouns DAO へ自動投票されることを確認。</li>
+    <li><b>人手ゼロの通し(複数回)</b>: Snapshot の票を自動で集計 → Nouns DAO へ投票 → Discord 報告まで確認。賛否が同数のときの判定、投票がゼロのときに投票しない挙動も確認済み。</li>
+    <li><b>実際の画面からの投票</b>: アールグレイが snapshot.box から普段どおり投票し、保有枚数分が集計に反映されて Nouns DAO へ自動投票されることを確認。</li>
     <li><b>過去の本物の投票で検証</b>: Prop 989 に実際に投じられた 3 票の署名を使い、オンチェーン検証と集計が成立することを確認(投票の重みも保有枚数と一致)。</li>
-    <li><b>第三者による監査を 7 回実施</b>(AI 監査ツール Codex)。重大な欠陥はゼロ、指摘された 40 件超はすべて修正・再検証済み。</li>
+    <li><b>第三者による監査を 9 回実施</b>(AI 監査ツール Codex)。重大な欠陥はゼロ。指摘された 50 件超はすべて修正・再検証済み。</li>
   </ul>
 </div>
+<p><b>残っている確認</b>: ① 新しい形式(Nouns 原文の転記)での提案作成 ② 本番と同じ鍵の分担(管理者・登録係・リレイヤーを別の鍵にする)での通し ③ メインネットでの「見学モード」。①②はテストネットで数日中に、③はメンバーの皆さんの合意後に行います。</p>
 
 <h2>5. 投票のルール(コントラクトに固定)</h2>
 <ul>
   <li>重み = 保有 pNouns 枚数(チェーン上で検証)。トレジャリー分(13 枚)は数えない。定足数なし。</li>
   <li>同数なら投票者数が多い方、それも同数なら棄権 <b>(暫定 — ご意見で変更可能)</b>。誰も投票しなければ Nouns にも投票しない。</li>
+  <li>Snapshot で投票をやり直した場合は、<b>いちばん新しい投票が有効</b>。</li>
   <li>締切は Nouns の投票終了の 24 時間前(いまの Snapshot 48 時間より長く投票できます)。</li>
   <li>コントラクトは後から書き換え不可。<b>NFT や資産は預けません</b>(預けるのはガス代のみ)。</li>
 </ul>
