@@ -86,7 +86,7 @@ npx wrangler secret put DISCORD_WEBHOOK_URL --env mainnet   # pNouns 公式 Disc
 
 1. マルチシグから Nouns Token の `delegate(voterAddress)` を実行(1 tx・いつでも戻せる)
 2. `check-deploy.mjs` で委任(getCurrentVotes > 0)を確認
-3. マルチシグから `setLiveMode(true)`
+3. owner(当初は委任アドレス)から `setLiveMode(true)`(マルチシグ移管後は マルチシグから)
 4. 次の提案 1 本を全員で監視。理由文つきの投票が nouns.wtf に出ることを確認
 
 ## 6.5 管理者権限のマルチシグ移管(安定稼働後)
