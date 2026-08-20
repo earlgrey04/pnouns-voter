@@ -1,7 +1,8 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
 import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit } from "./chain.js";
-import { resolveMappings, collectVotes } from "./snap.js";
+import { resolveMappings, collectVotes, setCursor } from "./snap.js";
+import { keccak256, stringToBytes } from "viem";
 import { makeStore } from "./store.js";
 
 async function notify(c, text) {
@@ -111,44 +112,58 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
   return changed;
 }
 
-// B3: Snapshot ハブから署名を取得して castSnapshotVotes。送信中は KV の snapsent:{id} で追跡(次 tick で receipt 確定)
-async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId) {
-  const key = `snapsent:${nounsId}`;
-  const pending = await store.kvRaw.get(`${store.prefix}${key}`, "json");
+// B3: Snapshot ハブから署名を取得して castSnapshotVotes。送信中は KV snapsent:{id} で追跡(次 tick で receipt 確定)
+// M03: 締切が近い(rush)ときは 1 tick で複数バッチを連続送信して排出する
+async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
+  const key = `${store.prefix}snapsent:${nounsId}`;
+  const pending = await store.kvRaw.get(key, "json");
   if (pending) {
-    let rc = null;
-    try { rc = await pc.getTransactionReceipt({ hash: pending.tx }); } catch { rc = null; }
-    if (!rc && Date.now() - Date.parse(pending.at) < 10 * 60 * 1000) return; // まだ確定待ち
-    await store.kvRaw.delete(`${store.prefix}${key}`);
-    if (rc && rc.status === "success" && !(await store.getFlag(`notified:${pending.tx}`))) {
-      await store.setFlag(`notified:${pending.tx}`, 86400);
-      const mg = await metagovInfo(c, pc, nounsId);
-      await notify(c, [
-        `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${rc.gasUsed})。`,
-        `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
-        `tx: ${explorerTx(c, pending.tx)}`,
-      ].join("\n"));
-    } else if (rc && rc.status !== "success") {
-      console.warn(`[snap] castSnapshotVotes reverted ${pending.tx}`);
+    let allMined = true; let anySuccess = false; let gasTotal = 0n;
+    for (const tx of pending.txs) {
+      let rc = null;
+      try { rc = await pc.getTransactionReceipt({ hash: tx }); } catch { rc = null; }
+      if (!rc) { allMined = false; continue; }
+      if (rc.status === "success") { anySuccess = true; gasTotal += rc.gasUsed; }
+      else console.warn(`[snap] castSnapshotVotes reverted ${tx}`);
     }
-    if (rc) return; // 確定処理をした tick では新規送信しない
+    if (!allMined && Date.now() - Date.parse(pending.at) < 10 * 60 * 1000) return;
+    await store.kvRaw.delete(key);
+    if (anySuccess) {
+      await setCursor(store, nounsId, pending.maxCreated); // 採掘確定した票まで cursor を進める
+      if (!(await store.getFlag(`notified:${pending.txs[0]}`))) {
+        await store.setFlag(`notified:${pending.txs[0]}`, 86400);
+        const mg = await metagovInfo(c, pc, nounsId);
+        await notify(c, [
+          `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${gasTotal})。`,
+          `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
+          `tx: ${explorerTx(c, pending.txs[0])}`,
+        ].join("\n"));
+      }
+    }
+    return; // 確定処理をした tick では新規送信しない
   }
-  const { args, skipped } = await collectVotes(c, pc, snapInfo.snapId, nounsId, c.maxBatch);
-  if (skipped) console.log(`[snap] prop ${nounsId}: ${skipped} vote(s) skipped (no pNouns)`);
+  const batches = rush ? c.rushBatches : 1;
+  const { args, advanceNow, submittedMax } = await collectVotes(c, pc, store, snapInfo.snapId, nounsId, c.maxBatch * batches);
+  if (advanceNow) await setCursor(store, nounsId, advanceNow); // 反映済み/対象外まで進める
   if (!args.length) return;
-  try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [args], account: wc.account }); }
-  catch (e) {
-    if (!isContractRevert(e)) { console.warn(`[snap] simulate transient error prop ${nounsId}: ${(e.shortMessage || e.message || "").slice(0, 120)}`); return; }
-    // 個別に切り分け(不正票は無視して残りを送る)
-    const good = [];
-    for (const a of args.slice(0, 10)) { try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a]], account: wc.account }); good.push(a); } catch (e2) { console.warn(`[snap] drop vote ${a.from.slice(0, 10)}: ${(e2.shortMessage || "").slice(0, 120)}`); } }
-    if (!good.length) return;
-    args.length = 0; args.push(...good);
+  const txs = []; let count = 0;
+  for (let b = 0; b < batches; b++) {
+    const chunk = args.slice(b * c.maxBatch, (b + 1) * c.maxBatch);
+    if (!chunk.length) break;
+    try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [chunk], account: wc.account }); }
+    catch (e) {
+      if (!isContractRevert(e)) { console.warn(`[snap] simulate transient error prop ${nounsId}: ${(e.shortMessage || e.message || "").slice(0, 120)}`); break; }
+      const good = [];
+      for (const a of chunk.slice(0, 10)) { try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a]], account: wc.account }); good.push(a); } catch (e2) { console.warn(`[snap] drop vote ${a.from.slice(0, 10)}: ${(e2.shortMessage || "").slice(0, 120)}`); } }
+      if (!good.length) continue;
+      chunk.length = 0; chunk.push(...good);
+    }
+    const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [chunk], account: wc.account });
+    const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [chunk], gas: (gas * 13n) / 10n });
+    console.log(`[snap] castSnapshotVotes prop ${nounsId} ${chunk.length} votes tx ${hash}${rush ? " (rush)" : ""}`);
+    txs.push(hash); count += chunk.length;
   }
-  const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [args], account: wc.account });
-  const hash = await wc.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [args], gas: (gas * 13n) / 10n });
-  console.log(`[snap] castSnapshotVotes prop ${nounsId} ${args.length} votes tx ${hash}`);
-  await store.kvRaw.put(`${store.prefix}${key}`, JSON.stringify({ tx: hash, at: new Date().toISOString(), count: args.length }));
+  if (txs.length) await store.kvRaw.put(key, JSON.stringify({ txs, at: new Date().toISOString(), count, maxCreated: submittedMax }));
 }
 
 async function submitPending(c, pc, wc, store, proposalId, block, onchainDeadline) {
@@ -292,6 +307,7 @@ export async function notifyError(c, where, e) {
 }
 
 let lastBalanceCheck = 0;
+let spaceChecked = false;
 export async function tick(env) {
   const c = cfg(env);
   const { publicClient: pc, walletClient: wc } = clients(c);
@@ -303,6 +319,12 @@ export async function tick(env) {
     // B3: Snapshot 提案 ↔ Nouns 提案の対応付けを解決(SNAPSHOT_SPACE 設定時)
     let snapByNouns = new Map();
     if (c.snapshotSpace) {
+      // H03: コントラクトの spaceHash と設定の SNAPSHOT_SPACE が一致しなければ fail-closed
+      if (!spaceChecked) {
+        const onchain = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "spaceHash" });
+        if (onchain !== keccak256(stringToBytes(c.snapshotSpace))) { await notifyError(c, "config", new Error(`SNAPSHOT_SPACE "${c.snapshotSpace}" がコントラクトの spaceHash と一致しません`)); return; }
+        spaceChecked = true;
+      }
       try { const { mappings } = await resolveMappings(c, pc, store); snapByNouns = new Map(mappings.map((m) => [Number(m.nounsId), m])); }
       catch (e) { await notifyError(c, "snapshot hub", e); }
     }
@@ -314,7 +336,18 @@ export async function tick(env) {
         const mg = await metagovInfo(c, pc, p.id);
         if (!wc) continue;
         if (block < mg.deadline) {
-          if (c.snapshotSpace) { if (snapInfo) await submitFromSnapshot(c, pc, wc, store, snapInfo, p.id); }
+          if (c.snapshotSpace) {
+            if (snapInfo) {
+              // M03: Snapshot の投票終了がオンチェーン締切より遅い場合は警告(締切後の票は反映されない)
+              const deadlineEta = Date.now() / 1000 + (mg.deadline - block) * 12;
+              if (snapInfo.snapEnd && snapInfo.snapEnd > deadlineEta - c.submitBufferSec && !(await store.getFlag(`endwarn:${p.id}`))) {
+                await store.setFlag(`endwarn:${p.id}`, 86400 * 7);
+                await notify(c, `⚠️ Prop ${p.id}: Snapshot の投票終了がオンチェーン締切より遅い設定です。締切(block ${mg.deadline})後に投じられた票は反映されません。`);
+              }
+              const rush = shouldRushSubmit(c, block, mg.deadline);
+              await submitFromSnapshot(c, pc, wc, store, snapInfo, p.id, rush);
+            }
+          }
           else await submitPending(c, pc, wc, store, String(p.id), block, mg.deadline);
         } else await maybeExecute(c, pc, wc, store, p, block, mg);
       } catch (e) {

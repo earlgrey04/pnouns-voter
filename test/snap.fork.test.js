@@ -82,11 +82,11 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
     const t = await voterC.tally(989);
     expect(t.tokens[1]).to.equal(BigInt(ids.length)); // choice 1 = 賛成
     expect(t.voters[1]).to.equal(1n);
-    // 同じ署名の再提出は StaleVote
-    await expect(voterC.castSnapshotVotes([arg])).to.be.revertedWithCustomError(voterC, "StaleVote");
-    // 改ざん(choice 書き換え)は FromMismatch
+    // 同じ署名の再提出(補完対象の token なし)は NothingCounted
+    await expect(voterC.castSnapshotVotes([arg])).to.be.revertedWithCustomError(voterC, "NothingCounted");
+    // 改ざん(choice 書き換え)は拒否される(EOA なら FromMismatch、EIP-7702 コード付き EOA なら InvalidContractSignature)
     const bad = { ...arg, choice: 2 };
-    await expect(voterC.castSnapshotVotes([bad])).to.be.revertedWithCustomError(voterC, "FromMismatch");
+    await expect(voterC.castSnapshotVotes([bad])).to.be.reverted;
   });
 
   describe("B: 新規提案 + 自作 Snapshot 形式署名", function () {
@@ -158,7 +158,90 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
       expect(receipt.votes).to.equal(2n);
       console.log("      executed: ABSTAIN with 2 Nouns votes (tie -> tie -> abstain)");
     });
+
+    async function newProposalWithSnap(tag) {
+      let created = false;
+      for (const p of PROPOSER_CANDIDATES) { try { const s = await impersonate(p); await dao.connect(s).propose([NOUN_HOLDER_2], [0], [""], ["0x"], "# " + tag); created = true; break; } catch {} }
+      expect(created).to.equal(true);
+      const id = await dao.proposalCount();
+      const snap = "0x" + tag.charCodeAt(0).toString(16).padStart(2, "0").repeat(32);
+      await voterC.registerProposal(snap, id);
+      const pr = await dao.proposals(id);
+      await mine(pr.startBlock - BigInt(await ethers.provider.getBlockNumber()) + 1n);
+      return { id, snap };
+    }
+
+    it("H01 対策: 先回りの 1 枚投函後、同じ署名で残り token を補完できる(投票者数は増えない)", async function () {
+      const { id: pid2, snap: SNAP2 } = await newProposalWithSnap("h");
+      this.pid2 = pid2; this.SNAP2 = SNAP2;
+      const t1 = 1786901000;
+      // dave に 3 枚移す
+      const [, , , , , , dave] = await ethers.getSigners();
+      let got = 0;
+      for (let id = 1; id <= 2100 && got < 3; id++) {
+        const owner = (await pnouns.ownerOf(id)).toLowerCase();
+        if (owner === PNOUNS_TREASURY || owner === (await voterC.getAddress()).toLowerCase()) continue;
+        const s = await impersonate(owner);
+        try { await pnouns.connect(s).transferFrom(owner, dave.address, id); (dave.tokenIds ||= []).push(BigInt(id)); got++; } catch {}
+      }
+      const vd = await signSnapVote(dave, SNAP2, 1, t1);
+      const before = await voterC.tally(pid2);
+      // 攻撃者が 1 枚だけ添えて先に投函
+      await voterC.castSnapshotVotes([snapVoteArg(vd, [dave.tokenIds[0]])]);
+      let t = await voterC.tally(pid2);
+      expect(t.tokens[1] - before.tokens[1]).to.equal(1n);
+      // 同じ署名で全 token を補完 → 残り 2 枚が同じ賛成に加算、投票者数は据え置き
+      const votersBefore = t.voters[1];
+      await voterC.castSnapshotVotes([snapVoteArg(vd, dave.tokenIds)]);
+      t = await voterC.tally(pid2);
+      expect(t.tokens[1] - before.tokens[1]).to.equal(3n);
+      expect(t.voters[1]).to.equal(votersBefore);
+      // 追加できる token がない再提出は NothingCounted
+      await expect(voterC.castSnapshotVotes([snapVoteArg(vd, dave.tokenIds)])).to.be.revertedWithCustomError(voterC, "NothingCounted");
+    });
+
+    it("H02 対策: 登録直後は受け付けず(delay)、未計上なら取消して登録し直せる", async function () {
+      await voterC.setRegistrationDelayBlocks(1000);
+      const SNAP_X = "0x" + "ee".repeat(32);
+      await voterC.registerProposal(SNAP_X, 999999);
+      const [, , , , , , , eve] = await ethers.getSigners();
+      const ve = await signSnapVote(eve, SNAP_X, 1, 1786902000);
+      await expect(voterC.castSnapshotVotes([snapVoteArg(ve, [1n])])).to.be.revertedWithCustomError(voterC, "RegistrationTooRecent");
+      // 未計上なので取消可能 → 別の Nouns 提案に登録し直せる
+      await voterC.unregisterProposal(999999);
+      await voterC.registerProposal(SNAP_X, 999998);
+      expect(await voterC.snapToNouns(ethers.keccak256(ethers.toUtf8Bytes(SNAP_X)))).to.equal(999998n);
+      await voterC.setRegistrationDelayBlocks(0);
+      // 計上済みの提案(proposalId)は取消不可
+      await expect(voterC.unregisterProposal(proposalId)).to.be.revertedWithCustomError(voterC, "VotesAlreadyCounted");
+    });
+
+    it("M04 対策: EIP-1271 スマートウォレットの Snapshot 投票を検証できる", async function () {
+      const { id: pid3, snap: SNAP3 } = await newProposalWithSnap("m");
+      const [, , , , , , , , walletOwner] = await ethers.getSigners();
+      const MW = await ethers.getContractFactory("Mock1271Wallet");
+      const mw = await MW.deploy(walletOwner.address);
+      await mw.waitForDeployment();
+      // pNouns を 1 枚ウォレットコントラクトへ
+      let tokenId;
+      for (let id = 1; id <= 2100; id++) {
+        const owner = (await pnouns.ownerOf(id)).toLowerCase();
+        if (owner === PNOUNS_TREASURY || owner === (await voterC.getAddress()).toLowerCase()) continue;
+        const s = await impersonate(owner);
+        try { await pnouns.connect(s).transferFrom(owner, await mw.getAddress(), id); tokenId = BigInt(id); break; } catch {}
+      }
+      // owner 鍵で snapshot 形式の署名(from = ウォレットコントラクトのアドレス)
+      const message = { from: await mw.getAddress(), space: SPACE, timestamp: 1786903000, proposal: SNAP3, choice: 2, reason: "", app: "test", metadata: "" };
+      const sig = await walletOwner.signTypedData(SNAP_DOMAIN, SNAP_TYPES, message);
+      const arg = { from: message.from, timestamp: message.timestamp, proposal: SNAP3, choice: 2, reason: "", app: "test", metadata: "", signature: sig, tokenIds: [tokenId] };
+      const before = await voterC.tally(pid3);
+      await voterC.castSnapshotVotes([arg]);
+      const t = await voterC.tally(pid3);
+      expect(t.tokens[0] - before.tokens[0]).to.equal(1n);
+    });
+
   });
+
 
   after(async function () {
     await network.provider.request({ method: "hardhat_reset", params: [{ forking: { jsonRpcUrl: process.env.MAINNET_RPC_URL } }] });

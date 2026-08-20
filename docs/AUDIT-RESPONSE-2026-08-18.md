@@ -71,3 +71,20 @@ Prop 511 でクラウド通し(3 票 → 投函 → execute → Nouns DAO 賛成
 | M-14R | Medium | (1) **受付容量**: `submitCapacity = floor(((締切−現在)×12 − 余裕)/cron) × RUSH_BATCHES × MAX_BATCH`。API は投函待ち件数がこれ以上なら `capacity_full` で拒否し、手動投函/castVote へ誘導。(2) **rush 時は 1 tick で複数バッチ**(`RUSH_BATCHES` 既定 2、1..3)。サブリクエスト予算に収めるため、投函状態の書込みを「票ごとの KV put」から「サマリー 1 回」に集約(metadata は受付時の不変情報のみ、状態はサマリーが唯一の真実。再 list 時は既存サマリーとマージ)。(3) 境界テスト追加(`npm test` 6 本: 受付締切時点の容量 40、1 tick 分の 20、余裕未満で 0、1 日前 >2,100 等)。mainnet 既定(cron 120s、余裕 120s、2 バッチ×10)で受付締切時点の保証排出量は 40 票、それ以上の集中は API が受付時点で拒否するので「ok を返した票を落とす」ことはない |
 
 再検証: Worker テスト 6/6、Sepolia Prop 518 でクラウド通し(📢→🗳️→✅)。
+
+## 再監査(第 7 回・B3)への対応
+| ID | 重大度 | 対応 |
+|---|---|---|
+| B3-H01 | High | VoterRec に署名 digest を保存。**同一 timestamp + 同一 digest の再提出は「補完」**として未計上 token を同じ support に追加(投票者数は増やさない)。同一 timestamp で digest が異なる場合は StaleVote。フォークテストで「攻撃者が 1 枚だけ先行投函 → 正規リレイヤーが同一署名で残りを補完」を実証 |
+| B3-H02 | High | (1) `registrationDelayBlocks`: 登録から N ブロック経過するまで Snapshot 票を受け付けない(誤登録の検知・取消の猶予。mainnet では 50 ブロック程度を想定、owner 変更可)。(2) `unregisterProposal`: 1 票も計上されていなければ登録を取消して正しい対応で登録し直せる。(3) registrar は owner と別ロール(将来マルチシグ化)。登録時のオフチェーン検証(space/type/choices/期間)は登録スクリプト・mirror bot の手順に組み込み |
+| B3-H03 | High | `[env.mainnet.vars]` に `SNAPSHOT_SPACE="pnounsdao.eth"` を明示。cfg は mainnet で SNAPSHOT_SPACE 必須(fail-closed)。worker は起動後最初の tick でコントラクトの `spaceHash` と設定値の keccak を照合し、不一致なら処理を停止して警告 |
+| B3-M01 | Medium | snapmap キャッシュは正の対応だけ保存。未登録(0)は毎 tick 再照会 |
+| B3-M02 | Medium | `created_gt` cursor(KV) + skip ページング(最大 3 ページ/tick)。cursor は「反映済み/対象外」は即時、「送信分」は**採掘確定後**に前進。取得は昇順で欠落なし |
+| B3-M03 | Medium | 締切接近時(shouldRushSubmit)は 1 tick で RUSH_BATCHES(2)バッチを連続送信。resolveMappings が Snapshot の終了時刻を取得し、オンチェーン締切より遅い設定なら ⚠️ を一度だけ通知 |
+| B3-M04 | Medium | `from` を厳密に address 化(_parseAddress)し、**コードを持つアドレスは EIP-1271** `isValidSignature` で検証(EOA は ECDSA 一致)。EIP-6492(未デプロイのスマートウォレット)は対象外と明記。フォークテストで Mock1271 ウォレットの投票を実証。**副産物: ユーザーの実ウォレット(0x0bC7…)が EIP-7702 コード付きであることが判明し、この対応が本番の必須要件だったことを確認** |
+| B3-M05 | Medium | 仕様決定: **提出時点の現在所有を正とする**(Snapshot の snapshot block とは異なる)。既知の差異として README・メンバー資料に明記。期間中に NFT を動かした場合のみ乖離、二重カウントはビットマップで防止 |
+| B3-M06 | Medium | ハブ/IPFS 取得に timeout 8s・64KB 上限・status/shape 検証。エンベロープと GraphQL 行(voter/proposal/created)の照合。ゲートウェイ 2 系統フォールバック。CID 単位のメモリ backoff(5 回失敗で恒久スキップして cursor 前進)。一時失敗はその票で打ち切り、次 tick に再試行 |
+| B3-L01 | Low | /api/config に mode(snapshot/direct)。snapshot モードでは domain/types を返さず、/api/vote と /api/signatures は 410。dApp は提案別の Snapshot リンクと「投票締切(オンチェーン反映)」表示 |
+| 依存 | — | @snapshot-labs/snapshot.js を devDependencies へ移動(Worker バンドルには元々含まれない) |
+
+再検証: フォークテスト 15 本(H01 補完・H02 遅延/取消・M04 1271 を追加)、Worker 境界テスト 6 本、mainnet dry-run(SNAPSHOT_SPACE 継承)成功。Sepolia 再デプロイ `0x2acbd6a69896d2ef49d34fFEfb250Ed15f72500A`(Sourcify exact_match)。ライブ E2E は Snapshot ハブの日次提案上限のため保留(上限リセット後に実施)。

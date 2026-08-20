@@ -18,7 +18,8 @@ app.use("*", async (ctx, next) => {
 
 app.get("/api/config", (ctx) => {
   const c = cfg(ctx.env);
-  return ctx.json({ network: c.network, chainId: c.chainId, metagov: c.metagov, pnouns: c.pnouns, nounsDAO: c.nounsDAO, explorer: c.explorer, blockscout: c.blockscout, snapshotSpace: c.snapshotSpace, domain: domain(c), types: VOTE_TYPES });
+  const snap = !!c.snapshotSpace;
+  return ctx.json({ mode: snap ? "snapshot" : "direct", network: c.network, chainId: c.chainId, metagov: c.metagov, pnouns: c.pnouns, nounsDAO: c.nounsDAO, explorer: c.explorer, blockscout: c.blockscout, snapshotSpace: c.snapshotSpace, domain: snap ? null : domain(c), types: snap ? null : VOTE_TYPES });
 });
 
 app.get("/api/proposals", async (ctx) => {
@@ -34,12 +35,15 @@ app.get("/api/proposals", async (ctx) => {
   const { block, proposals } = await recentProposals(c, pc);
   const wanted = proposals.filter((p) => p.state === 0 || p.state === 1 || closedN);
   const limited = closedN ? wanted.slice(0, closedN) : wanted;
+  const snapmap = c.snapshotSpace ? ((await ctx.env.STATE.get(`${store.prefix}snapmap`, "json")) || {}) : {};
+  const snapByNouns = Object.fromEntries(Object.entries(snapmap).map(([k, v]) => [v, k]));
   const list = await Promise.all(limited.map(async (p) => {
     const votable = p.state === 0 || p.state === 1;
     const [title, mg, sum, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.getSummary(p.id), store.getExecuted(p.id)]);
+    const snapshotProposalId = snapByNouns[p.id] || null;
     const votes = sum.votes;
     const acceptUntil = mg.deadline ? acceptDeadline(c, mg.deadline) : 0;
-    return { ...p, title, metagov: { ...mg, acceptDeadline: acceptUntil }, votable: votable && block < acceptUntil, pendingSignatures: votes.filter((v) => !v.tx && !v.dropped).length, submittedVoters: votes.filter((v) => v.tx).length, executed };
+    return { ...p, title, snapshotProposalId, metagov: { ...mg, acceptDeadline: c.snapshotSpace ? mg.deadline : acceptUntil }, votable: votable && block < (c.snapshotSpace ? mg.deadline : acceptUntil), pendingSignatures: votes.filter((v) => !v.tx && !v.dropped).length, submittedVoters: votes.filter((v) => v.tx).length, executed };
   }));
   const res = ctx.json({ block, proposals: list });
   const toCache = new Response(res.body, res); toCache.headers.set("Cache-Control", "public, max-age=30");
@@ -145,6 +149,7 @@ app.post("/api/vote", async (ctx) => {
 // 署名の公開: 誰でも取得・投函できる。?calldata=1 でいま通る署名(最大 MAX_BATCH 件)の calldata と実見積りガス
 app.get("/api/signatures/:id", async (ctx) => {
   const c = cfg(ctx.env);
+  if (c.snapshotSpace) return ctx.json({ error: "snapshot mode: votes are public on the Snapshot hub", code: "snapshot_mode" }, 410);
   const { publicClient: pc, account } = clients(c);
   const store = makeStore(ctx.env.STATE, storeNs(c));
   if (!/^\d{1,10}$/.test(ctx.req.param("id"))) return ctx.json({ error: "bad id" }, 400);

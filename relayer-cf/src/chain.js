@@ -23,6 +23,7 @@ export function cfg(env) {
   if (env.NETWORK !== "mainnet" && env.NETWORK !== "sepolia") throw new Error(`NETWORK must be "mainnet" or "sepolia" (got ${JSON.stringify(env.NETWORK)})`); // M-09: fail-closed
   const chain = env.NETWORK === "mainnet" ? mainnet : sepolia;
   if (env.NETWORK === "mainnet") {
+    if (!env.SNAPSHOT_SPACE) throw new Error("SNAPSHOT_SPACE is required on mainnet (B3 mode)"); // H03: fail-closed
     if (env.ONLY_PROPOSER) throw new Error("ONLY_PROPOSER must not be set on mainnet");
     if (!env.RPC_URL) throw new Error("RPC_URL secret is required");
     for (const k of ["VOTER", "PNOUNS", "NOUNS_DAO", "NOUNS_TOKEN"]) if (!env[k]) throw new Error(`${k} is required`);

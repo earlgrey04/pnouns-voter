@@ -7,6 +7,10 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
+interface IERC1271 {
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4);
+}
+
 interface INounsDAO {
     function castRefundableVoteWithReason(uint256 proposalId, uint8 support, string calldata reason) external;
     function state(uint256 proposalId) external view returns (uint8);
@@ -76,9 +80,13 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     mapping(uint256 => Tally) internal _tallies;
     mapping(uint256 => mapping(uint256 => uint256)) internal _votedBitmap;
 
-    struct VoterRec { bool exists; uint8 support; uint32 counted; uint64 timestamp; }
+    struct VoterRec { bool exists; uint8 support; uint32 counted; uint64 timestamp; bytes32 digest; }
     mapping(uint256 => mapping(address => VoterRec)) public voterRec;
 
+    /// 登録からこのブロック数が経過するまで Snapshot 票を受け付けない(誤登録の検知・取消の猶予)
+    uint256 public registrationDelayBlocks;
+    /// Nouns 提案 id → 登録ブロック
+    mapping(uint256 => uint256) public registeredAtBlock;
     /// keccak(Snapshot 提案 id 文字列) → Nouns 提案 id
     mapping(bytes32 => uint256) public snapToNouns;
     /// Nouns 提案 id → keccak(Snapshot 提案 id 文字列)
@@ -97,6 +105,8 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     }
 
     event ProposalRegistered(uint256 indexed nounsProposalId, string snapshotProposal);
+    event ProposalUnregistered(uint256 indexed nounsProposalId, bytes32 snapHash);
+    event RegistrationDelaySet(uint256 blocks_);
     event SnapVoteCounted(uint256 indexed nounsProposalId, address indexed voter, uint8 support, uint32 counted, uint64 timestamp, bool revote);
     event Executed(uint256 indexed proposalId, uint8 support, uint256[3] tokens, uint256[3] voters, bool live);
     event ExcludedSet(address indexed account, bool isExcluded);
@@ -118,6 +128,10 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     error VotingClosed();
     error VotingNotClosed();
     error StaleVote();
+    error RegistrationTooRecent();
+    error VotesAlreadyCounted();
+    error InvalidFromAddress();
+    error InvalidContractSignature();
     error NotTokenOwner(uint256 tokenId, address owner);
     error ExcludedVoter(address voter);
     error NothingCounted();
@@ -142,6 +156,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     function setMarginBlocks(uint256 v) external onlyOwner { marginBlocks = v; emit MarginBlocksSet(v); }
     function setLiveMode(bool v) external onlyOwner { liveMode = v; emit LiveModeSet(v); }
     function setRegistrar(address a) external onlyOwner { registrar = a; emit RegistrarSet(a); }
+    function setRegistrationDelayBlocks(uint256 v) external onlyOwner { registrationDelayBlocks = v; emit RegistrationDelaySet(v); }
     function setRefundEnabled(bool v) external onlyOwner { refundEnabled = v; emit RefundEnabledSet(v); }
     function setRefundCapPerProposal(uint256 v) external onlyOwner { refundCapPerProposal = v; emit RefundCapPerProposalSet(v); }
     function sweep(address payable to) external onlyOwner { (bool ok, ) = to.call{value: address(this).balance}(""); require(ok, "sweep failed"); }
@@ -155,7 +170,21 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         if (nounsProposalId == 0) revert NotRegistered();
         snapToNouns[h] = nounsProposalId;
         nounsToSnap[nounsProposalId] = h;
+        registeredAtBlock[nounsProposalId] = block.number;
         emit ProposalRegistered(nounsProposalId, snapshotProposal);
+    }
+
+    /// @notice 誤登録の取消。まだ 1 票も計上されていない場合のみ可(取消後は正しい対応で登録し直せる)
+    function unregisterProposal(uint256 nounsProposalId) external {
+        if (msg.sender != registrar && msg.sender != owner()) revert NotRegistrar();
+        bytes32 h = nounsToSnap[nounsProposalId];
+        if (h == bytes32(0)) revert NotRegistered();
+        (uint256[3] memory tokens, ) = _arrays(_tallies[nounsProposalId]);
+        if (tokens[0] + tokens[1] + tokens[2] != 0) revert VotesAlreadyCounted();
+        delete snapToNouns[h];
+        delete nounsToSnap[nounsProposalId];
+        delete registeredAtBlock[nounsProposalId];
+        emit ProposalUnregistered(nounsProposalId, h);
     }
 
     // ---- 参照 ----
@@ -210,13 +239,21 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         bytes32 firstProp = keccak256(bytes(votes[0].proposal));
         uint256 nounsId = snapToNouns[firstProp];
         if (nounsId == 0) revert NotRegistered();
+        if (block.number < registeredAtBlock[nounsId] + registrationDelayBlocks) revert RegistrationTooRecent(); // 誤登録の取消猶予
         for (uint256 i = 0; i < votes.length; i++) {
             SnapVote calldata v = votes[i];
             if (keccak256(bytes(v.proposal)) != firstProp) revert MixedProposals();
-            address signer = ECDSA.recover(snapVoteDigest(v), v.signature);
-            if (!_sameAddressString(v.from, signer)) revert FromMismatch();
+            bytes32 digest = snapVoteDigest(v);
+            address fromAddr = _parseAddress(v.from);
+            if (fromAddr.code.length == 0) {
+                // EOA: ECDSA 復元が from と一致すること
+                if (ECDSA.recover(digest, v.signature) != fromAddr) revert FromMismatch();
+            } else {
+                // スマートウォレット(Safe 等): EIP-1271 で検証
+                if (IERC1271(fromAddr).isValidSignature(digest, v.signature) != bytes4(0x1626ba7e)) revert InvalidContractSignature();
+            }
             uint8 support = _choiceToSupport(v.choice);
-            _castVote(signer, nounsId, support, v.tokenIds, v.timestamp);
+            _castVote(fromAddr, nounsId, support, v.tokenIds, v.timestamp, digest);
         }
         _refundGas(startGas, votes.length, nounsId);
     }
@@ -225,11 +262,11 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     function castVote(uint256 nounsProposalId, uint8 support, uint256[] calldata tokenIds) external nonReentrant {
         uint256 startGas = gasleft();
         if (support > ABSTAIN) revert InvalidChoice();
-        _castVote(msg.sender, nounsProposalId, support, tokenIds, uint64(block.timestamp));
+        _castVote(msg.sender, nounsProposalId, support, tokenIds, uint64(block.timestamp), keccak256(abi.encode("direct", msg.sender, nounsProposalId, support, block.timestamp)));
         _refundGas(startGas, 1, nounsProposalId);
     }
 
-    function _castVote(address voter, uint256 proposalId, uint8 support, uint256[] calldata tokenIds, uint64 timestamp) internal {
+    function _castVote(address voter, uint256 proposalId, uint8 support, uint256[] calldata tokenIds, uint64 timestamp, bytes32 digest) internal {
         if (tokenIds.length == 0) revert NoTokenIds();
         if (excluded[voter]) revert ExcludedVoter(voter);
 
@@ -244,21 +281,28 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         if (block.number >= deadline) revert VotingClosed();
 
         VoterRec storage rec = voterRec[proposalId][voter];
-        if (rec.exists && timestamp <= rec.timestamp) revert StaleVote(); // やり直しは新しい署名のみ
+        bool supplement = rec.exists && timestamp == rec.timestamp && digest == rec.digest; // 同一署名の再提出 = token の補完(先回り 1 枚投函への対策)
+        if (rec.exists && !supplement && timestamp <= rec.timestamp) revert StaleVote(); // やり直しは新しい署名のみ
 
         uint256 counted = _countTokens(proposalId, voter, tokenIds);
 
         if (!rec.exists) {
             if (counted == 0) revert NothingCounted();
             _addTally(t, support, uint32(counted), 1);
-            voterRec[proposalId][voter] = VoterRec(true, support, uint32(counted), timestamp);
+            voterRec[proposalId][voter] = VoterRec(true, support, uint32(counted), timestamp, digest);
             emit SnapVoteCounted(proposalId, voter, support, uint32(counted), timestamp, false);
+        } else if (supplement) {
+            // 同じ署名で未計上の token だけ追加(support は変わらず、投票者数も増やさない)
+            if (counted == 0) revert NothingCounted();
+            _addTally(t, rec.support, uint32(counted), 0);
+            rec.counted += uint32(counted);
+            emit SnapVoteCounted(proposalId, voter, rec.support, rec.counted, timestamp, false);
         } else {
             // やり直し: 既存の counted を新しい support へ移し、新たに数えられた token があれば加算
             _subTally(t, rec.support, rec.counted, 1);
             uint32 newCounted = rec.counted + uint32(counted);
             _addTally(t, support, newCounted, 1);
-            rec.support = support; rec.counted = newCounted; rec.timestamp = timestamp;
+            rec.support = support; rec.counted = newCounted; rec.timestamp = timestamp; rec.digest = digest;
             emit SnapVoteCounted(proposalId, voter, support, newCounted, timestamp, true);
         }
     }
@@ -279,6 +323,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     }
 
     function _addTally(Tally storage t, uint8 s, uint32 tokens, uint32 voters) internal {
+        // voters=0 は「補完」(同一署名で token を追加)の場合
         if (s == FOR) { t.forTokens += tokens; t.forVoters += voters; }
         else if (s == AGAINST) { t.againstTokens += tokens; t.againstVoters += voters; }
         else { t.abstainTokens += tokens; t.abstainVoters += voters; }
@@ -312,20 +357,21 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         revert InvalidChoice();
     }
 
-    /// @dev "0xAbC…"(チェックサム表記の文字列)と address を大文字小文字を無視して比較
-    function _sameAddressString(string calldata s, address a) internal pure returns (bool) {
-        bytes calldata b = bytes(s);
-        if (b.length != 42 || b[0] != "0" || (b[1] != "x" && b[1] != "X")) return false;
-        uint160 v = uint160(a);
-        for (uint256 i = 0; i < 40; i++) {
-            uint8 c = uint8(b[41 - i]);
-            if (c >= 65 && c <= 90) c += 32; // 大文字 → 小文字
-            uint8 nib = uint8(v & 0xf);
-            uint8 expect = nib < 10 ? nib + 48 : nib + 87;
-            if (c != expect) return false;
-            v >>= 4;
+    /// @dev "0x…" 42 文字の 16 進文字列を address へ厳密変換(不正なら revert)
+    function _parseAddress(string calldata str) internal pure returns (address) {
+        bytes calldata b = bytes(str);
+        if (b.length != 42 || b[0] != "0" || (b[1] != "x" && b[1] != "X")) revert InvalidFromAddress();
+        uint160 v;
+        for (uint256 i = 2; i < 42; i++) {
+            uint8 c = uint8(b[i]);
+            uint8 nib;
+            if (c >= 48 && c <= 57) nib = c - 48;        // 0-9
+            else if (c >= 97 && c <= 102) nib = c - 87;  // a-f
+            else if (c >= 65 && c <= 70) nib = c - 55;   // A-F
+            else revert InvalidFromAddress();
+            v = (v << 4) | uint160(nib);
         }
-        return true;
+        return address(v);
     }
 
     function _arrays(Tally storage t) internal view returns (uint256[3] memory tokens, uint256[3] memory voters) {

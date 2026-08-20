@@ -91,7 +91,7 @@ async function render() {
         <div><b>Prop ${p.id}</b> ${escapeHtml(p.title)}</div>
         <span class="badge ${p.votable ? "active" : ""}">${p.votable ? "受付中" : "締切"} / Nouns: ${p.stateName}</span>
       </div>
-      <div class="muted">署名受付締切: block ${mg.acceptDeadline || mg.deadline}(残り約 ${blocksLeft > 0 ? Math.round(blocksLeft * 12 / 60) : 0} 分, ${blocksLeft} ブロック) ・ オンチェーン締切: block ${mg.deadline}(この間は自分で投函する場合のみ可) ・ 投函待ち署名 ${p.pendingSignatures} 件 ・ 投函済み ${p.submittedVoters} 名 ・ pNouns Voter の Nouns 投票力 ${mg.metagovVotes}
+      <div class="muted">${snapMode ? "投票締切(オンチェーン反映)" : "署名受付締切"}: block ${mg.acceptDeadline || mg.deadline}(残り約 ${blocksLeft > 0 ? Math.round(blocksLeft * 12 / 60) : 0} 分, ${blocksLeft} ブロック)${snapMode ? "" : ` ・ オンチェーン締切: block ${mg.deadline}(この間は自分で投函する場合のみ可)`} ・ 投函待ち署名 ${p.pendingSignatures} 件 ・ 投函済み ${p.submittedVoters} 名 ・ pNouns Voter の Nouns 投票力 ${mg.metagovVotes}
         <a href="https://nouns.wtf/vote/${p.id}" target="_blank" rel="noopener">nouns.wtf</a></div>
       <div class="tally">
         <div class="for">賛成 ${mg.tokens[1]} <small>(${mg.voters[1]}名)</small></div>
@@ -103,7 +103,7 @@ async function render() {
       <div id="my-${p.id}"></div>`;
     root.appendChild(el);
     el.querySelectorAll("button.submitall").forEach((b) => b.addEventListener("click", () => manualSubmit(Number(b.dataset.p))));
-    if (snapMode && p.votable) { const d = document.createElement("div"); d.className = "muted"; d.innerHTML = `投票は <a href="https://snapshot.box/#/s:${CONFIG.snapshotSpace}" target="_blank" rel="noopener">Snapshot(${escapeHtml(CONFIG.snapshotSpace)})</a> から。結果は自動でオンチェーンに反映されます。`; el.appendChild(d); }
+    if (snapMode && p.votable) { const d = document.createElement("div"); d.className = "muted"; const url = p.snapshotProposalId ? `https://snapshot.box/#/s:${CONFIG.snapshotSpace}/proposal/${p.snapshotProposalId}` : `https://snapshot.box/#/s:${CONFIG.snapshotSpace}`; d.innerHTML = `投票は <a href="${url}" target="_blank" rel="noopener">Snapshot(${escapeHtml(CONFIG.snapshotSpace)})</a> から。結果は自動でオンチェーンに反映されます。`; el.appendChild(d); }
     else if (account && p.votable) await renderMine(p);
   }
   if (closed.length) {

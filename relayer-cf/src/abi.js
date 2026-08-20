@@ -61,6 +61,25 @@ export const METAGOV_ABI = [
   "inputs": [
    {
     "indexed": true,
+    "internalType": "uint256",
+    "name": "nounsProposalId",
+    "type": "uint256"
+   },
+   {
+    "indexed": false,
+    "internalType": "bytes32",
+    "name": "snapHash",
+    "type": "bytes32"
+   }
+  ],
+  "name": "ProposalUnregistered",
+  "type": "event"
+ },
+ {
+  "anonymous": false,
+  "inputs": [
+   {
+    "indexed": true,
     "internalType": "address",
     "name": "refundee",
     "type": "address"
@@ -386,6 +405,38 @@ export const METAGOV_ABI = [
  {
   "inputs": [
    {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "name": "registeredAtBlock",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "registrationDelayBlocks",
+  "outputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
     "internalType": "bytes32",
     "name": "",
     "type": "bytes32"
@@ -397,6 +448,19 @@ export const METAGOV_ABI = [
     "internalType": "uint256",
     "name": "",
     "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [],
+  "name": "spaceHash",
+  "outputs": [
+   {
+    "internalType": "bytes32",
+    "name": "",
+    "type": "bytes32"
    }
   ],
   "stateMutability": "view",
@@ -489,6 +553,11 @@ export const METAGOV_ABI = [
     "internalType": "uint64",
     "name": "timestamp",
     "type": "uint64"
+   },
+   {
+    "internalType": "bytes32",
+    "name": "digest",
+    "type": "bytes32"
    }
   ],
   "stateMutability": "view",

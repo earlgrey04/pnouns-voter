@@ -98,6 +98,8 @@ describe("PNounsVoter (mainnet fork E2E)", function () {
   let metagov, dao, nouns, pnouns, proposalId, snapshotId;
 
   before(async function () {
+    await network.provider.send("hardhat_setNextBlockBaseFeePerGas", ["0x3b9aca00"]); // 1 gwei
+    await network.provider.send("hardhat_mine", ["0x1"]);
     [deployer, relayer, alice, bob, carol, executor] = await ethers.getSigners();
     dao = new ethers.Contract(NOUNS_DAO, DAO_ABI, ethers.provider);
     nouns = new ethers.Contract(NOUNS_TOKEN, NOUNS_ABI, ethers.provider);
