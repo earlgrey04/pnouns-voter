@@ -34,77 +34,124 @@
   .pill.zero { background:var(--ok-soft); color:var(--ok); }
   .legend { display:flex; gap:10px; flex-wrap:wrap; font-size:13px; color:var(--ink-2); margin:8px 0 0; }
   footer { margin-top:44px; padding-top:14px; border-top:1px solid var(--line); color:var(--ink-2); font-size:13px; }
+
+  .cmp { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:14px 0; }
+  @media (max-width:680px) { .cmp { grid-template-columns:1fr; } }
+  .col { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--surface); }
+  .col > h3 { margin:0; padding:10px 14px; font-size:15px; border-bottom:1px solid var(--line); }
+  .col.now > h3 { background:var(--warn-soft); color:var(--warn); }
+  .col.new > h3 { background:var(--ok-soft); color:var(--ok); }
+  .col ol, .col ul { margin:12px 0; padding-left:1.5em; }
+  .col li { margin:6px 0; font-size:14px; }
+  .col .body { padding:2px 6px 8px; }
+  .tag { display:inline-block; font-size:10.5px; padding:0 6px; border-radius:999px; font-weight:700; margin-right:5px; vertical-align:1px; }
+  .tag.h { background:var(--accent-soft); color:var(--accent); }
+  .tag.a { background:var(--ok-soft); color:var(--ok); }
+  big { font-size:19px; font-weight:700; }
 </style>
 <div class="wrap">
 <header>
   <div class="eyebrow">pNouns ⚡ DAO — 運営からの提案</div>
-  <h1>Snapshot 投票はそのまま、Nouns DAO への反映だけを全自動にする</h1>
-  <p class="lede">2026年8月20日 ・ アールグレイ ・ 提案する仕組みは、実際の Snapshot とテストネットの Nouns DAO を使って一気通貫の動作確認済みです。この 1 枚に、現状・新しい仕組み・実証結果・費用・進め方をまとめました。</p>
+  <h1>Snapshot 投票はそのまま。Nouns DAO への反映だけを自動化します</h1>
+  <p class="lede">2026年8月20日 ・ アールグレイ ・ 「いまの仕組み」と「新しい仕組み」を並べて、何が変わり、何が変わらないのか、費用はどうなるのかをまとめました。提案する仕組みは実際の Snapshot とテストネットの Nouns DAO で動作確認済みです。</p>
 </header>
-<div class="card"><b>この資料での場所の表し方</b>
+<div class="card"><b>用語</b>
 <div class="legend">
-<span><span class="pill local">ローカル</span> アールグレイの自宅 PC(PC が止まると止まる)</span>
-<span><span class="pill cloud">クラウド</span> インターネット上のサービス(Snapshot、Cloudflare、GitHub、Discord)</span>
-<span><span class="pill chain">オンチェーン</span> Ethereum ブロックチェーン上(改ざん不可・誰でも検証可)</span>
+<span><span class="pill local">ローカル</span> アールグレイの自宅 PC</span>
+<span><span class="pill cloud">クラウド</span> ネット上のサービス(Snapshot / Cloudflare / GitHub / Discord)</span>
+<span><span class="pill chain">オンチェーン</span> Ethereum 上(改ざん不可・誰でも検証可)</span>
+<span><span class="tag h">人</span>人の作業　<span class="tag a">自動</span>プログラム</span>
 </div></div>
 
-<h2>1. いまの運用と課題</h2>
-<div class="flow c5">
-  <div class="step"><span class="who">自動</span><span class="pill local">ローカル</span><b>① 検知・要約</b><small>自宅 PC の常駐プログラムが Nouns の新提案を検知し、日本語要約を生成。</small></div>
-  <div class="step"><span class="who">人</span><span class="pill cloud">クラウド</span><b>② 承認</b><small>アールグレイが GitHub 上で要約を確認・承認。</small></div>
-  <div class="step"><span class="who">自動</span><span class="pill cloud">クラウド</span><b>③ Snapshot に提案作成</b><small>GitHub Actions が bot の署名で投票ページを作成。</small></div>
-  <div class="step"><span class="who">メンバー</span><span class="pill cloud">クラウド</span><b>④ Snapshot で投票</b><small>署名のみ・ガス代 0 円。</small></div>
-  <div class="step"><span class="who">人</span><span class="pill chain">オンチェーン</span><b>⑤ Nouns へ反映(手動)</b><small><b>アールグレイが結果を確認し、手動で Nouns DAO に投票</b>。告知・報告も手動。</small></div>
+<h2>1. 提案 1 本ごとの流れ</h2>
+<div class="cmp">
+  <div class="col now"><h3>いまの仕組み</h3><div class="body"><ol>
+    <li><span class="tag a">自動</span><span class="pill local">ローカル</span> 自宅 PC が Nouns の新提案を検知し、日本語要約を作る</li>
+    <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> アールグレイが要約を確認して承認</li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Snapshot に投票ページを作成</li>
+    <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> Discord に「投票してください」と告知</li>
+    <li><span class="tag h">メンバー</span><span class="pill cloud">クラウド</span> Snapshot で投票(署名・ガス代 0 円)</li>
+    <li><span class="tag h">人</span><span class="pill chain">オンチェーン</span> <b>締切を見張り、結果を確認し、自分のウォレットから Nouns DAO に投票</b></li>
+    <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> Discord に結果を報告</li>
+  </ol></div></div>
+  <div class="col new"><h3>新しい仕組み</h3><div class="body"><ol>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Cloudflare 上のプログラムが Nouns の新提案を検知(自宅 PC 不要)</li>
+    <li><span class="tag h">人</span><span class="pill cloud">クラウド</span> アールグレイが要約を確認して承認 <b>(ここは変わりません)</b></li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Snapshot に投票ページを作成</li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Discord に告知(投票リンク・締切つき)</li>
+    <li><span class="tag h">メンバー</span><span class="pill cloud">クラウド</span> Snapshot で投票 <b>(画面も手順も一切変わりません・ガス代 0 円)</b></li>
+    <li><span class="tag a">自動</span><span class="pill chain">オンチェーン</span> 投票の署名がチェーン上のコントラクトに届き、<b>本物か検証され、NFT の枚数で集計</b>される</li>
+    <li><span class="tag a">自動</span><span class="pill chain">オンチェーン</span> 締切後、<b>コントラクトが集計どおり Nouns DAO に投票</b></li>
+    <li><span class="tag a">自動</span><span class="pill cloud">クラウド</span> Discord に結果を報告(検証リンクつき)</li>
+  </ol></div></div>
 </div>
-<div class="card warn"><b>課題</b>: 最後の⑤(締切の見張り → 結果確認 → 投票 → 報告)が毎回人の作業で、遅れ・忘れ・属人化のリスクがある。①は自宅 PC 依存。</div>
+<div class="card accent"><b>変わること</b>: ⑥⑦(結果の確認と Nouns への投票)が人からプログラムに置き換わり、告知・報告も自動になります。自宅 PC への依存もなくなります。<br>
+<b>変わらないこと</b>: メンバーの投票体験(Snapshot・ガス 0 円)、要約の人による承認。</div>
 
-<h2>2. 提案 — メンバーは何も変えず、⑤を仕組みに置き換える</h2>
-<p>Snapshot での投票は、実は<b>本人のウォレットが作る「署名」</b>で、誰でも取得・検証できます。そこで、署名を検証して集計するコントラクト(<b>pNouns Voter</b>)をオンチェーンに置き、次の流れに置き換えます。</p>
-<div class="flow c4">
-  <div class="step"><span class="who">メンバー</span><span class="pill cloud">クラウド</span><b>今までどおり Snapshot で投票</b><small>画面も手順も一切変わりません。<b>ガス代 0 円</b>(ETH ゼロのウォレットでも可)。</small></div>
-  <div class="step"><span class="who">自動(リレイヤー)</span><span class="pill cloud">クラウド</span><b>署名を取得してチェーンへ送る</b><small>Cloudflare 上の自動プログラムが Snapshot から投票署名を取得し、まとめて 1 つのトランザクションでコントラクトへ送信。ガスは立て替え → コントラクトの預け金からその場で自動返金(誰が送っても損しない)。</small></div>
-  <div class="step"><span class="who">自動(コントラクト)</span><span class="pill chain">オンチェーン</span><b>検証・集計</b><small>「この署名は本当に pNouns 保有者がこの提案に投じたものか」を検証し、<b>NFT の保有数(1 枚 = 1 票)で集計</b>。同じ NFT の二重カウント不可。<b>誰も(運営もクラウドも)票を偽造・改ざんできません</b>。投票のやり直しは新しい署名が有効。</small></div>
-  <div class="step"><span class="who">自動(コントラクト)</span><span class="pill chain">オンチェーン</span><b>Nouns DAO へ投票</b><small>締切後に誰でも実行でき、集計どおりに投票(理由欄に pNouns の集計を永続記録)。ガスは Nouns DAO から返金。</small></div>
+<h2>2. 誰が何を持っているか</h2>
+<div class="cmp">
+  <div class="col now"><h3>いまの仕組み</h3><div class="body"><ul>
+    <li><b>Nouns の投票権</b> … マルチシグ → <b>アールグレイ個人のウォレット</b>に委任</li>
+    <li><b>投票の判断</b> … 人が Snapshot の結果を読んで手で実行</li>
+    <li>Snapshot の結果とオンチェーンの投票の対応は、<b>外部から検証できない</b>(人が正しく写したと信じるしかない)</li>
+    <li>アールグレイが不在・多忙だと止まる</li>
+  </ul></div></div>
+  <div class="col new"><h3>新しい仕組み</h3><div class="body"><ul>
+    <li><b>Nouns の投票権</b> … マルチシグ → <b>コントラクト</b>に委任(個人は持たない)</li>
+    <li><b>投票の判断</b> … コントラクトが署名を検証して自動集計。<b>人も運営もクラウドも結果を変えられない</b></li>
+    <li>集計内容が Nouns DAO の記録に残り、<b>誰でも Snapshot の公開署名から検算できる</b></li>
+    <li>クラウドが止まっても、<b>誰でも代わりに実行できる</b>(ガスは返金される)</li>
+  </ul></div></div>
 </div>
-<p>Discord への「📢 受付開始 → 🗳️ 集計状況 → ✅ Nouns DAO へ投票完了」の通知も全自動になります。<b>変わらないもの: Snapshot での投票体験・要約の人による承認(②)。なくなるもの: ⑤の手動作業と自宅 PC 依存。</b></p>
 
-<h3>投票ルール</h3>
-<ul>
-  <li>重み = 保有 pNouns 枚数(オンチェーンで検証)。トレジャリー分(13 枚)は除外。定足数なし。</li>
-  <li>同数なら投票者数が多い方、それも同数なら棄権 <b>(暫定 — ご意見で変更可能)</b>。誰も投票しなければ Nouns には投票しない。</li>
-  <li>コントラクトは書き換え不可。<b>NFT や資産は預けない</b>(預けるのはガス返金用の ETH のみ)。やめる時はマルチシグが委任先を戻すだけ(1 トランザクション。以後の提案から有効)。</li>
-</ul>
+<h3>新しい仕組みで登場する 3 つの鍵(役割分担)</h3>
+<div class="tbl"><table>
+<tr><th>役</th><th>できること</th><th>できないこと</th><th>置き場所</th><th>出番</th></tr>
+<tr><td><b>リレイヤー</b></td><td>Snapshot の署名をチェーンに運ぶ</td><td>票の偽造・改変・勝手な投票<br>(できるのは遅らせることだけ)</td><td><span class="pill cloud">Cloudflare</span></td><td>毎分</td></tr>
+<tr><td><b>登録係</b></td><td>「この Snapshot 投票は Nouns の第 N 号議案のもの」と登録</td><td>票に関する一切の操作</td><td><span class="pill local">自宅 PC の専用鍵</span></td><td>提案ごとに 1 回</td></tr>
+<tr><td><b>管理者</b></td><td>緊急停止、ガス代の管理、除外設定</td><td>票の作成・改変、Nouns への任意の投票</td><td>pNouns マルチシグ</td><td>ほぼ出番なし</td></tr>
+</table></div>
+<p style="font-size:14px">いちばん漏れやすい場所(クラウド)に、いちばん弱い権限しか置かない設計です。仮にクラウドが乗っ取られても、票の偽造はできず、対処は鍵の差し替えだけで済みます。</p>
 
-<h2>3. 実証済み — 本物の Snapshot ＋ テストネットの Nouns DAO で一気通貫</h2>
+<h2>3. 費用 — いまとの差分</h2>
+<div class="tbl"><table>
+<tr><th>項目</th><th>いまの仕組み</th><th>新しい仕組み</th></tr>
+<tr><td>メンバーの投票</td><td>0 円(署名のみ)</td><td><b>0 円</b>(同じ)</td></tr>
+<tr><td>Nouns DAO への投票のガス</td><td>Nouns から返金 → 実質 0 円</td><td><b>同じく返金 → 実質 0 円</b></td></tr>
+<tr><td>投票をチェーンに記録するガス</td><td>—(記録していない)</td><td class="num"><b>提案 1 本あたり 約 9 円</b>(現在の相場)/ 約 140 円(混雑時)</td></tr>
+<tr><td>議案の対応付けのガス</td><td>—</td><td class="num">提案 1 本あたり 約 1 円 / 約 22 円</td></tr>
+<tr><td>サーバー費用</td><td>0 円(自宅 PC)</td><td>0 円(Cloudflare 無料枠)</td></tr>
+<tr><td><b>年間の追加費用</b>(約 130 提案)</td><td>—</td><td><b><big>年 1,300 円 〜 2 万円</big></b>(ガス相場次第)</td></tr>
+<tr><td>アールグレイの手作業</td><td>提案ごとに 10〜15 分 = <b>年 20〜30 時間</b></td><td><b>0 時間</b></td></tr>
+</table></div>
+<p>費用の出どころは pNouns トレジャリーから預ける <b>0.05 ETH(約 1.5 万円)</b> のガス代プールです。残高・支出は誰でもオンチェーンで確認でき、余りはいつでも回収できます。減ってきたら Discord に自動で警告が出ます。</p>
+<div class="card"><b>要するに</b>: 年 1,300 円〜2 万円のガス代で、年 20〜30 時間の手作業と「投票し忘れ」のリスクをなくし、さらに「集計が公開検証できる」透明性が手に入る、というトレードオフです。</div>
+
+<h2>4. 動作確認の状況</h2>
 <div class="card ok">
-  <p><b>テスト環境</b>: 投票は<b>本物の Snapshot</b>(テスト用スペース earl-grey.eth)。Nouns DAO 側は Ethereum 公式テストネット(Sepolia)にある <b>Nouns 開発チーム公開の本番と同一プログラムのテスト版 DAO</b>。pNouns NFT も本物と同じプログラムの複製を使用。</p>
+  <p style="margin:0 0 8px"><b>テスト環境</b>: 投票は<b>本物の Snapshot</b>。Nouns DAO 側は公式テストネット(Sepolia)にある、<b>Nouns 開発チームが公開している本番と同一プログラムのテスト版 DAO</b> を使用。</p>
   <ul style="margin:0">
-    <li><b>無人の通し</b>: Snapshot の 3 票(賛成 3 枚/棄権 3 枚の同数 → 投票者数 2:1 で賛成)を自動集計し、Nouns DAO に賛成 2 票を記録。人手ゼロ・Discord 通知まで自動。</li>
-    <li><b>実際の UI からの投票</b>: アールグレイが snapshot.box の画面から通常どおり投票 → その 3 枚分が集計に反映され、Nouns DAO へ自動投票(<a href="https://eth-sepolia.blockscout.com/tx/0x2e4799238d9a44dec3e0e2097f61314319e9fa37cebc956ed876c54e1f7896b3?tab=logs">Nouns DAO 側の記録。理由欄に pNouns の集計つき</a>)。</li>
-    <li><b>本物の投票署名でも検証</b>: 過去の pNouns の Snapshot 投票(Prop 989 の実署名 3 票)を取得し、オンチェーン検証・集計が成立することを確認。投票パワー(1/5/9)も NFT 保有数と一致。</li>
-    <li><b>第三者監査</b>: 基盤部分は AI 監査(Codex)6 回で重大指摘ゼロ・全 32 件対応済み。今回の Snapshot 検証部分も追加監査を実施予定。</li>
+    <li><b>人手ゼロの通し</b>: Snapshot の票を自動集計 → Nouns DAO へ投票 → Discord 報告まで確認(同数の場合の判定も含む)。</li>
+    <li><b>実際の画面からの投票</b>: アールグレイが snapshot.box から普段どおり投票し、保有 3 枚分が集計に反映されて Nouns DAO へ自動投票されることを確認。</li>
+    <li><b>過去の本物の投票で検証</b>: Prop 989 に実際に投じられた 3 票の署名を使い、オンチェーン検証と集計が成立することを確認(投票の重みも保有枚数と一致)。</li>
+    <li><b>第三者による監査を 7 回実施</b>(AI 監査ツール Codex)。重大な欠陥はゼロ、指摘された 40 件超はすべて修正・再検証済み。</li>
   </ul>
 </div>
-<div class="card"><dl class="kv">
-  <dt>コントラクト(Sepolia)</dt><dd><span class="mono">0xc181c8fB1268FD02b5849428013037d25F5B2206</span> — <a href="https://eth-sepolia.blockscout.com/address/0xc181c8fB1268FD02b5849428013037d25F5B2206">検証済みソース</a></dd>
-  <dt>状況ページ</dt><dd><a href="https://pnouns-voter.x402-adsb-worker.workers.dev">pnouns-voter.x402-adsb-worker.workers.dev</a>(集計・Nouns DAO 側の記録・手動実行ボタン)</dd>
-</dl></div>
 
-<h2>4. 費用</h2>
-<div class="tbl"><table>
-<tr><th>場面</th><th>ガス代</th><th>誰が払う → どう返る</th></tr>
-<tr><td>メンバーの投票(署名)</td><td><span class="pill zero">0 円</span></td><td>署名はブロックチェーンに書き込まないため発生しない</td></tr>
-<tr><td>署名をチェーンへ送る</td><td>提案 1 本 約 25 円(現在の相場)</td><td>送った人が立て替え → <b>コントラクトの預け金から同一トランザクション内で自動返金</b></td></tr>
-<tr><td>Nouns DAO への投票実行</td><td>約 25 円</td><td>実行した人が払い → <b>Nouns DAO から自動返金</b>(公式機能)</td></tr>
-<tr><td>預け金(返金の原資)</td><td>—</td><td>トレジャリーから 0.05 ETH(≒1.5 万円)を想定。残高・支出はオンチェーンで透明、余りは回収可、減れば Discord に自動警告</td></tr>
-</table></div>
-<p>年間の実費はガス相場次第で<b>約 600 円〜1.2 万円</b>(投票者 4 名・全提案投票の場合)。運用基盤(Cloudflare)は無料枠で開始します。</p>
+<h2>5. 投票のルール(コントラクトに固定)</h2>
+<ul>
+  <li>重み = 保有 pNouns 枚数(チェーン上で検証)。トレジャリー分(13 枚)は数えない。定足数なし。</li>
+  <li>同数なら投票者数が多い方、それも同数なら棄権 <b>(暫定 — ご意見で変更可能)</b>。誰も投票しなければ Nouns にも投票しない。</li>
+  <li>締切は Nouns の投票終了の 24 時間前(いまの Snapshot 48 時間より長く投票できます)。</li>
+  <li>コントラクトは後から書き換え不可。<b>NFT や資産は預けません</b>(預けるのはガス代のみ)。</li>
+</ul>
 
-<h2>5. 進め方(メンバー合意なしに本番投票は始まりません)</h2>
+<h2>6. 導入の進め方</h2>
 <ol>
-  <li><b>メインネットに「見学モード」で設置</b> — Nouns へは投票せず、実際の提案で集計だけ行い、いまの手動運用と結果を突き合わせる(数提案)。</li>
-  <li>結果の一致を確認 → <b>メンバー合意</b>。</li>
-  <li>マルチシグが Nouns 投票権の委任先をコントラクトへ変更(1 トランザクション・いつでも戻せる)+ トレジャリーから預け金 → 本番運用開始。以後、反映は無人。</li>
+  <li><b>見学モードで設置</b> — Nouns には投票せず、集計だけを実際の提案で数回行い、いまの手動運用と結果が一致するか確認します。</li>
+  <li>一致を確認 → <b>メンバーの合意</b>。</li>
+  <li>マルチシグが投票権の委任先をコントラクトへ変更(1 トランザクション・いつでも戻せる)＋ トレジャリーからガス代を預ける → 本番開始。</li>
 </ol>
-<footer>技術詳細・監査記録・テスト履歴はすべてリポジトリ pnouns-voter に公開。質問は #🔥｜p⚡雑談 かアールグレイまで。</footer>
+<div class="card warn">やめたくなったら、マルチシグが委任を戻すだけで元の手動運用に戻せます(Nouns の仕様上、切り戻しは以後の提案から有効。進行中の提案は管理者が停止スイッチで止められます)。</div>
+<footer>技術詳細・監査記録・テスト履歴はリポジトリ pnouns-voter に公開しています。質問は #🔥｜p⚡雑談 かアールグレイまで。</footer>
 </div>
