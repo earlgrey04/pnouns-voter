@@ -5,8 +5,13 @@ async function main() {
   const [deployer, delegator] = await ethers.getSigners();
   const dep = loadDeployments();
   const F = await ethers.getContractFactory("PNounsSnapVoter");
-  const c = await F.deploy(dep.pnouns, SEPOLIA.NOUNS_DAO, deployer.address, deployer.address, process.env.SPACE || "earl-grey.eth", [SEPOLIA.PNOUNS_TREASURY], Number(process.env.MARGIN || 5));
+  const delay = Number(process.env.REG_DELAY || 0); // mainnet では 300 以上(Worker が fail-closed で検証)
+  const c = await F.deploy(dep.pnouns, SEPOLIA.NOUNS_DAO, deployer.address, process.env.REGISTRAR || deployer.address, process.env.SPACE || "earl-grey.eth", [SEPOLIA.PNOUNS_TREASURY], Number(process.env.MARGIN || 5), delay);
   await c.waitForDeployment();
+  // 読み戻して検証(監査 B3-H02R: 設定漏れを起こさない)
+  const [gotDelay, gotRegistrar] = [Number(await c.registrationDelayBlocks()), await c.registrar()];
+  if (gotDelay !== delay) throw new Error(`registrationDelayBlocks mismatch: ${gotDelay} != ${delay}`);
+  console.log(`registrationDelayBlocks=${gotDelay} registrar=${gotRegistrar}`);
   dep.snapVoter = await c.getAddress();
   dep.snapVoterDeployBlock = (await c.deploymentTransaction().wait()).blockNumber;
   saveDeployments(dep);

@@ -1,7 +1,7 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
-import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit } from "./chain.js";
-import { resolveMappings, collectVotes, setCursor } from "./snap.js";
+import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit, allOwners } from "./chain.js";
+import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, cursorKey, deadKey, failKey } from "./snap.js";
 import { keccak256, stringToBytes } from "viem";
 import { makeStore } from "./store.js";
 
@@ -112,13 +112,15 @@ async function reconcileSent(c, pc, store, proposalId, summaries) {
   return changed;
 }
 
-// B3: Snapshot ハブから署名を取得して castSnapshotVotes。送信中は KV snapsent:{id} で追跡(次 tick で receipt 確定)
-// M03: 締切が近い(rush)ときは 1 tick で複数バッチを連続送信して排出する
+// B3: Snapshot ハブから署名を取得して castSnapshotVotes。
+//  - オンチェーンの voterRec が真実。cursor は「未解決票より前」までしか進めない(H04)
+//  - 送信中(snapsent)は新規送信しない。確定は次 tick で receipt を見て行う
+//  - 取得できない票は fail カウント → 一定回数でデッドレター(警告つき)。黙って飛ばさない(M06R)
 async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
-  const key = `${store.prefix}snapsent:${nounsId}`;
-  const pending = await store.kvRaw.get(key, "json");
+  const sentK = `${store.prefix}snapsent:${nounsId}`;
+  const pending = await store.kvRaw.get(sentK, "json");
   if (pending) {
-    let allMined = true; let anySuccess = false; let gasTotal = 0n;
+    let allMined = true, anySuccess = false, gasTotal = 0n;
     for (const tx of pending.txs) {
       let rc = null;
       try { rc = await pc.getTransactionReceipt({ hash: tx }); } catch { rc = null; }
@@ -127,25 +129,57 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
       else console.warn(`[snap] castSnapshotVotes reverted ${tx}`);
     }
     if (!allMined && Date.now() - Date.parse(pending.at) < 10 * 60 * 1000) return;
-    await store.kvRaw.delete(key);
-    if (anySuccess) {
-      await setCursor(store, nounsId, pending.maxCreated); // 採掘確定した票まで cursor を進める
-      if (!(await store.getFlag(`notified:${pending.txs[0]}`))) {
-        await store.setFlag(`notified:${pending.txs[0]}`, 86400);
-        const mg = await metagovInfo(c, pc, nounsId);
-        await notify(c, [
-          `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${gasTotal})。`,
-          `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
-          `tx: ${explorerTx(c, pending.txs[0])}`,
-        ].join("\n"));
-      }
+    await store.kvRaw.delete(sentK);
+    // cursor はここでは進めない(次 tick に voterRec を見て、確定したものだけ「解決済み」として前進する)
+    if (anySuccess && !(await store.getFlag(`notified:${pending.txs[0]}`))) {
+      await store.setFlag(`notified:${pending.txs[0]}`, 86400);
+      const mg = await metagovInfo(c, pc, nounsId);
+      await notify(c, [
+        `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${gasTotal})。`,
+        `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
+        `tx: ${explorerTx(c, pending.txs[0])}`,
+      ].join("\n"));
     }
-    return; // 確定処理をした tick では新規送信しない
+    return;
   }
+
+  const cursor = Number(await store.kvRaw.get(cursorKey(store, nounsId))) || 0;
+  const rows = await fetchRows(c, snapInfo.snapId, cursor);
+  if (!rows.length) return;
+  const deadArr = (await store.kvRaw.get(deadKey(store, nounsId), "json")) || [];
+  const deadLetters = new Set(deadArr);
+  // オンチェーン記録と保有枚数
+  const recs = await pc.multicall({ contracts: rows.map((v) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "voterRec", args: [BigInt(nounsId), v.voter] })), allowFailure: false });
+  const owners = await allOwners(c, pc);
+  const tokenCounts = rows.map((v) => { const a = v.voter.toLowerCase(); let n = 0; for (let id = 1; id < owners.length; id++) if (owners[id] === a) n++; return n; });
   const batches = rush ? c.rushBatches : 1;
-  const { args, advanceNow, submittedMax } = await collectVotes(c, pc, store, snapInfo.snapId, nounsId, c.maxBatch * batches);
-  if (advanceNow) await setCursor(store, nounsId, advanceNow); // 反映済み/対象外まで進める
+  const { send, advance } = planSubmission(rows, recs, { tokenCounts, deadLetters, limit: c.maxBatch * batches, cursor });
+  if (advance > cursor) await store.kvRaw.put(cursorKey(store, nounsId), String(advance));
+  if (!send.length) return;
+
+  // 送る票のエンベロープを取得(取れないものは fail カウント → デッドレター)
+  const fails = (await store.kvRaw.get(failKey(store, nounsId), "json")) || {};
+  const args = []; let failChanged = false, deadChanged = false;
+  for (const { row, index } of send) {
+    const env = await fetchEnvelope(c, row, snapInfo.snapId);
+    if (!env) {
+      fails[row.ipfs] = (fails[row.ipfs] || 0) + 1; failChanged = true;
+      if (fails[row.ipfs] >= 20) {
+        deadArr.push(row.ipfs); deadChanged = true;
+        await notify(c, [`⚠️ Prop ${nounsId}: 1 票の署名データを取得できませんでした(20 回試行)。この票は集計に含まれません。`, `投票者: ${row.voter}`, `データ ID: ${row.ipfs}`, `復旧できる場合は手動で再投函できます。`].join("\n"));
+      }
+      break; // 順序を崩さないためここで打ち切り(次 tick に再試行)
+    }
+    const m = env.data.message;
+    const tokenIds = [];
+    const a = row.voter.toLowerCase();
+    for (let id = 1; id < owners.length && tokenIds.length < tokenCounts[index]; id++) if (owners[id] === a) tokenIds.push(BigInt(id));
+    args.push({ from: m.from, timestamp: BigInt(m.timestamp), proposal: m.proposal, choice: m.choice, reason: m.reason ?? "", app: m.app ?? "", metadata: m.metadata ?? "", signature: env.sig, tokenIds });
+  }
+  if (failChanged) await store.kvRaw.put(failKey(store, nounsId), JSON.stringify(fails), { expirationTtl: 86400 * 30 });
+  if (deadChanged) await store.kvRaw.put(deadKey(store, nounsId), JSON.stringify(deadArr), { expirationTtl: 86400 * 90 });
   if (!args.length) return;
+
   const txs = []; let count = 0;
   for (let b = 0; b < batches; b++) {
     const chunk = args.slice(b * c.maxBatch, (b + 1) * c.maxBatch);
@@ -154,7 +188,7 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     catch (e) {
       if (!isContractRevert(e)) { console.warn(`[snap] simulate transient error prop ${nounsId}: ${(e.shortMessage || e.message || "").slice(0, 120)}`); break; }
       const good = [];
-      for (const a of chunk.slice(0, 10)) { try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a]], account: wc.account }); good.push(a); } catch (e2) { console.warn(`[snap] drop vote ${a.from.slice(0, 10)}: ${(e2.shortMessage || "").slice(0, 120)}`); } }
+      for (const a2 of chunk.slice(0, 10)) { try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a2]], account: wc.account }); good.push(a2); } catch (e2) { console.warn(`[snap] drop vote ${a2.from.slice(0, 10)}: ${(e2.shortMessage || "").slice(0, 120)}`); } }
       if (!good.length) continue;
       chunk.length = 0; chunk.push(...good);
     }
@@ -163,7 +197,7 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     console.log(`[snap] castSnapshotVotes prop ${nounsId} ${chunk.length} votes tx ${hash}${rush ? " (rush)" : ""}`);
     txs.push(hash); count += chunk.length;
   }
-  if (txs.length) await store.kvRaw.put(key, JSON.stringify({ txs, at: new Date().toISOString(), count, maxCreated: submittedMax }));
+  if (txs.length) await store.kvRaw.put(sentK, JSON.stringify({ txs, at: new Date().toISOString(), count }));
 }
 
 async function submitPending(c, pc, wc, store, proposalId, block, onchainDeadline) {
@@ -321,11 +355,15 @@ export async function tick(env) {
     if (c.snapshotSpace) {
       // H03: コントラクトの spaceHash と設定の SNAPSHOT_SPACE が一致しなければ fail-closed
       if (!spaceChecked) {
-        const onchain = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "spaceHash" });
+        const [onchain, delay] = await pc.multicall({ contracts: [
+          { address: c.metagov, abi: METAGOV_ABI, functionName: "spaceHash" },
+          { address: c.metagov, abi: METAGOV_ABI, functionName: "registrationDelayBlocks" },
+        ], allowFailure: false });
         if (onchain !== keccak256(stringToBytes(c.snapshotSpace))) { await notifyError(c, "config", new Error(`SNAPSHOT_SPACE "${c.snapshotSpace}" がコントラクトの spaceHash と一致しません`)); return; }
+        if (c.network === "mainnet" && Number(delay) < c.minRegistrationDelay) { await notifyError(c, "config", new Error(`registrationDelayBlocks(${delay}) が最低値 ${c.minRegistrationDelay} 未満です`)); return; } // H02R: fail-closed
         spaceChecked = true;
       }
-      try { const { mappings } = await resolveMappings(c, pc, store); snapByNouns = new Map(mappings.map((m) => [Number(m.nounsId), m])); }
+      try { const { mappings } = await resolveMappings(c, pc); snapByNouns = new Map(mappings.map((m) => [Number(m.nounsId), m])); }
       catch (e) { await notifyError(c, "snapshot hub", e); }
     }
     for (const p of proposals) {

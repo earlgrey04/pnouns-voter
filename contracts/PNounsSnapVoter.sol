@@ -91,6 +91,8 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     mapping(bytes32 => uint256) public snapToNouns;
     /// Nouns 提案 id → keccak(Snapshot 提案 id 文字列)
     mapping(uint256 => bytes32) public nounsToSnap;
+    /// @notice Snapshot 由来で計上された token 数(直接 castVote と区別する。取消可否の判定に使う)
+    mapping(uint256 => uint32) public snapshotVotesCounted;
 
     struct SnapVote {
         string from;      // 署名メッセージの from(チェックサム表記のアドレス文字列)
@@ -141,13 +143,14 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
 
     constructor(
         address pnouns_, address nounsDAO_, address owner_, address registrar_,
-        string memory space_, address[] memory excluded_, uint256 marginBlocks_
+        string memory space_, address[] memory excluded_, uint256 marginBlocks_, uint256 registrationDelayBlocks_
     ) Ownable(owner_) {
         pnouns = IERC721(pnouns_);
         nounsDAO = INounsDAO(nounsDAO_);
         spaceHash = keccak256(bytes(space_));
         registrar = registrar_;
         marginBlocks = marginBlocks_;
+        registrationDelayBlocks = registrationDelayBlocks_;
         for (uint256 i = 0; i < excluded_.length; i++) { excluded[excluded_[i]] = true; emit ExcludedSet(excluded_[i], true); }
     }
 
@@ -179,8 +182,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         if (msg.sender != registrar && msg.sender != owner()) revert NotRegistrar();
         bytes32 h = nounsToSnap[nounsProposalId];
         if (h == bytes32(0)) revert NotRegistered();
-        (uint256[3] memory tokens, ) = _arrays(_tallies[nounsProposalId]);
-        if (tokens[0] + tokens[1] + tokens[2] != 0) revert VotesAlreadyCounted();
+        if (snapshotVotesCounted[nounsProposalId] != 0) revert VotesAlreadyCounted(); // 直接投票による妨害では取消を止めない
         delete snapToNouns[h];
         delete nounsToSnap[nounsProposalId];
         delete registeredAtBlock[nounsProposalId];
@@ -240,6 +242,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
         uint256 nounsId = snapToNouns[firstProp];
         if (nounsId == 0) revert NotRegistered();
         if (block.number < registeredAtBlock[nounsId] + registrationDelayBlocks) revert RegistrationTooRecent(); // 誤登録の取消猶予
+        uint32 snapCounted;
         for (uint256 i = 0; i < votes.length; i++) {
             SnapVote calldata v = votes[i];
             if (keccak256(bytes(v.proposal)) != firstProp) revert MixedProposals();
@@ -253,8 +256,9 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
                 if (IERC1271(fromAddr).isValidSignature(digest, v.signature) != bytes4(0x1626ba7e)) revert InvalidContractSignature();
             }
             uint8 support = _choiceToSupport(v.choice);
-            _castVote(fromAddr, nounsId, support, v.tokenIds, v.timestamp, digest);
+            snapCounted += _castVote(fromAddr, nounsId, support, v.tokenIds, v.timestamp, digest);
         }
+        snapshotVotesCounted[nounsId] += snapCounted;
         _refundGas(startGas, votes.length, nounsId);
     }
 
@@ -262,11 +266,13 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
     function castVote(uint256 nounsProposalId, uint8 support, uint256[] calldata tokenIds) external nonReentrant {
         uint256 startGas = gasleft();
         if (support > ABSTAIN) revert InvalidChoice();
+        // 登録直後の猶予期間中は直接投票も受け付けない(取消の妨害を防ぐ)
+        if (nounsToSnap[nounsProposalId] != bytes32(0) && block.number < registeredAtBlock[nounsProposalId] + registrationDelayBlocks) revert RegistrationTooRecent();
         _castVote(msg.sender, nounsProposalId, support, tokenIds, uint64(block.timestamp), keccak256(abi.encode("direct", msg.sender, nounsProposalId, support, block.timestamp)));
         _refundGas(startGas, 1, nounsProposalId);
     }
 
-    function _castVote(address voter, uint256 proposalId, uint8 support, uint256[] calldata tokenIds, uint64 timestamp, bytes32 digest) internal {
+    function _castVote(address voter, uint256 proposalId, uint8 support, uint256[] calldata tokenIds, uint64 timestamp, bytes32 digest) internal returns (uint32) {
         if (tokenIds.length == 0) revert NoTokenIds();
         if (excluded[voter]) revert ExcludedVoter(voter);
 
@@ -291,12 +297,14 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
             _addTally(t, support, uint32(counted), 1);
             voterRec[proposalId][voter] = VoterRec(true, support, uint32(counted), timestamp, digest);
             emit SnapVoteCounted(proposalId, voter, support, uint32(counted), timestamp, false);
+            return uint32(counted);
         } else if (supplement) {
             // 同じ署名で未計上の token だけ追加(support は変わらず、投票者数も増やさない)
             if (counted == 0) revert NothingCounted();
             _addTally(t, rec.support, uint32(counted), 0);
             rec.counted += uint32(counted);
             emit SnapVoteCounted(proposalId, voter, rec.support, rec.counted, timestamp, false);
+            return uint32(counted);
         } else {
             // やり直し: 既存の counted を新しい support へ移し、新たに数えられた token があれば加算
             _subTally(t, rec.support, rec.counted, 1);
@@ -304,6 +312,7 @@ contract PNounsSnapVoter is Ownable, ReentrancyGuard {
             _addTally(t, support, newCounted, 1);
             rec.support = support; rec.counted = newCounted; rec.timestamp = timestamp; rec.digest = digest;
             emit SnapVoteCounted(proposalId, voter, support, newCounted, timestamp, true);
+            return uint32(counted);
         }
     }
 

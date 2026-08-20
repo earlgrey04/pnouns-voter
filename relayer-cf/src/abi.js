@@ -1,4 +1,4 @@
-// PNounsSnapVoter の必要最小限 ABI(artifacts から抽出)
+// PNounsSnapVoter の必要最小限 ABI
 export const METAGOV_ABI = [
  {
   "anonymous": false,
@@ -448,6 +448,25 @@ export const METAGOV_ABI = [
     "internalType": "uint256",
     "name": "",
     "type": "uint256"
+   }
+  ],
+  "stateMutability": "view",
+  "type": "function"
+ },
+ {
+  "inputs": [
+   {
+    "internalType": "uint256",
+    "name": "",
+    "type": "uint256"
+   }
+  ],
+  "name": "snapshotVotesCounted",
+  "outputs": [
+   {
+    "internalType": "uint32",
+    "name": "",
+    "type": "uint32"
    }
   ],
   "stateMutability": "view",

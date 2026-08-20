@@ -8,7 +8,14 @@ const PNOUNS = "0x4bE962499cE295b1ed180F923bf9c73b6357DE80";
 const PNOUNS_TREASURY = "0x8ae80e0b44205904be18869240c2ec62d2342785";
 const NOUNS_DAO = "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d";
 const NOUNS_TOKEN = "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03";
-const PROPOSER_CANDIDATES = ["0x094b3226c7f55de7038b5be9bbac0866b3f6c8b8", "0x322956ea3f126a68fa6103965a75f6f4da7affc9"];
+// Nouns は 1 提案者につき同時 1 提案までなので、テストの本数ぶん候補を用意する
+const PROPOSER_CANDIDATES = [
+  "0x094b3226c7f55de7038b5be9bbac0866b3f6c8b8", "0x322956ea3f126a68fa6103965a75f6f4da7affc9",
+  "0x14c86d9255d5b9768704b670c57f30662aff41f0", "0xf64642b49886ba8fee006767c3b1303df25c5211",
+  "0x83fcfe8ba2fece9578f0bbafed4ebf5e915045b9", "0xcc2688350d29623e2a0844cc8885f9050f0f6ed5",
+  "0x39a7ea92f59d74a950e4a08990519ee44ef3abc0", "0x00fb8a99188c6083df04abeb0f7066e8ffb1f124",
+];
+const usedProposers = new Set();
 const NOUN_HOLDER_2 = "0x09960871a7ec7a5f1956c3e29ad69f906f4fb264";
 const SPACE = "pnounsdao.eth";
 const SNAP_989 = "0x8fd3dd2ab3961f5b8de95815b39b93b9ed5fbc8dbae8e8d542581541aaa8fdce";
@@ -65,7 +72,7 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
     nouns = new ethers.Contract(NOUNS_TOKEN, ["function delegate(address)", "function getCurrentVotes(address) view returns (uint96)", "function balanceOf(address) view returns (uint256)"], ethers.provider);
     pnouns = new ethers.Contract(PNOUNS, ["function ownerOf(uint256) view returns (address)", "function transferFrom(address,address,uint256)"], ethers.provider);
     const F = await ethers.getContractFactory("PNounsSnapVoter");
-    voterC = await F.deploy(PNOUNS, NOUNS_DAO, deployer.address, deployer.address, SPACE, [PNOUNS_TREASURY], 10);
+    voterC = await F.deploy(PNOUNS, NOUNS_DAO, deployer.address, deployer.address, SPACE, [PNOUNS_TREASURY], 10, 0);
     await voterC.waitForDeployment();
     await voterC.setLiveMode(true);
     await deployer.sendTransaction({ to: await voterC.getAddress(), value: ethers.parseEther("0.05") });
@@ -97,7 +104,8 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
       await mine(1n);
       let created = false;
       for (const p of PROPOSER_CANDIDATES) {
-        try { const s = await impersonate(p); await dao.connect(s).propose([NOUN_HOLDER_2], [0], [""], ["0x"], "# snap voter test"); created = true; break; } catch (e) {}
+        if (usedProposers.has(p)) continue;
+        try { const s = await impersonate(p); await dao.connect(s).propose([NOUN_HOLDER_2], [0], [""], ["0x"], "# snap voter test"); usedProposers.add(p); created = true; break; } catch (e) {}
       }
       expect(created).to.equal(true);
       proposalId = await dao.proposalCount();
@@ -161,8 +169,11 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
 
     async function newProposalWithSnap(tag) {
       let created = false;
-      for (const p of PROPOSER_CANDIDATES) { try { const s = await impersonate(p); await dao.connect(s).propose([NOUN_HOLDER_2], [0], [""], ["0x"], "# " + tag); created = true; break; } catch {} }
-      expect(created).to.equal(true);
+      for (const p of PROPOSER_CANDIDATES) {
+        if (usedProposers.has(p)) continue;
+        try { const s = await impersonate(p); await dao.connect(s).propose([NOUN_HOLDER_2], [0], [""], ["0x"], "# " + tag); usedProposers.add(p); created = true; break; } catch {}
+      }
+      expect(created, "提案者候補が枯渇").to.equal(true);
       const id = await dao.proposalCount();
       const snap = "0x" + tag.charCodeAt(0).toString(16).padStart(2, "0").repeat(32);
       await voterC.registerProposal(snap, id);
@@ -214,6 +225,31 @@ describe("PNounsSnapVoter (mainnet fork)", function () {
       await voterC.setRegistrationDelayBlocks(0);
       // 計上済みの提案(proposalId)は取消不可
       await expect(voterC.unregisterProposal(proposalId)).to.be.revertedWithCustomError(voterC, "VotesAlreadyCounted");
+    });
+
+    it("H02R 対策: 猶予期間中は直接投票も不可。直接投票だけなら取消できる", async function () {
+      const { id: pid4, snap: SNAP4 } = await newProposalWithSnap("r");
+      await voterC.setRegistrationDelayBlocks(1000);
+      const SNAP_Y = "0x" + "77".repeat(32);
+      await voterC.registerProposal(SNAP_Y, 888888);
+      // 猶予中は直接投票(castVote)も拒否される → 取消の妨害ができない
+      const [, , , , , , , , , frank] = await ethers.getSigners();
+      let fid;
+      for (let id = 1; id <= 2100; id++) {
+        const owner = (await pnouns.ownerOf(id)).toLowerCase();
+        if (owner === PNOUNS_TREASURY || owner === (await voterC.getAddress()).toLowerCase()) continue;
+        const s2 = await impersonate(owner);
+        try { await pnouns.connect(s2).transferFrom(owner, frank.address, id); fid = BigInt(id); break; } catch {}
+      }
+      await expect(voterC.connect(frank).castVote(888888, 1, [fid])).to.be.revertedWithCustomError(voterC, "RegistrationTooRecent");
+      await voterC.unregisterProposal(888888); // 妨害されずに取消できる
+      // 猶予ゼロの提案に直接投票しても、Snapshot 票がなければ取消できる
+      await voterC.setRegistrationDelayBlocks(0);
+      await voterC.connect(frank).castVote(pid4, 1, [fid]);
+      expect((await voterC.tally(pid4)).tokens[1]).to.equal(1n);
+      expect(await voterC.snapshotVotesCounted(pid4)).to.equal(0n);
+      await voterC.unregisterProposal(pid4); // 直接投票は取消を妨げない
+      expect(await voterC.nounsToSnap(pid4)).to.equal(ethers.ZeroHash);
     });
 
     it("M04 対策: EIP-1271 スマートウォレットの Snapshot 投票を検証できる", async function () {
