@@ -362,3 +362,27 @@ Codex 生ログ: `docs/audit-17-codex-raw.md` / Qwen: `docs/qwen-review-2026-08-
 **Qwen(独立)**: ①2 分化のトレードオフ「妥当」 ②不採用 2 案の判断「妥当」
 ③読み戻し検算「効果高い(内部者攻撃までは防げない点に留意)」 ④資料表現: 微修正 1 件
 採用(「短縮できない」への停止可能の注記)。総合判定「本番運用に進んでよい」。
+
+---
+
+## 第18回監査 (2026-08-21, Codex) — 登録係の Cloudflare 実装
+
+対象: 39df9c0。生ログ: `docs/audit-18-codex-raw.md`
+判定: 「Sepolia ライブ試験は条件付き可・本番採用は必須修正 7 件の後」→ 全件対応済み。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | **高** | 内容 4 項目しか検証せず、bot 単独で「本文は忠実だが投票不能」な提案(終了済み・未開始・別 type 等)を登録させ投票妨害できる | 修正: 候補の選別段階で author(=SNAPSHOT_BOT・env 必須化)・type=single-choice・start<=now<end・期間<=8日 を検査。envelope 署名の検証まではせず「ハブを信頼する運用前提」を明記(下記 #5) |
+| 2 | **高** | 本文(最大 9,500 字)を 20 件一括取得すると 64KiB 上限で失敗し、bot の長文連投で自動登録どころか tick 全体(fail-closed)を止められる | 修正: resolveMappings と候補列挙から body を除去(linkOk は discussion のみ)。本文は選別通過後の候補だけ 1 件ずつ取得(最大 5 件) |
+| 3 | 中 | `description \|\| desc` により空文字への本文更新を無視し、旧本文の提案が「一致」してしまう | 修正: `?? ` に変更(register.js と chain.js proposalTitle の両方)。回帰テスト追加 |
+| 4 | 中 | 参照候補の 1 件目だけ検査するため、不一致提案を 1 件置けば正しい候補を隠せる | 修正: 候補を全列挙 → 選別 → 完全一致がちょうど 1 件のときのみ登録(0 件: 保留警告 / 複数: 曖昧として保留)。取得幅も 20→50 |
+| 5 | 中 | ハブ表示値と署名済み提案実体の信頼ギャップ | 運用前提として記録: 自動登録は「設定された Snapshot ハブの応答を信頼する」。envelope/作成署名の検証は将来課題(accepted) |
+| 6 | 中 | regsent が盲目的な 10 分抑止で、revert/drop/競合の区別がない | 修正: {tx, at} を記録し、10 分経過後に receipt を確認して再試行を判断。AlreadyRegistered は手動登録との競合として静かに退く(テストで実 revert を構築して検証・selector 0x3a81d6fc は事前検算) |
+| 7 | 中 | formatter がコピー実装で、片方だけの修正を検知できない | 修正: 両実装を import して 8 fixtures(空/CRLF/Unicode/9500 境界/長文/段落境界)で deep-equal する回帰テストを新設 |
+| 8 | 中 | registrar 秘密鍵とオンチェーン registrar の一致を起動時検証していない | 修正: spaceCheck で rc.address == registrar() を fail-closed 検証。AUTO_REGISTER には REGISTRAR_PRIVATE_KEY と SNAPSHOT_BOT を cfg レベルで必須化 |
+| 9 | 低 | getLogs を毎 tick 再実行 | 修正: 本文を KV に 1 回保存して再利用(desc:{id}, TTL 14 日) |
+| 10 | 低 | 登録失敗が console.warn のみ | 修正: 送信失敗を warnOnce で Discord 警告(1 日 1 回) |
+
+テスト: 58 pass(自動登録 9 シナリオ + formatter 同値 + 空文字更新)。Worker 再デプロイ済み。
+単独侵害の整理(Codex): bot 単独では忠実な内容+正しい条件の提案しか登録されない(修正後)。
+Cloudflare 侵害では registrar 鍵で直接登録が可能(既知の信頼モデル — 猶予+停止+公開で受け止め)。

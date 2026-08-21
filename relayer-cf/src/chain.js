@@ -29,6 +29,7 @@ export function cfg(env) {
     for (const k of ["VOTER", "PNOUNS", "NOUNS_DAO", "NOUNS_TOKEN"]) if (!env[k]) throw new Error(`${k} is required`);
     if (getAddress(env.PNOUNS) !== "0x4bE962499cE295b1ed180F923bf9c73b6357DE80" || getAddress(env.NOUNS_DAO) !== "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d" || getAddress(env.NOUNS_TOKEN) !== "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03") throw new Error("mainnet addresses mismatch");
   }
+  if (env.AUTO_REGISTER === "1" && (!env.REGISTRAR_PRIVATE_KEY || !env.SNAPSHOT_BOT)) throw new Error("AUTO_REGISTER には REGISTRAR_PRIVATE_KEY と SNAPSHOT_BOT が必要です"); // 第18回監査
   return {
     network: env.NETWORK || "sepolia",
     chain,
@@ -58,6 +59,7 @@ export function cfg(env) {
     relayerKey: env.RELAYER_PRIVATE_KEY || null,
     registrarKey: env.REGISTRAR_PRIVATE_KEY || null, // 登録係を Cloudflare で動かす場合の鍵(任意)
     autoRegister: env.AUTO_REGISTER === "1", // Worker による対応表の自動登録(内容一致の検証つき)
+    snapshotBot: env.SNAPSHOT_BOT ? getAddress(env.SNAPSHOT_BOT) : null, // Snapshot 提案の正規作成者(自動登録の author 検証に使用)
     lowBalanceEth: env.LOW_BALANCE_ETH || (env.NETWORK === "mainnet" ? "0.01" : "0.02"),
   };
 }
@@ -96,6 +98,13 @@ export function clients(c) {
   return { publicClient, walletClient, account, registrarClient };
 }
 export const domain = (c) => ({ name: "pNouns Voter", version: "1", chainId: c.chainId, verifyingContract: c.metagov });
+
+// viem の ContractFunctionRevertedError からカスタムエラー名を取り出す(デコードできなければ null)
+export function revertErrorName(e) {
+  let x = e;
+  for (let i = 0; i < 6 && x; i++) { if (x.data?.errorName) return x.data.errorName; x = x.cause; }
+  return null;
+}
 
 // pNouns 全 tokenId の所有者(multicall)。メモリに 60 秒キャッシュ
 let ownersCache = { at: 0, owners: [] };
@@ -162,7 +171,7 @@ export async function proposalTitle(c, pc, store, id, creationBlock, state) {
     const updates = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: latest, events: events.filter((e) => e.name === "ProposalUpdated" || e.name === "ProposalDescriptionUpdated"), args: { id: BigInt(id) } });
     let desc = "";
     for (const l of created) if (l.eventName && l.eventName.startsWith("ProposalCreated") && Number(l.args.id) === id) desc = String(l.args.description || "");
-    for (const l of updates) if (Number(l.args.id) === id) desc = String(l.args.description || desc);
+    for (const l of updates) if (Number(l.args.id) === id) desc = String(l.args.description ?? desc); // 空文字への更新も有効な最新値(第18回監査)
     const first = desc.split("\n").find((x) => x.trim()) || "";
     title = first.replace(/^#+\s*/, "").trim() || title;
     if (updates.length) title += " (更新あり)";

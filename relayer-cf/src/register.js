@@ -1,13 +1,15 @@
-// 登録係の Cloudflare 実装(置き場所分離の選択肢。AUTO_REGISTER=1 + REGISTRAR_PRIVATE_KEY で有効)。
-// 安全設計: ハブ上の提案を「URL の自己申告」だけで信用せず、Nouns のオンチェーン本文
-// (ProposalCreated/Updated イベント)から「あるべき Snapshot 提案の内容」を再計算し、
-// title・body・discussion・choices が完全一致した場合のみ登録する。
-// これにより bot の鍵が単独で侵害されても、忠実な内容の提案しか対応表に載らない
-// (自己申告 URL だけで登録すると、bot 単独侵害で偽内容の提案が登録まで通ってしまう)。
-import { DAO_ABI, METAGOV_ABI } from "./chain.js";
+// 登録係の Cloudflare 実装(置き場所分離の選択肢。AUTO_REGISTER=1 + REGISTRAR_PRIVATE_KEY + SNAPSHOT_BOT で有効)。
+// 安全設計(第18回監査で強化):
+//  - ハブ上の提案を「URL の自己申告」だけで登録しない。Nouns のオンチェーン本文から
+//    buildProposal で期待内容を再計算し、title/body/discussion/choices の完全一致を要求
+//  - 候補の選別(author=正規 bot / type=single-choice / 投票期間が現在有効)を通過した提案だけ
+//    本文を 1 件ずつ取得(本文の一括取得は 64KiB 上限 DoS になるため行わない)
+//  - 完全一致がちょうど 1 件のときだけ登録(0 件: 警告して保留 / 2 件以上: 曖昧として保留)
+//  - 送信は {tx, at} を KV に記録し、10 分未採掘なら再試行。AlreadyRegistered は競合として扱う
+import { DAO_ABI, METAGOV_ABI, revertErrorName } from "./chain.js";
 import { hubGql, referencesNounsProposal } from "./snap.js";
 
-// ---- scripts/lib/proposal-format.mjs と同一ロジック(bot 側と一致していることが検証の前提) ----
+// ---- scripts/lib/proposal-format.mjs と同一ロジック(同値性は回帰テストで担保) ----
 export const CHOICES = ["賛成", "反対", "棄権"];
 export const DEFAULT_BODY_LIMIT = 9500;
 export function extractTitle(description, fallbackId) {
@@ -31,41 +33,93 @@ export function buildProposal({ nounsId, description, limit = DEFAULT_BODY_LIMIT
   return { title, body, discussion: url, choices: [...CHOICES], truncated };
 }
 
-/// Nouns 提案のオンチェーン本文(作成イベント + 更新イベントの最新)
-export async function nounsDescription(c, pc, id, creationBlock) {
+/// Nouns 提案のオンチェーン本文(作成イベント + 更新イベントの最新)。
+/// Pending/Active では本文は凍結済みのため、KV に 1 回だけ保存して再利用する(RPC ログ取得の節約)。
+export async function nounsDescription(c, pc, store, id, creationBlock) {
+  const ck = `${store.prefix}desc:${id}`;
+  const cached = await store.kvRaw.get(ck);
+  if (cached !== null) return cached;
   const events = DAO_ABI.filter((x) => x.type === "event");
   const latest = await pc.getBlockNumber();
   const created = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: BigInt(creationBlock), events });
   let desc = null;
   for (const l of created) if (l.eventName && l.eventName.startsWith("ProposalCreated") && Number(l.args.id) === Number(id)) desc = String(l.args.description || "");
+  if (desc === null) return null;
   const updates = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: latest, events: events.filter((e) => e.name === "ProposalUpdated" || e.name === "ProposalDescriptionUpdated"), args: { id: BigInt(id) } });
-  for (const l of updates) if (Number(l.args.id) === Number(id)) desc = String(l.args.description || desc);
+  for (const l of updates) if (Number(l.args.id) === Number(id)) desc = String(l.args.description ?? desc); // 空文字への更新も有効な最新値(第18回監査)
+  await store.kvRaw.put(ck, desc, { expirationTtl: 86400 * 14 });
   return desc;
 }
 
-/// 未登録の active な Nouns 提案について、対応する Snapshot 提案を探し、内容一致を検証して登録する。
-/// 呼び出し条件(worker 側): snapshotSpace 設定済み・対応表なし・autoRegister 有効・registrar 鍵あり。
+async function warnOnce(c, store, notify, key, ttl, text) {
+  if (await store.getFlag(key)) return;
+  const sent = await notify(c, text);
+  if (sent !== false) await store.setFlag(key, ttl);
+}
+
+/// 未登録の active な Nouns 提案について、対応する Snapshot 提案を探し、検証して登録する。
 export async function autoRegister(c, pc, registrar, store, notify, p) {
-  if (await store.getFlag(`regsent:${p.id}`)) return; // 送信済み・採掘待ち
-  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id title body discussion choices } }`);
-  const cand = (data.proposals || []).find((x) => referencesNounsProposal(x.discussion, p.id) || referencesNounsProposal(x.body, p.id));
-  if (!cand) return; // bot がまだ提案を作っていない — 次 tick に再確認
-  const desc = await nounsDescription(c, pc, p.id, p.creationBlock);
-  if (desc === null) { console.warn(`[register] prop ${p.id}: オンチェーン本文を取得できず登録を見送り`); return; }
-  const expected = buildProposal({ nounsId: p.id, description: desc });
-  const problems = [];
-  if (cand.title !== expected.title) problems.push("title");
-  if ((cand.discussion || "") !== expected.discussion) problems.push("discussion");
-  if ((cand.body || "") !== expected.body) problems.push("body");
-  if (JSON.stringify(cand.choices) !== JSON.stringify(expected.choices)) problems.push("choices");
-  if (problems.length) {
-    if (!(await store.getFlag(`regmismatch:${p.id}`))) {
-      const sent = await notify(c, [`⚠️ Prop ${p.id}: Snapshot 提案 ${cand.id.slice(0, 14)}… は本議案を参照していますが、Nouns のオンチェーン本文から再計算した期待値と一致しないため、自動登録を保留しました(不一致: ${problems.join(", ")})。`, `bot の作成内容を確認してください(一致するまで登録されません)。`].join("\n"));
-      if (sent) await store.setFlag(`regmismatch:${p.id}`, 86400);
-    }
+  // 送信済み記録: 10 分は再送しない。それを過ぎたら receipt を確認して再試行を判断
+  const sentK = `${store.prefix}regsent2:${p.id}`;
+  const pending = await store.kvRaw.get(sentK, "json");
+  if (pending) {
+    if (Date.now() - pending.at < 10 * 60 * 1000) return;
+    let rcpt = null;
+    try { rcpt = await pc.getTransactionReceipt({ hash: pending.tx }); } catch { rcpt = null; }
+    await store.kvRaw.delete(sentK);
+    if (rcpt && rcpt.status === "success") return; // 成功していれば次 tick で snapInfo が現れ、ここには来なくなる
+    console.warn(`[register] prop ${p.id}: 前回の登録 tx が${rcpt ? "revert" : "未採掘"}のため再試行します`);
+  }
+
+  // 1) 候補の列挙(小さいフィールドのみ・本文は取らない)
+  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 50, orderBy: "created", orderDirection: desc) { id author type start end discussion } }`);
+  const refs = (data.proposals || []).filter((x) => referencesNounsProposal(x.discussion, p.id));
+  if (!refs.length) return; // bot がまだ提案を作っていない — 次 tick に再確認
+
+  // 2) 選別: 正規 bot の作成・single-choice・投票期間が現在有効
+  const now = Date.now() / 1000;
+  const screened = refs.filter((x) =>
+    String(x.author || "").toLowerCase() === String(c.snapshotBot).toLowerCase() &&
+    x.type === "single-choice" &&
+    Number(x.start) <= now && now < Number(x.end) && Number(x.end) - Number(x.start) <= 8 * 86400);
+  if (!screened.length) {
+    await warnOnce(c, store, notify, `regscreen:${p.id}`, 86400,
+      `⚠️ Prop ${p.id}: 本議案を参照する Snapshot 提案はありますが、作成者・形式・投票期間の条件を満たさないため自動登録しません(候補 ${refs.length} 件)。`);
     return;
   }
-  const hash = await registrar.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "registerProposal", args: [cand.id, BigInt(p.id)] });
-  await store.setFlag(`regsent:${p.id}`, 600);
-  await notify(c, [`📝 Prop ${p.id}: 対応表を自動登録しました(登録係: Cloudflare)。内容一致(title/body/discussion/choices)を検証済み。`, `Snapshot: ${cand.id}`, `tx: ${c.explorer}/tx/${hash}`].join("\n"));
+
+  // 3) オンチェーン本文から期待内容を再計算
+  const desc = await nounsDescription(c, pc, store, p.id, p.creationBlock);
+  if (desc === null) { console.warn(`[register] prop ${p.id}: オンチェーン本文を取得できず登録を見送り`); return; }
+  const expected = buildProposal({ nounsId: p.id, description: desc });
+
+  // 4) 候補を 1 件ずつ取得して完全一致を数える(最大 5 件)
+  const matches = [];
+  for (const cand of screened.slice(0, 5)) {
+    const d = await hubGql(c, `{ proposal(id:"${cand.id}") { id title body discussion choices } }`);
+    const x = d?.proposal;
+    if (!x) continue;
+    if (x.title === expected.title && (x.discussion || "") === expected.discussion && (x.body || "") === expected.body && JSON.stringify(x.choices) === JSON.stringify(expected.choices)) matches.push(x.id);
+  }
+  if (matches.length === 0) {
+    await warnOnce(c, store, notify, `regmismatch:${p.id}`, 86400,
+      `⚠️ Prop ${p.id}: 本議案を参照する Snapshot 提案の内容が、Nouns のオンチェーン本文から再計算した期待値と一致しないため、自動登録を保留しました。bot の作成内容を確認してください。`);
+    return;
+  }
+  if (matches.length > 1) {
+    await warnOnce(c, store, notify, `regambig:${p.id}`, 86400,
+      `⚠️ Prop ${p.id}: 内容が完全一致する Snapshot 提案が ${matches.length} 件あり、一意に決められないため自動登録を保留しました。`);
+    return;
+  }
+
+  // 5) 登録(AlreadyRegistered は手動登録等との競合として静かに退く)
+  try {
+    const hash = await registrar.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "registerProposal", args: [matches[0], BigInt(p.id)] });
+    await store.kvRaw.put(sentK, JSON.stringify({ tx: hash, at: Date.now() }), { expirationTtl: 3600 });
+    await notify(c, [`📝 Prop ${p.id}: 対応表を自動登録しました(登録係: Cloudflare)。内容一致(title/body/discussion/choices)と作成者・形式・期間を検証済み。`, `Snapshot: ${matches[0]}`, `tx: ${c.explorer}/tx/${hash}`].join("\n"));
+  } catch (e) {
+    if (revertErrorName(e) === "AlreadyRegistered") { console.log(`[register] prop ${p.id}: 既に登録済み(競合) — 次 tick で対応表を再解決`); return; }
+    await warnOnce(c, store, notify, `regerr:${p.id}`, 86400,
+      `⚠️ Prop ${p.id}: 対応表の自動登録の送信に失敗しました(${(e.shortMessage || e.message || "").slice(0, 120)})。registrar の残高・RPC を確認してください。`);
+  }
 }

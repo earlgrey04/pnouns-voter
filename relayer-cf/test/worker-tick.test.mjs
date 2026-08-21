@@ -409,53 +409,117 @@ const DESC = "# Test Prop\n\nHello pNouns members. This is the proposal body.";
 
 function regSetup(h, candOverride = {}, envOver = {}) {
   const expected = buildProposal({ nounsId: 1, description: DESC });
-  const cand = { id: SNAP_ID, title: expected.title, body: expected.body, discussion: expected.discussion, choices: expected.choices, ...candOverride };
+  const nowS = Math.floor(Date.now() / 1000);
+  // 候補一覧(小フィールド)と詳細(本文)の 2 段階
+  const small = { id: SNAP_ID, author: REGISTRAR_BOT, type: "single-choice", start: nowS - 100, end: nowS + 86400, discussion: expected.discussion, ...(candOverride.small || {}) };
+  const detail = { id: SNAP_ID, title: expected.title, body: expected.body, discussion: expected.discussion, choices: expected.choices, ...(candOverride.detail || {}) };
   const regWrites = [];
-  const registrar = { account: { address: REGISTRAR }, writeContract: async (x) => { regWrites.push(x); return "0x" + "cd".repeat(32); } };
+  const registrar = { account: { address: REGISTRAR }, writeContract: candOverride.writeContract || (async (x) => { regWrites.push(x); return "0x" + "cd".repeat(32); }) };
   const kv = fakeKV(); const pc = fakePC(h);
   __setClientsForTests(() => ({ publicClient: pc, walletClient: null, registrarClient: registrar }));
   __resetWorkerStateForTests({ balanceCheckedAt: Date.now() });
-  const env = baseEnv(kv, { AUTO_REGISTER: "1", ...envOver });
-  return { kv, pc, env, cand, regWrites, expected };
+  const env = baseEnv(kv, { AUTO_REGISTER: "1", REGISTRAR_PRIVATE_KEY: "0x" + "11".repeat(32), SNAPSHOT_BOT: REGISTRAR_BOT, ...envOver });
+  return { kv, pc, env, small, detail, regWrites, expected };
 }
+const REGISTRAR_BOT = "0x4000000000000000000000000000000000000001";
 const unregHandlers = (over = {}) => handlers({
   snapToNouns: () => 0n,
   nounsToSnap: () => "0x" + "00".repeat(32),
+  registrar: () => REGISTRAR, // 起動時照合(rc.address == registrar)を通す
   getLogs: (x) => (x.toBlock === x.fromBlock ? [{ eventName: "ProposalCreated", args: { id: 1n, description: DESC } }] : []),
   ...over,
 });
 
-test("自動登録: 内容が完全一致する Snapshot 提案を検証して登録する", async () => {
-  const { kv, env, cand, regWrites } = regSetup(unregHandlers());
-  F.hub = [{ proposals: [cand] }, { proposals: [cand] }]; // 1回目=対応表解決、2回目=autoRegister の候補探索
+// ハブ応答: [対応表解決(small 相当), 候補一覧(small), 詳細(detail)] の 3 段
+const regHub = (small, detail) => [{ proposals: [small] }, { proposals: [small] }, { proposal: detail }];
+
+test("自動登録: 検証をすべて通過した提案だけを登録する", async () => {
+  const { kv, env, small, detail, regWrites } = regSetup(unregHandlers());
+  F.hub = regHub(small, detail);
   await tick(env);
   assert.equal(regWrites.length, 1, "registerProposal が送られる");
-  assert.equal(regWrites[0].functionName, "registerProposal");
   assert.deepEqual(regWrites[0].args, [SNAP_ID, 1n]);
-  assert.equal(putsOf(kv, "flag:regsent:1").length, 1, "採掘待ちフラグ");
+  assert.equal(putsOf(kv, "regsent2:1").length, 1, "送信記録(tx+時刻)");
   assert.ok(F.discordBodies.some((b) => b.includes("自動登録しました")));
 });
 
 test("自動登録: 本文がオンチェーンの期待値と一致しなければ登録せず警告", async () => {
-  const { env, cand, regWrites } = regSetup(unregHandlers(), { body: "改ざんされた本文" });
-  F.hub = [{ proposals: [cand] }, { proposals: [cand] }];
+  const { env, small, detail, regWrites } = regSetup(unregHandlers(), { detail: { body: "改ざんされた本文" } });
+  F.hub = regHub(small, detail);
   await tick(env);
   assert.equal(regWrites.length, 0, "登録しない");
   assert.ok(F.discordBodies.some((b) => b.includes("自動登録を保留")), "不一致の警告");
 });
 
-test("自動登録: choices の違いも拒否する(賛成/反対の入れ替え等)", async () => {
-  const { env, cand, regWrites } = regSetup(unregHandlers(), { choices: ["反対", "賛成", "棄権"] });
-  F.hub = [{ proposals: [cand] }, { proposals: [cand] }];
+test("自動登録: title の不一致も拒否する", async () => {
+  const { env, small, detail, regWrites } = regSetup(unregHandlers(), { detail: { title: "[Prop 1] 偽のタイトル" } });
+  F.hub = regHub(small, detail);
   await tick(env);
   assert.equal(regWrites.length, 0);
 });
 
-test("自動登録: 送信済みフラグがあれば再送しない", async () => {
-  const { kv, env, cand, regWrites } = regSetup(unregHandlers());
-  const ns = `11155111:${VOTER.toLowerCase()}:`;
-  kv.data.set(`${ns}flag:regsent:1`, "1");
-  F.hub = [{ proposals: [cand] }, { proposals: [cand] }];
+test("自動登録: choices の違いも拒否する(賛成/反対の入れ替え等)", async () => {
+  const { env, small, detail, regWrites } = regSetup(unregHandlers(), { detail: { choices: ["反対", "賛成", "棄権"] } });
+  F.hub = regHub(small, detail);
   await tick(env);
   assert.equal(regWrites.length, 0);
+});
+
+test("自動登録: 作成者が正規 bot でない候補は選別で落とし、詳細取得すらしない", async () => {
+  const { env, small, regWrites } = regSetup(unregHandlers(), { small: { author: "0x9999999999999999999999999999999999999999" } });
+  F.hub = [{ proposals: [small] }, { proposals: [small] }];
+  await tick(env);
+  assert.equal(regWrites.length, 0);
+  assert.equal(F.hubCalls, 2, "詳細クエリに進まない");
+  assert.ok(F.discordBodies.some((b) => b.includes("条件を満たさない")));
+});
+
+test("自動登録: 投票が終了した候補は選別で落とす", async () => {
+  const nowS = Math.floor(Date.now() / 1000);
+  const { env, small, regWrites } = regSetup(unregHandlers(), { small: { end: nowS - 10 } });
+  F.hub = [{ proposals: [small] }, { proposals: [small] }];
+  await tick(env);
+  assert.equal(regWrites.length, 0);
+});
+
+test("自動登録: 完全一致が 2 件あると曖昧として保留する", async () => {
+  const { env, small, detail, regWrites } = regSetup(unregHandlers());
+  const small2 = { ...small, id: "0x" + "bb".repeat(32) };
+  const detail2 = { ...detail, id: small2.id };
+  F.hub = [{ proposals: [small, small2] }, { proposals: [small, small2] }, { proposal: detail }, { proposal: detail2 }];
+  await tick(env);
+  assert.equal(regWrites.length, 0);
+  assert.ok(F.discordBodies.some((b) => b.includes("一意に決められない")));
+});
+
+test("自動登録: 送信記録が新しい間は再送しない", async () => {
+  const { kv, env, small, detail, regWrites } = regSetup(unregHandlers());
+  const ns = `11155111:${VOTER.toLowerCase()}:`;
+  kv.data.set(`${ns}regsent2:1`, JSON.stringify({ tx: "0x" + "cd".repeat(32), at: Date.now() }));
+  F.hub = regHub(small, detail);
+  await tick(env);
+  assert.equal(regWrites.length, 0);
+});
+
+test("自動登録: AlreadyRegistered の revert は競合として静かに退く", async () => {
+  const err = new ContractFunctionRevertedError({ abi: METAGOV_ABI, data: "0x3a81d6fc", functionName: "registerProposal" }); // AlreadyRegistered()
+  const { env, small, detail, regWrites } = regSetup(unregHandlers(), { writeContract: async () => { throw err; } });
+  F.hub = regHub(small, detail);
+  await tick(env);
+  assert.equal(regWrites.length, 0);
+  assert.ok(!F.discordBodies.some((b) => b.includes("送信に失敗")), "競合はエラー扱いしない");
+});
+
+test("nounsDescription: 空文字への更新イベントを最新値として扱う(第18回監査の中)", async () => {
+  const { nounsDescription } = await import("../src/register.js");
+  const kv = fakeKV();
+  const store = { prefix: "t:", kvRaw: kv, getFlag: async () => null, setFlag: async () => {} };
+  const pc = fakePC(handlers({
+    getLogs: (x) => (x.toBlock === x.fromBlock
+      ? [{ eventName: "ProposalCreated", args: { id: 1n, description: "元の本文" } }]
+      : [{ eventName: "ProposalDescriptionUpdated", args: { id: 1n, description: "" } }]),
+  }));
+  const c = { nounsDAO: DAO };
+  const d = await nounsDescription(c, pc, store, 1, 50);
+  assert.equal(d, "", "空文字が最新の本文として返る(旧本文に戻さない)");
 });

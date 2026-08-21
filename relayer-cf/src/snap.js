@@ -75,7 +75,7 @@ export function referencesNounsProposal(text, nounsId) {
 }
 
 export async function resolveMappings(c, pc, activeNounsIds = []) {
-  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id title end discussion body } }`);
+  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id title end discussion } }`);
   if (!Array.isArray(data.proposals)) throw new Error("hub: proposals shape");
   const meta = new Map(data.proposals.map((p) => [p.id, p]));
   const found = new Map(); // nounsId -> snapId
@@ -95,7 +95,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     missing.forEach((id, i) => { if (hashes[i] && hashes[i] !== "0x0000000000000000000000000000000000000000000000000000000000000000") need.push({ id: Number(id), hash: hashes[i] }); });
     if (need.length) {
       // ハブから対象 space の提案を追加取得し、ハッシュ一致で snapId を特定(最大 200 件遡る)
-      const more = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 200, orderBy: "created", orderDirection: desc) { id title end discussion body } }`);
+      const more = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 200, orderBy: "created", orderDirection: desc) { id title end discussion } }`);
       const byHash = new Map((more.proposals || []).map((p) => [keccak256(stringToBytes(p.id)), p]));
       for (const n of need) {
         const p = byHash.get(n.hash);
@@ -106,11 +106,12 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
   }
   const mappings = [...found.entries()].map(([nounsId, snapId]) => {
     const m = meta.get(snapId) || {};
-    // 対応付けの自動照合: Snapshot 提案が本当にその Nouns 議案を指しているか(discussion/本文の URL)を確認する。
-    // 検出できるのは「別の提案を取り違えて登録した」類の事故まで。discussion/body は提案作成者が
-    // 自由に書ける自己申告なので、偽提案と対応表を同じ主体が作れる場合(registrar/作成プログラムの
-    // 侵害)は検出できない。過信しないこと。
-    const linkOk = referencesNounsProposal(m.discussion, nounsId) || referencesNounsProposal(m.body, nounsId);
+    // 対応付けの自動照合: Snapshot 提案が本当にその Nouns 議案を指しているか(discussion の URL)を確認する。
+    // body は取得しない — 本文(最大 9,500 字)を 20 件一括で取ると応答上限 64KiB を超え、
+    // bot 単独侵害で tick 全体を止められるため(第18回監査)。discussion は作成プログラムが必ず設定する。
+    // 検出できるのは「別の提案を取り違えて登録した」類の事故まで。自己申告のため
+    // 偽提案と対応表を同じ主体が作れる場合は検出できない。過信しないこと。
+    const linkOk = referencesNounsProposal(m.discussion, nounsId);
     return { snapId, nounsId, title: m.title, snapEnd: Number(m.end || 0), linkOk, discussion: m.discussion || "" };
   });
   return { mappings, unresolved };

@@ -1,6 +1,6 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
-import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit, snapshotTimelineSafe, allOwners } from "./chain.js";
+import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit, snapshotTimelineSafe, allOwners, revertErrorName } from "./chain.js";
 import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, supplementCheckPlan, uniqueVoterCandidates, scanKey, deadKey, failKey, snapshotVoterCount } from "./snap.js";
 import { keccak256, stringToBytes } from "viem";
 import { makeStore } from "./store.js";
@@ -47,12 +47,6 @@ async function flushPendingNotes(c, store) {
 }
 const WORDS = ["反対", "賛成", "棄権"];
 
-// viem の ContractFunctionRevertedError からカスタムエラー名を取り出す(デコードできなければ null)
-function revertErrorName(e) {
-  let x = e;
-  for (let i = 0; i < 6 && x; i++) { if (x.data?.errorName) return x.data.errorName; x = x.cause; }
-  return null;
-}
 function isContractRevert(e) {
   // 明確なコントラクト revert のみ「無効な署名」とみなす(ZeroData や RPC 異常は再試行)
   let x = e;
@@ -466,6 +460,11 @@ export async function tick(env) {
           { address: c.metagov, abi: METAGOV_ABI, functionName: "owner" },
           { address: c.metagov, abi: METAGOV_ABI, functionName: "registrar" },
         ], allowFailure: false });
+        // 第18回監査: 自動登録が有効なら、設定された鍵がオンチェーンの registrar と一致することを確認(fail-closed)
+        if (c.autoRegister) {
+          const rcAddr = rc?.account?.address;
+          if (!rcAddr || String(rcAddr).toLowerCase() !== String(registrarAddr).toLowerCase()) { await notifyError(c, "config", new Error(`REGISTRAR_PRIVATE_KEY のアドレス(${rcAddr}) がオンチェーンの registrar(${registrarAddr}) と一致しません`)); return; }
+        }
         // 第11回監査 M-14: mainnet で 3 つの役割が同一アドレスなら、鍵の分離ができていない。
         // 「分離したつもり」で本番に入る事故を止める(テストネットは意図的に同一なので対象外)。
         if (c.network === "mainnet") {
