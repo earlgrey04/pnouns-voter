@@ -138,3 +138,18 @@ npx wrangler secret put DISCORD_WEBHOOK_URL --env mainnet   # pNouns 公式 Disc
 リポジトリ公開後、Worker のデプロイは GitHub Actions 経由(`wrangler deploy` を CI で実行)に
 切り替える。これにより「どのコミットをいつ Cloudflare に配備したか」の公開実行ログが残り、
 実行コードとリポジトリの対応が(暗号学的な証明ではないが)追跡可能になる。
+
+
+## 11. 対応表の登録運用(確定引き継ぎ方式)
+
+対応表(Snapshot 提案 = Nouns 第 N 号)の登録は、**提案を作成した処理が、作成した Snapshot
+提案 ID をそのまま登録する**方式に一本化する(scripts/create-and-register.mjs)。
+Cloudflare の Worker からハブを探索して登録する方式は、探索の曖昧さ(複数候補・範囲外・
+author フィルタの信頼性)が繰り返し監査指摘を生んだため採用しない(第18-20回監査)。
+
+- 実行場所: GitHub Actions(bot の作成ジョブに続けて登録まで行う)。自宅 PC 非依存。
+- registrar の鍵は GitHub の secret に置き、Cloudflare には置かない
+  (運ぶ人=Cloudflare、作る+登録する人=GitHub の分離)。
+- create-and-register は送信前に鍵・権限・未登録を確認し、作成後・登録前に
+  Snapshot から提案を読み戻して内容(space/URL/choices)一致を検証する(第17回監査)。
+- Cloudflare の Worker は登録には関与せず、対応表を読んで照合・投函・execute のみ行う。

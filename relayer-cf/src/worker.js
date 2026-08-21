@@ -4,7 +4,6 @@ import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI,
 import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, supplementCheckPlan, uniqueVoterCandidates, scanKey, deadKey, failKey, snapshotVoterCount } from "./snap.js";
 import { keccak256, stringToBytes } from "viem";
 import { makeStore } from "./store.js";
-import { autoRegister } from "./register.js";
 
 async function notify(c, text) {
   console.log("[notify]", text.replace(/\n/g, " ⏎ "));
@@ -439,7 +438,7 @@ export function __resetWorkerStateForTests(o = {}) {
 const SPACE_RECHECK_MS = 30 * 60 * 1000; // owner が事後に delay を下げた場合を検知するため定期再確認
 export async function tick(env) {
   const c = cfg(env);
-  const { publicClient: pc, walletClient: wc, registrarClient: rc } = _clients(c);
+  const { publicClient: pc, walletClient: wc } = _clients(c);
   const store = makeStore(env.STATE, storeNs(c));
   try {
     try { await flushPendingNotes(c, store); } catch (e) { console.warn("[worker] pending notes flush failed", e.message); }
@@ -460,11 +459,6 @@ export async function tick(env) {
           { address: c.metagov, abi: METAGOV_ABI, functionName: "owner" },
           { address: c.metagov, abi: METAGOV_ABI, functionName: "registrar" },
         ], allowFailure: false });
-        // 第18回監査: 自動登録が有効なら、設定された鍵がオンチェーンの registrar と一致することを確認(fail-closed)
-        if (c.autoRegister) {
-          const rcAddr = rc?.account?.address;
-          if (!rcAddr || String(rcAddr).toLowerCase() !== String(registrarAddr).toLowerCase()) { await notifyError(c, "config", new Error(`REGISTRAR_PRIVATE_KEY のアドレス(${rcAddr}) がオンチェーンの registrar(${registrarAddr}) と一致しません`)); return; }
-        }
         // 第11回監査 M-14: mainnet で 3 つの役割が同一アドレスなら、鍵の分離ができていない。
         // 「分離したつもり」で本番に入る事故を止める(テストネットは意図的に同一なので対象外)。
         if (c.network === "mainnet") {
@@ -496,10 +490,6 @@ export async function tick(env) {
       if (p.state !== 0 && p.state !== 1) continue;
       try {
         const snapInfo = snapByNouns.get(p.id) || null;
-        // 登録係の Cloudflare 実装: 未登録の提案について、内容一致を検証したうえで対応表を自動登録
-        if (c.snapshotSpace && !snapInfo && c.autoRegister && rc && !unresolvedIds.has(p.id)) {
-          try { await autoRegister(c, pc, rc, store, notify, p); } catch (e) { console.warn(`[register] prop ${p.id}: ${(e.shortMessage || e.message || "").slice(0, 120)}`); }
-        }
         // H-1(第11回監査): ハブが正常応答でも「オンチェーンに対応表があるのに Snapshot 提案を
         // 特定できない」ことがある(ハブが 0 件を返す/200 件より古い等)。これを安全と扱うと
         // 締切後に maybeExecute() へ入り、部分集計や "no votes" が確定してしまう。提案単位で止める。

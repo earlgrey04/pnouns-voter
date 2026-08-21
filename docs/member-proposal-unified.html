@@ -156,11 +156,11 @@
 <div class="kv"><span class="k can">できること</span>Snapshot の署名をチェーンに運ぶ</div>
 <div class="kv"><span class="k cant">できないこと</span>票の偽造・改変・投票結果の指定(コントラクト上の専用権限は持たない)</div>
 </div>
-<div class="keycard"><div class="keyhead"><b>登録係</b><span class="pill local">自宅 PC</span> または <span class="pill cloud">Cloudflare</span><span class="freq">出番: 提案ごとに 1 回</span></div>
+<div class="keycard"><div class="keyhead"><b>登録係</b><span class="pill cloud">GitHub</span><span class="freq">出番: 提案ごとに 1 回</span></div>
 <div class="kv"><span class="k can">できること</span>「この Snapshot 投票は Nouns の第 N 号議案のもの」と登録する(<b>自動処理</b>。提案作成と同じプログラムが続けて行うので、人が ID を書き写す場面はありません)</div>
 <div class="kv" style="color:var(--ink-2);font-size:13px">この「どの Snapshot 投票が、どの Nouns 議案に対応するか」を記録した一覧を、本資料では<b>対応表</b>と呼びます。コントラクトの中(オンチェーン)に保存され、誰でも見られます。コントラクトはこの対応表を引いて「届いた票をどの議案に数えるか」を決めます。</div>
 <div class="kv"><span class="k cant">できないこと</span>票に関する一切の操作</div>
-<div class="kv" style="color:var(--ink-2);font-size:13px">置き場所は<b>Snapshot bot と同じ場所には置かない</b>方針(理由は下記)です。Cloudflare 版を実装済みで、テストネットで検証中 — この方式では、登録の前に<b> Nouns のオンチェーン本文から「あるべき提案内容」を再計算し、タイトル・本文・URL・選択肢が完全一致した場合だけ登録</b>します(bot の鍵が単独で盗まれても、忠実な内容の提案しか登録されません)。</div>
+<div class="kv" style="color:var(--ink-2);font-size:13px">登録は<b>提案の作成と同じ処理(GitHub 上の自動処理)がそのまま続けて行います</b>。作った本人が提案 ID を知っているので、後から「どれがどれか」を探す曖昧さがありません。登録の直前に、作成した提案を Snapshot から読み戻して内容が一致するかを確認します(取り違え防止)。</div>
 </div>
 <div class="keycard"><div class="keyhead"><b>Snapshot bot</b><span class="pill cloud">GitHub</span><span class="freq">出番: 提案ごとに 1 回</span></div>
 <div class="kv"><span class="k can">できること</span>Snapshot に投票ページを作る(現行から引き続き。pNouns 1 枚保有)</div>
@@ -193,8 +193,8 @@
 
 <h3>置き場所を分ける理由 — 特に bot と登録係</h3>
 <ul style="font-size:14px">
-  <li><b>Snapshot bot と登録係は同じ場所に置きません。</b>両方が同時に盗まれると「偽の投票ページを作り、それを対応表に登録する」攻撃 — §3 の自動検算で見抜けない唯一のケース — が、1 箇所への侵入だけで成立してしまうためです。</li>
-  <li>別々のサービスに分けておけば、攻撃者は<b>独立した 2 箇所を同時に破る</b>必要があります。</li>
+  <li><b>投票を「運ぶ人」(Cloudflare)と「作る+登録する人」(GitHub)を分けます。</b>Cloudflare が盗まれても対応表の登録はできず、GitHub が盗まれても票を運ぶ鍵は別にあります。bot と登録係を一体にしているのは、作成と登録を同じ処理にすると「どの Snapshot 提案がどの議案か」を探す曖昧さがなくなり、取り違えや乗っ取りの経路が減るためです。</li>
+  <li>「偽の投票ページを作って登録する」攻撃には GitHub 側の鍵が必要で、票を勝手に投函するには Cloudflare 側の鍵が必要 — <b>攻撃者は独立した 2 箇所を同時に破る</b>必要があります。</li>
   <li>管理者権限の移管(委任アドレス → マルチシグ)は 1 トランザクションで完了し、テストネットで移管の往復を演習済みです。</li>
 </ul>
 
@@ -216,7 +216,7 @@
 <div class="tbl"><table>
 <tr><th></th><th>テスト段階(現在)</th><th>本番(移行時に実施)</th></tr>
 <tr><td>アドレス(権限)の分離</td><td>管理者・登録係・リレイヤーの 3 者は別アドレスで検証済み。テストで Snapshot に提案を作る bot だけは専用鍵を作っておらず、<b>テストの管理者が使っている開発鍵(Sepolia 専用・実資産なし)を共用</b></td><td><b>4 つすべてを新しい鍵として作り直し、完全に分離</b></td></tr>
-<tr><td>保管場所の分離</td><td>リレイヤーは Cloudflare。登録係は Cloudflare 版を実装しテスト中(bot は GitHub/自宅 PC)</td><td><b>役割ごとに別の場所へ</b>(bot=GitHub、登録係=Cloudflare、で分離)</td></tr>
+<tr><td>保管場所の分離</td><td>リレイヤーは Cloudflare。bot と登録係は GitHub の自動処理(作成と登録を一体で実行)</td><td><b>運ぶ人=Cloudflare、作る+登録する人=GitHub</b>に分離(registrar の鍵は Cloudflare に置かない)</td></tr>
 </table></div>
 <p style="margin:4px 0 0">本番の鍵の作り直しと配置は手順書に組み込み済みで、導入時の機械チェックでも照合します。</p></div>
 

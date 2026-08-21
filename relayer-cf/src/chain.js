@@ -29,7 +29,6 @@ export function cfg(env) {
     for (const k of ["VOTER", "PNOUNS", "NOUNS_DAO", "NOUNS_TOKEN"]) if (!env[k]) throw new Error(`${k} is required`);
     if (getAddress(env.PNOUNS) !== "0x4bE962499cE295b1ed180F923bf9c73b6357DE80" || getAddress(env.NOUNS_DAO) !== "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d" || getAddress(env.NOUNS_TOKEN) !== "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03") throw new Error("mainnet addresses mismatch");
   }
-  if (env.AUTO_REGISTER === "1" && (!env.REGISTRAR_PRIVATE_KEY || !env.SNAPSHOT_BOT)) throw new Error("AUTO_REGISTER には REGISTRAR_PRIVATE_KEY と SNAPSHOT_BOT が必要です"); // 第18回監査
   return {
     network: env.NETWORK || "sepolia",
     chain,
@@ -57,9 +56,6 @@ export function cfg(env) {
     submitBufferSec: Number(env.SUBMIT_BUFFER_SEC || 120), // KV 反映・送信・採掘の余裕
     discordWebhook: env.DISCORD_WEBHOOK_URL || null,
     relayerKey: env.RELAYER_PRIVATE_KEY || null,
-    registrarKey: env.REGISTRAR_PRIVATE_KEY || null, // 登録係を Cloudflare で動かす場合の鍵(任意)
-    autoRegister: env.AUTO_REGISTER === "1", // Worker による対応表の自動登録(内容一致の検証つき)
-    snapshotBot: env.SNAPSHOT_BOT ? getAddress(env.SNAPSHOT_BOT) : null, // Snapshot 提案の正規作成者(自動登録の author 検証に使用)
     lowBalanceEth: env.LOW_BALANCE_ETH || (env.NETWORK === "mainnet" ? "0.01" : "0.02"),
   };
 }
@@ -93,9 +89,7 @@ export function clients(c) {
   const publicClient = createPublicClient({ chain: c.chain, transport: http(c.rpcUrl, { batch: true }) });
   const account = c.relayerKey ? privateKeyToAccount(c.relayerKey) : null;
   const walletClient = account ? createWalletClient({ account, chain: c.chain, transport: http(c.rpcUrl) }) : null;
-  const registrarAccount = c.registrarKey ? privateKeyToAccount(c.registrarKey) : null;
-  const registrarClient = registrarAccount ? createWalletClient({ account: registrarAccount, chain: c.chain, transport: http(c.rpcUrl) }) : null;
-  return { publicClient, walletClient, account, registrarClient };
+  return { publicClient, walletClient, account };
 }
 export const domain = (c) => ({ name: "pNouns Voter", version: "1", chainId: c.chainId, verifyingContract: c.metagov });
 
