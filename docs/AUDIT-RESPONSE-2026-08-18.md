@@ -403,3 +403,25 @@ Cloudflare 侵害では registrar 鍵で直接登録が可能(既知の信頼モ
 保留する。登録は確定的な引き継ぎ(作成した処理が receipt.id をそのまま登録・
 第17回で読み戻し検算を実装済み)に一本化する方針を検討。コア(第15回クローズ)
 とは独立の機能であり、これがメンバー提案をブロックしない。
+
+---
+
+## 第21回監査 (2026-08-21, Codex) — 確定引き継ぎ方式への一本化
+
+対象: 047d8aa。生ログ: `docs/audit-21-codex-raw.md`
+「撤去は完全・コアは第15回と同一挙動」を確認。確定引き継ぎ側に高 2 + 中を指摘 → 対応。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | **高** | 読み戻し検算が部分文字列一致で不完全(`/vote/12` が `/vote/123` に化ける・id/author/type/title/body の未検証) | create-and-register の検算を完全一致に: id==receipt.id / author==bot / type / space / title / body / discussion 完全一致 + URL は URL 解析で pathname 厳密一致 |
+| 2 | **高** | 資料 §2「独立した 2 箇所を同時に破る必要」は誤り(castSnapshotVotes は permissionless。GitHub 1 箇所侵害で偽提案作成+登録+第三者投函が成立) | 資料を訂正: GitHub 両鍵の侵害で誤登録が成立し得ること、最後の砦は管理者停止+手動投票であること、Cloudflare 侵害では投函妨害のみを明記 |
+| 3 | 中 | GitHub Actions workflow 未実装・.env 無条件読込で CI が ENOENT | `.github/workflows/create-and-register.yml` を追加(手動 dispatch・Nouns ID 単位の concurrency・environment 分離・secret→env)。.env 読込を任意(ENOENT 無視)に |
+| 4 | 中 | preflight 不足(owner fallback 許可・chainId/spaceHash/役割分離 未確認) | chainId・spaceHash 一致を確認。通常は registrar 一致のみ許可(owner 登録は --allow-owner-registrar)。mainnet で bot/registrar/owner の相互分離を確認 |
+| 5 | 中 | 並行実行で重複 Snapshot 提案(孤児) | workflow concurrency で Nouns ID 単位に直列化(冪等チェックポイントは今後の改善) |
+| 6 | 中 | `--skip-register` が一本化と矛盾(Worker 自動登録は撤去済み) | `--skip-register` を削除 |
+| 7 | 中 | 旧 E2E スクリプトが撤去済み方式を待ち続ける | `scripts/sepolia/16-cf-registrar-e2e.js` を削除(E2E は create-and-register を入口に) |
+| 8 | 中 | RUNBOOK の registrar 鍵配置が §1/§11 で矛盾 | §1 を「GitHub Environment secret が正本(ローカル複製は任意)」に統一 |
+| - | 中(既知) | resolveMappings の 200 件取得は 64KiB DoS 余地(探索方式撤去後も残る既存リスク) | ProposalRegistered イベントの ID を個別照会する方式が推奨。accepted risk として記録(誤投函・誤 execute は起きず、可用性のみ・管理者不在時の停止で顕在化) |
+
+テスト 46 pass。コア健全性は第21回で確認済み。残: 冪等チェックポイント・resolveMappings の
+DoS 恒久対策は本番前の改善課題。

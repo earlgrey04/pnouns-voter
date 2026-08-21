@@ -1,0 +1,36 @@
+# Nouns 提案 → Snapshot 提案作成 → 読み戻し検算 → 対応表登録 を一体で実行する。
+# 確定引き継ぎ方式(第21回監査): 作成した処理が提案 ID をそのまま登録する。
+name: create-and-register
+on:
+  workflow_dispatch:
+    inputs:
+      nouns_id:
+        description: "Nouns 提案番号"
+        required: true
+      network:
+        description: "sepolia | mainnet"
+        default: "sepolia"
+# 同一提案の二重作成を防ぐ(第21回監査): Nouns ID 単位で直列化
+concurrency:
+  group: create-and-register-${{ github.event.inputs.network }}-${{ github.event.inputs.nouns_id }}
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.network }}   # 承認・secret を環境で分離
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: npm ci
+      - name: create + verify + register
+        env:
+          NETWORK: ${{ github.event.inputs.network }}
+          SEPOLIA_MNEMONIC: ${{ secrets.SEPOLIA_MNEMONIC }}
+          SNAPSHOT_BOT_MNEMONIC: ${{ secrets.SNAPSHOT_BOT_MNEMONIC }}
+          REGISTRAR_MNEMONIC: ${{ secrets.REGISTRAR_MNEMONIC }}
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
+        run: node scripts/create-and-register.mjs --nouns "${{ github.event.inputs.nouns_id }}"

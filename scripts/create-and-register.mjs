@@ -13,9 +13,11 @@ import path from "node:path";
 import { buildProposal } from "./lib/proposal-format.mjs";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-for (const line of fs.readFileSync(path.join(ROOT, ".env"), "utf8").split("\n")) {
-  const m = line.match(/^([A-Z_]+)=(.*)$/); if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^"|"$/g, "");
-}
+try { // ローカル実行では .env を読む。CI(GitHub Actions)では secret が env に入るため .env は無くてよい
+  for (const line of fs.readFileSync(path.join(ROOT, ".env"), "utf8").split("\n")) {
+    const m = line.match(/^([A-Z_]+)=(.*)$/); if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^"|"$/g, "");
+  }
+} catch (e) { if (e.code !== "ENOENT") throw e; }
 const arg = (k, d) => { const i = process.argv.indexOf(`--${k}`); return i >= 0 ? process.argv[i + 1] : d; };
 const flag = (k) => process.argv.includes(`--${k}`);
 
@@ -73,10 +75,19 @@ async function main() {
   const provider = new ethers.JsonRpcProvider(rpc);
   const code = await provider.getCode(voter);
   if (code === "0x") throw new Error(`${voter} にコントラクトがありません(deployments/${NETWORK}.json が古い可能性)`);
-  const pre = new ethers.Contract(voter, ["function registrar() view returns (address)", "function owner() view returns (address)", "function nounsToSnap(uint256) view returns (bytes32)"], provider);
-  const [reg, own, existing] = await Promise.all([pre.registrar(), pre.owner(), pre.nounsToSnap(nounsId)]);
+  const expectedChainId = NETWORK === "mainnet" ? 1n : 11155111n;
+  const gotChainId = (await provider.getNetwork()).chainId;
+  if (gotChainId !== expectedChainId) throw new Error(`RPC の chainId(${gotChainId}) が ${NETWORK}(${expectedChainId}) と一致しません`);
+  const pre = new ethers.Contract(voter, ["function registrar() view returns (address)", "function owner() view returns (address)", "function nounsToSnap(uint256) view returns (bytes32)", "function spaceHash() view returns (bytes32)"], provider);
+  const [reg, own, existing, spaceHash] = await Promise.all([pre.registrar(), pre.owner(), pre.nounsToSnap(nounsId), pre.spaceHash()]);
+  if (spaceHash !== ethers.keccak256(ethers.toUtf8Bytes(SPACE))) throw new Error(`コントラクトの spaceHash が SPACE="${SPACE}" と一致しません`);
   const rAddr = registrarWallet.address.toLowerCase();
-  if (rAddr !== reg.toLowerCase() && rAddr !== own.toLowerCase()) throw new Error(`registrar 鍵 ${registrarWallet.address} は registrar(${reg}) でも owner(${own}) でもなく、登録できません`);
+  // 通常ジョブでは registrar アドレスとの一致のみ許可(第21回監査)。owner 鍵での登録は緊急用の別フラグ
+  const allowOwner = flag("allow-owner-registrar");
+  if (rAddr !== reg.toLowerCase() && !(allowOwner && rAddr === own.toLowerCase())) throw new Error(`registrar 鍵 ${registrarWallet.address} が登録係(${reg})と一致しません${own.toLowerCase() === rAddr ? "(owner 鍵での登録は --allow-owner-registrar が必要)" : ""}`);
+  // bot と registrar と owner が相互に異なることを確認(役割分離)
+  const addrs = [bot.address, registrarWallet.address, own].map((a) => a.toLowerCase());
+  if (NETWORK === "mainnet" && new Set(addrs).size < addrs.length) throw new Error(`mainnet では bot / registrar / owner を別アドレスにしてください: ${addrs.join(", ")}`);
   if (existing !== ethers.ZeroHash) throw new Error(`Nouns #${nounsId} には既に対応表が登録されています(${existing.slice(0, 18)}…)`);
 
   const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true });
@@ -93,25 +104,36 @@ async function main() {
   // 「これから登録しようとしている対応」が提案の実体と一致することを確認してから登録する。
   // sequencer の応答(receipt.id)を無検証で registerProposal に渡さない。
   // ハブの索引反映に数秒かかるため、最大 90 秒リトライする。
-  const expectedUrl = `https://nouns.wtf/vote/${nounsId}`;
+  // discussion が nouns.wtf/vote/N を厳密に指すか(部分文字列でなく URL 解析。/vote/12 が /vote/123 に化けない)
+  const discussionRefsProposal = (text) => {
+    for (const raw of String(text || "").match(/https?:\/\/[^\s<>"'`]+/gi) || []) {
+      let u; try { u = new URL(raw.replace(/[)\]}>,.;:!?、。」』】）]+$/u, "")); } catch { continue; }
+      if (u.hostname.toLowerCase().replace(/^www\./, "") === "nouns.wtf" && u.pathname.replace(/\/+$/, "") === `/vote/${nounsId}`) return true;
+    }
+    return false;
+  };
   let verified = null;
   for (let i = 0; i < 18; i++) {
     await new Promise((r) => setTimeout(r, 5000));
-    const rb = await (await fetch(`${HUB}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: `{ proposal(id:"${receipt.id}") { id space { id } discussion body choices state } }` }) })).json();
+    const rb = await (await fetch(`${HUB}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: `{ proposal(id:"${receipt.id}") { id author type space { id } title body discussion choices } }` }) })).json();
     const pr = rb?.data?.proposal;
     if (!pr) continue; // まだ索引されていない
     const problems = [];
+    if (pr.id !== receipt.id) problems.push(`id 不一致: ${pr.id}`);
+    if (String(pr.author || "").toLowerCase() !== bot.address.toLowerCase()) problems.push(`author 不一致: ${pr.author}`);
+    if (pr.type !== "single-choice") problems.push(`type 不一致: ${pr.type}`);
     if (pr.space?.id !== SPACE) problems.push(`space 不一致: ${pr.space?.id}`);
-    if (!String(pr.discussion || "").includes(expectedUrl) && !String(pr.body || "").includes(expectedUrl)) problems.push(`本文/URL が ${expectedUrl} を指していない`);
+    if (pr.title !== p.title) problems.push("title 不一致");
+    if ((pr.body || "") !== p.body) problems.push("body 不一致");
+    if ((pr.discussion || "") !== p.discussion) problems.push("discussion 不一致");
+    if (!discussionRefsProposal(pr.discussion)) problems.push(`discussion が nouns.wtf/vote/${nounsId} を厳密に指していない`);
     if (JSON.stringify(pr.choices) !== JSON.stringify(p.choices)) problems.push(`choices 不一致: ${JSON.stringify(pr.choices)}`);
     if (problems.length) throw new Error(`読み戻し検算に失敗(登録を中止。Snapshot 提案 ${receipt.id} は孤児として残るため確認してください): ${problems.join(" / ")}`);
     verified = pr;
     break;
   }
   if (!verified) throw new Error(`ハブから提案 ${receipt.id} を 90 秒以内に読み戻せませんでした(登録を中止。ハブの遅延なら後で手動登録できます)`);
-  console.log(`読み戻し検算 OK: space=${verified.space.id} / URL 一致 / choices 一致 → 登録します`);
-
-  if (flag("skip-register")) { console.log("--skip-register: オンチェーン登録は行いません(Worker の自動登録に任せます)"); return; }
+  console.log(`読み戻し検算 OK(id/author/type/space/title/body/discussion/choices 完全一致) → 登録します`);
   // オンチェーンの対応付け(registrar) — 鍵・権限・未登録は送信前に検証済み
   const w = registrarWallet.connect(provider);
   const abi = ["function registerProposal(string,uint256)", "function registrationDelayBlocks() view returns (uint256)"];

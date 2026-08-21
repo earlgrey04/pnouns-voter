@@ -13,7 +13,7 @@ Sepolia でのリハーサル実績: 2026-08-20 (registrar/relayer 分離・tran
 | 役割 | 鍵 | 保管 | 資金 |
 |---|---|---|---|
 | owner | **当初**: 現行の委任アドレス(アールグレイ管理・0.111 ETH 保有) → **安定稼働後に pNouns マルチシグへ移管**(2026-08-21 決定) | 当初はローカル、移管後はマルチシグ | 不要 |
-| registrar | 新規生成 mnemonic (`REGISTRAR_MNEMONIC`) | ローカル .env (600) | 0.005 ETH |
+| registrar | 新規生成 mnemonic (`REGISTRAR_MNEMONIC`) | **GitHub Environment secret が正本**(ローカル複製を置く場合は .env・600) | 0.005 ETH |
 | relayer | 新規生成秘密鍵 | **Cloudflare secret のみ**(ローカルに残す場合は .env) | 0.01 ETH (プールから返金される) |
 | Snapshot bot | 新規生成 mnemonic (`SNAPSHOT_BOT_MNEMONIC`) | GitHub Actions secret + .env | 不要(署名のみ)。pNouns 1 枚を保有させる |
 
