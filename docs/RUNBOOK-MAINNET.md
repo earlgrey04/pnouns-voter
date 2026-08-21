@@ -62,7 +62,8 @@ mainnet では EXPECT_* が欠けていると fail する。live 未満の段階
 
 ```bash
 cd relayer-cf
-# wrangler.toml [env.mainnet] の VOTER と KV namespace id を実値に更新してから:
+# wrangler.toml [env.mainnet] の VOTER・VOTER_DEPLOY_BLOCK(コントラクトのデプロイブロック)・
+# KV namespace id を実値に更新してから(VOTER_DEPLOY_BLOCK が 0/未設定だと mainnet では起動拒否):
 npx wrangler kv namespace create STATE --env mainnet
 npx wrangler deploy --env mainnet
 npx wrangler secret put RPC_URL --env mainnet

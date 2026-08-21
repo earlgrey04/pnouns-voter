@@ -485,3 +485,19 @@ TDZ 全経路安全。残り中 3 件を対応。
 E2E の実証範囲(Codex): 2 回とも正常系(作成→検算→登録→猶予→投票→投函→execute→tally)を
 強く実証。ただし**新規提案は直近20件に入るため getLogs 逆引きは実行されていない** →
 本番前に「直近20件外」経路の実測が必要(残作業)。テスト relayer 49 pass。
+
+---
+
+## 第26回監査 (2026-08-21, Codex) — deployBlock 検証
+
+対象: b9c78c9。生ログ: `docs/audit-26-codex-raw.md`
+高ゼロ。中1+低2(すべて第25回で入れた VOTER_DEPLOY_BLOCK 関連)→対応。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | 中 | mainnet で VOTER_DEPLOY_BLOCK="0"/未設定が受理され fromBlock:0n(earliest 相当)で RPC 制限が残る | cfg で検証: mainnet+Snapshot モードは正の整数必須、0/負数/未設定/不正を設定名つきで throw。wrangler mainnet を REPLACE_AFTER_MAINNET_DEPLOY に、RUNBOOK 手順4に置換対象として明記 |
+| 2 | 低 | 不正文字列で BigInt が SyntaxError → cfg 停止(通知なし) | 上記の形式検証で先に分かりやすいエラーに |
+| 3 | 低 | getLogs モックが引数を無視し、fromBlock/nounsProposalId の退行を検出できない | fakePC を修正(pc 変数化)して getLogs 引数を記録。テストで fromBlock=deployBlock と nounsProposalId フィルタを assert |
+
+問題なし(退行なし): イベント ABI/indexed 一致・取消再登録の旧 ID 不採用・RUNBOOK §12 の
+実装一致・AlreadyRegistered の両方向拒否・第25回の fail-closed 群。テスト relayer 49 pass。

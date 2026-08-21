@@ -35,8 +35,8 @@ function fakeKV() {
 function fakePC(h) {
   const calls = [];
   const one = (x) => { calls.push(x.functionName); const f = h[x.functionName]; if (!f) throw new Error(`fakePC: no handler for ${x.functionName}`); return f(x.args || []); };
-  return {
-    calls,
+  const pc = {
+    calls, _getLogsArgs: [],
     async readContract(x) { return one(x); },
     async multicall({ contracts, allowFailure }) {
       return contracts.map((x) => {
@@ -47,10 +47,11 @@ function fakePC(h) {
     async getBlockNumber() { calls.push("getBlockNumber"); return BigInt(h.__block); },
     async getBalance() { calls.push("getBalance"); return parseEther("1"); },
     async getTransactionReceipt() { throw new Error("not found"); },
-    async getLogs(x) { calls.push("getLogs"); return h.getLogs ? h.getLogs(x) : []; },
+    async getLogs(x) { calls.push("getLogs"); pc._getLogsArgs.push(x); return h.getLogs ? h.getLogs(x) : []; },
     async estimateContractGas(x) { calls.push("estimateGas:" + x.functionName); return 100000n; },
     async simulateContract(x) { calls.push("simulate:" + x.functionName); if (h.simulateContract) return h.simulateContract(x); return { request: {} }; },
   };
+  return pc;
 }
 
 // ---- fetch mock: ハブと Discord を演じる ----
@@ -171,7 +172,7 @@ test("告知は Discord 2xx の後にだけ記録される(失敗 → 次 tick �
 test("mainnet: 猶予がコード下限 10 未満なら何もせず停止(ハブにも触れない)", async () => {
   const { env } = setup(handlers({ registrationDelayBlocks: () => 5n }), {
     NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
-    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03",
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03", VOTER_DEPLOY_BLOCK: "1",
     MIN_REGISTRATION_DELAY: "0", // 環境変数で下げても Math.max(10, …) が効くことの確認
   });
   await tick(env);
@@ -182,7 +183,7 @@ test("mainnet: 猶予がコード下限 10 未満なら何もせず停止(ハブ
 test("mainnet: 猶予が運用値 10 ちょうどなら処理に進む", async () => {
   const { env } = setup(handlers({ registrationDelayBlocks: () => 10n }), {
     NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
-    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03",
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03", VOTER_DEPLOY_BLOCK: "1",
   });
   F.hub = [hubProposal("https://nouns.wtf/vote/1")];
   await tick(env);
@@ -192,7 +193,7 @@ test("mainnet: 猶予が運用値 10 ちょうどなら処理に進む", async (
 test("mainnet: owner/registrar/relayer が同一なら停止", async () => {
   const { env } = setup(handlers({ owner: () => OWNER, registrar: () => OWNER }), {
     NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
-    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03",
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03", VOTER_DEPLOY_BLOCK: "1",
   }, { account: { address: OWNER } });
   await tick(env);
   assert.ok(F.discordBodies.some((b) => b.includes("同一アドレス")), "分離違反の通知");
@@ -202,7 +203,7 @@ test("mainnet: owner/registrar/relayer が同一なら停止", async () => {
 test("MIN_REGISTRATION_DELAY が不正値なら起動時に throw", async () => {
   const { env } = setup(handlers(), {
     NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
-    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03",
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03", VOTER_DEPLOY_BLOCK: "1",
     MIN_REGISTRATION_DELAY: "abc",
   });
   await assert.rejects(() => tick(env), /MIN_REGISTRATION_DELAY/);
@@ -370,7 +371,7 @@ test("猶予境界: block == eligibleAt では投函が始まる", async () => {
 test("第15回監査: 締切時に未反映の票が残っていれば mainnet は execute しない", async () => {
   const wallet = { account: { address: RELAYER }, writeContract: async () => "0x" + "ee".repeat(32) };
   const mainnetEnv = { NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
-    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03" };
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03", VOTER_DEPLOY_BLOCK: "1" };
   // ハブは 3 名が投票、オンチェーン計上は 1 名、dead-letter なし → 2 名分が未反映
   const h = handlers({ __block: 196, tally: () => [[0n, 0n, 0n], [1n, 0n, 0n], false, 0] });
   // Snapshot は締切前に終了済み(過去の end)。未来だと timelineBad が先に止めてしまい防壁を検証できない
@@ -402,7 +403,7 @@ test("第16回監査: mainnet で linkOk=false なら、解禁後に実票があ
   const writes = [];
   const wallet = { account: { address: RELAYER }, writeContract: async (x) => { writes.push(x.functionName); return "0x" + "ee".repeat(32); } };
   const mainnetEnv = { NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
-    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03" };
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03", VOTER_DEPLOY_BLOCK: "1" };
   const { kv, env } = setup(submitHandlers({ eligibleAtBlock: () => 50n }), mainnetEnv, wallet); // 解禁済み
   // 対応表は登録済みだが、Snapshot 提案の discussion が別議案(999)を指す = linkOk=false。
   // 実票も用意する(ゲートが破れていれば votes クエリ→投函まで到達してしまう構成)
@@ -440,11 +441,14 @@ test("イベント逆引き: 直近20件に無い登録済み提案を ProposalR
   const { pc, SNAP_NEW } = eventPC();
   F.hub = [{ proposals: [] }]; // 直近20件は空
   F.detail = { id: SNAP_NEW, title: "T", end: Math.floor(Date.now() / 1000) + 3600, discussion: "https://nouns.wtf/vote/42" };
-  const { mappings, unresolved } = await resolveMappings({ snapshotSpace: SPACE, snapshotHub: HUB, metagov: VOTER, deployBlock: 0n }, pc, [42]);
+  const { mappings, unresolved } = await resolveMappings({ snapshotSpace: SPACE, snapshotHub: HUB, metagov: VOTER, deployBlock: 12345n }, pc, [42]);
   assert.equal(unresolved.length, 0);
   assert.equal(mappings.length, 1);
   assert.equal(mappings[0].snapId, SNAP_NEW, "現在のハッシュに一致する最新イベントの snapId を採用");
   assert.equal(mappings[0].linkOk, true);
+  const glog = pc._getLogsArgs.find((a) => a.event);
+  assert.equal(glog.fromBlock, 12345n, "getLogs は deployBlock を起点にする");
+  assert.equal(glog.args.nounsProposalId, 42n, "getLogs は nounsProposalId でフィルタする");
 });
 
 test("イベント逆引き: 取消→再登録後、古い snapId は採用しない", async () => {
