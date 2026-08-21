@@ -132,3 +132,9 @@ npx wrangler secret put DISCORD_WEBHOOK_URL --env mainnet   # pNouns 公式 Disc
 - **登録前の読み戻し検算**: create-and-register は Snapshot 提案をハブから再取得し、
   space・本文 URL・choices の一致を確認してから registerProposal を呼ぶ(実装済み)。
   検算失敗時は登録せずに中止する(孤児提案は残るため手動確認)
+
+## 10. デプロイの透明性(公開時に設定)
+
+リポジトリ公開後、Worker のデプロイは GitHub Actions 経由(`wrangler deploy` を CI で実行)に
+切り替える。これにより「どのコミットをいつ Cloudflare に配備したか」の公開実行ログが残り、
+実行コードとリポジトリの対応が(暗号学的な証明ではないが)追跡可能になる。
