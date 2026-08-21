@@ -102,7 +102,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     for (const n of need) {
       let snapId = null;
       try {
-        const logs = await pc.getLogs({ address: c.metagov, event: ev, args: { nounsProposalId: BigInt(n.id) }, fromBlock: "earliest", toBlock: "latest" });
+        const logs = await pc.getLogs({ address: c.metagov, event: ev, args: { nounsProposalId: BigInt(n.id) }, fromBlock: c.deployBlock || 0n, toBlock: "latest" });
         // 最新の登録イベントを採用し、現在の対応表ハッシュと一致するものだけを信頼する(再登録に追従)
         for (let i = logs.length - 1; i >= 0; i--) {
           const cand = logs[i].args.snapshotProposal;
@@ -110,7 +110,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
         }
       } catch (e) { console.warn(`[snap] prop ${n.id}: ProposalRegistered ログ取得に失敗: ${(e.message || "").slice(0, 80)}`); }
       if (!snapId) { unresolved.push(n.id); console.warn(`[snap] prop ${n.id}: 対応表の登録イベントから Snapshot ID を復元できません`); continue; }
-      // 確定した snapId の title/end/discussion だけを個別に取得(1 件なので 64KiB を超えない)
+      // 確定した snapId の title/end/discussion を個別に取得(1 件なので 64KiB を超えない)
       try {
         const d = await hubGql(c, `query($id:String!){ proposal(id:$id) { id title end discussion } }`, { id: snapId });
         const pr = d?.proposal;

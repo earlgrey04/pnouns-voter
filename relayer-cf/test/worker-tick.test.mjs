@@ -417,3 +417,49 @@ test("第16回監査: mainnet で linkOk=false なら、解禁後に実票があ
 });
 
 
+
+// resolveMappings のイベント逆引き経路(直近20件に無い登録済み提案)の直接テスト(第25回監査)
+import { resolveMappings } from "../src/snap.js";
+import { keccak256 as _kec, stringToBytes as _s2b } from "viem";
+
+function eventPC(over = {}) {
+  const SNAP_OLD = "0x" + "a0".repeat(32), SNAP_NEW = "0x" + "b0".repeat(32);
+  const h = {
+    snapToNouns: () => 0n,                         // 直近20件側では見つからない
+    nounsToSnap: (a) => (Number(a[0]) === 42 ? _kec(_s2b(SNAP_NEW)) : "0x" + "00".repeat(32)),
+    getLogs: () => [                               // 取消→再登録: 古い→新しいの順
+      { args: { nounsProposalId: 42n, snapshotProposal: SNAP_OLD } },
+      { args: { nounsProposalId: 42n, snapshotProposal: SNAP_NEW } },
+    ],
+    ...over,
+  };
+  return { pc: fakePC(h), SNAP_OLD, SNAP_NEW };
+}
+
+test("イベント逆引き: 直近20件に無い登録済み提案を ProposalRegistered から解決する", async () => {
+  const { pc, SNAP_NEW } = eventPC();
+  F.hub = [{ proposals: [] }]; // 直近20件は空
+  F.detail = { id: SNAP_NEW, title: "T", end: Math.floor(Date.now() / 1000) + 3600, discussion: "https://nouns.wtf/vote/42" };
+  const { mappings, unresolved } = await resolveMappings({ snapshotSpace: SPACE, snapshotHub: HUB, metagov: VOTER, deployBlock: 0n }, pc, [42]);
+  assert.equal(unresolved.length, 0);
+  assert.equal(mappings.length, 1);
+  assert.equal(mappings[0].snapId, SNAP_NEW, "現在のハッシュに一致する最新イベントの snapId を採用");
+  assert.equal(mappings[0].linkOk, true);
+});
+
+test("イベント逆引き: 取消→再登録後、古い snapId は採用しない", async () => {
+  const { pc, SNAP_OLD, SNAP_NEW } = eventPC();
+  F.hub = [{ proposals: [] }];
+  F.detail = { id: SNAP_NEW, title: "T", end: Math.floor(Date.now() / 1000) + 3600, discussion: "https://nouns.wtf/vote/42" };
+  const { mappings } = await resolveMappings({ snapshotSpace: SPACE, snapshotHub: HUB, metagov: VOTER, deployBlock: 0n }, pc, [42]);
+  assert.notEqual(mappings[0].snapId, SNAP_OLD, "古い snapId を拾わない");
+});
+
+test("イベント逆引き: 個別照会が取れなければ unresolved(fail-closed)", async () => {
+  const { pc } = eventPC();
+  F.hub = [{ proposals: [] }];
+  F.detail = null; // 個別照会が null
+  const { mappings, unresolved } = await resolveMappings({ snapshotSpace: SPACE, snapshotHub: HUB, metagov: VOTER, deployBlock: 0n }, pc, [42]);
+  assert.equal(mappings.length, 0);
+  assert.deepEqual(unresolved, [42], "解決できなければ提案単位で停止");
+});

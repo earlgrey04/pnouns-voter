@@ -465,3 +465,23 @@ workflow 基本構成・.env 任意化・鍵配置は問題なし」を確認。
 テスト 46 pass(resolveMappings のイベント方式化に伴い mock を 2 段照会へ更新)。
 Worker 再デプロイ済み。resolveMappings 変更は照合の中核のため、次回 E2E で
 「登録済み提案の再解決がイベント経由で正しく動く」ことを実チェーンで再確認する。
+
+---
+
+## 第25回監査 (2026-08-21, Codex) — resolveMappings イベント方式 + 2 回 E2E
+
+対象: 066a377 + Sepolia E2E #528/#529。生ログ: `docs/audit-25-codex-raw.md`
+**高ゼロ**。核心はすべて「問題なし」: 取消→再登録で現ハッシュ一致の最新イベントのみ採用
+(旧 snapId 不採用)、meta 欠落は linkOk=false / unresolved で fail-closed、過去対応
+(unresolved/tick fail-closed/linkOk/graceBad/snapshotVoterCount)維持、hubGql variables 互換、
+TDZ 全経路安全。残り中 3 件を対応。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | 中 | イベント逆引きの getLogs が fromBlock:earliest で RPC 範囲制限に当たり、直近20件外の登録済み提案が unresolved 化(可用性) | 修正: cfg に deployBlock、getLogs の起点をデプロイブロックに。wrangler に VOTER_DEPLOY_BLOCK(Sepolia=11529065)。本番 RPC での直近20件外の実測は本番前チェックに追加 |
+| 2 | 中 | イベント逆引きの直接テストが無い(既存は空ログの間接のみ) | 修正: 直接テスト 3 本追加(正常解決 / 取消→再登録で旧 ID 不採用 / 個別照会失敗で unresolved)。旧「200件クエリ」コメントも修正 |
+| 3 | 中(運用) | RUNBOOK に孤児照合手順が実在しない | 修正: RUNBOOK §12 を追加(再実行前の孤児確認・チェックポイントの引き継ぎ範囲・重複時の人判断・期限切れ自動破棄) |
+
+E2E の実証範囲(Codex): 2 回とも正常系(作成→検算→登録→猶予→投票→投函→execute→tally)を
+強く実証。ただし**新規提案は直近20件に入るため getLogs 逆引きは実行されていない** →
+本番前に「直近20件外」経路の実測が必要(残作業)。テスト relayer 49 pass。

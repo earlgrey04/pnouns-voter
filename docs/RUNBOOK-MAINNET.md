@@ -153,3 +153,20 @@ author フィルタの信頼性)が繰り返し監査指摘を生んだため採
 - create-and-register は送信前に鍵・権限・未登録を確認し、作成後・登録前に
   Snapshot から提案を読み戻して内容(space/URL/choices)一致を検証する(第17回監査)。
 - Cloudflare の Worker は登録には関与せず、対応表を読んで照合・投函・execute のみ行う。
+
+## 12. 登録の再実行と孤児 Snapshot 提案の照合(第22-25回監査)
+
+対応表の登録(create-and-register)は「作成 → 読み戻し検算 → 登録」を一体で行うが、
+Snapshot 側に冪等 API が無いため厳密な exactly-once は保証できない(accepted risk)。
+再実行前に次を確認する:
+
+1. **孤児提案の確認**: 作成は成功したが登録前に停止した場合、Snapshot に未登録の提案が
+   残る。再実行前に `https://snapshot.box/#/s:<space>` で、対象 Nouns 議案(discussion=
+   nouns.wtf/vote/N)を指す **bot 作成の提案が複数無いか**を目視確認する。
+2. **チェックポイント**: ローカル実行は `deployments/<net>-pending-<id>.json` が残っていれば
+   再作成せず読み戻し→登録から再開する。GitHub Actions は artifact(pending-…)で同一 run の
+   再試行のみ引き継ぐ。**別の workflow dispatch では引き継がれない**ため、上記 1 を必ず行う。
+3. **重複時の判断**: 同一議案を指す提案が複数ある場合、登録するのは 1 本のみ(コントラクトが
+   両方向の重複を AlreadyRegistered で拒否)。**どの提案を正とするかは人が決め**、不要な提案は
+   投票が入る前に周知する(Snapshot 提案は作成者でも削除できないため、告知で明示する)。
+4. 期限切れのチェックポイント(投票終了済み)は自動破棄され、再実行で新規作成される。
