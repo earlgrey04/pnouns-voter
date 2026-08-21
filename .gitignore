@@ -7,4 +7,4 @@ coverage
 relayer-cf/node_modules
 relayer-cf/.wrangler
 relayer-cf/.dev.vars
-deployments/*-pending.json
+deployments/*-pending*.json

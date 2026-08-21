@@ -27,6 +27,13 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
       - run: npm ci
+      # 直前の失敗 run が残したチェックポイントを復元(再作成でなく登録から再開するため)
+      - name: restore checkpoint
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: pending-${{ github.event.inputs.network }}-${{ github.event.inputs.nouns_id }}
+          path: deployments
       - name: create + verify + register
         env:
           NETWORK: ${{ github.event.inputs.network }}
@@ -36,3 +43,12 @@ jobs:
           SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
           MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
         run: node scripts/create-and-register.mjs --nouns "${{ github.event.inputs.nouns_id }}"
+      # 未登録で終わった場合にチェックポイントを次 run へ引き継ぐ(登録成功時はファイルが消えているので空)
+      - name: save checkpoint
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pending-${{ github.event.inputs.network }}-${{ github.event.inputs.nouns_id }}
+          path: deployments/${{ github.event.inputs.network }}-pending-${{ github.event.inputs.nouns_id }}.json
+          if-no-files-found: ignore
+          retention-days: 7
