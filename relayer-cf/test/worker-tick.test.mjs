@@ -383,3 +383,18 @@ test("第15回監査: 締切時に未反映の票が残っていれば mainnet �
     assert.equal(putsOf(kv, "executed").length, 1, "未反映ゼロなら mainnet も確定する");
   }
 });
+
+test("第16回監査: mainnet で linkOk=false なら、解禁後に実票があっても投函しない", async () => {
+  const writes = [];
+  const wallet = { account: { address: RELAYER }, writeContract: async (x) => { writes.push(x.functionName); return "0x" + "ee".repeat(32); } };
+  const mainnetEnv = { NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03" };
+  const { kv, env } = setup(submitHandlers({ eligibleAtBlock: () => 50n }), mainnetEnv, wallet); // 解禁済み
+  // 対応表は登録済みだが、Snapshot 提案の discussion が別議案(999)を指す = linkOk=false
+  F.hub = [{ proposals: [{ id: SNAP_ID, title: "T", end: Math.floor(Date.now() / 1000) + 3600, discussion: "https://nouns.wtf/vote/999", body: "" }] }];
+  F.envelope = goodEnvelope();
+  await tick(env);
+  assert.equal(writes.length, 0, "投函 tx を送らない");
+  assert.equal(kv.ops.filter(([op, k]) => op === "put" && k.includes("snapsent")).length, 0, "送信中レコードも作らない");
+  assert.ok(F.discordBodies.some((b) => b.includes("参照していません")), "linkwarn が出る");
+});

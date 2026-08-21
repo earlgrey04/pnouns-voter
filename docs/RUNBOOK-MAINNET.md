@@ -112,8 +112,10 @@ npx wrangler secret put DISCORD_WEBHOOK_URL --env mainnet   # pNouns 公式 Disc
 
 - Worker 停止/KV 上限: 票は Snapshot に残る。復旧後に自動で追いつく。締切が近い場合は
   dApp の「手動 execute」または Etherscan から `execute(proposalId)`
-- 誤登録の疑い: 24h 猶予内なら registrar/owner から `unregisterProposal` → 正しい ID で再登録
-  (Worker の自動照合が Discord に⚠️を出す)
+- 誤登録の疑い: **解禁前、または解禁後でも `snapshotVotesAccepted == 0` の間**は registrar/owner から
+  `unregisterProposal` → 正しい ID で再登録(Worker の自動照合が Discord に⚠️を出し、照合が
+  食い違う間は Worker は投函しない)。第三者の直接投函で 1 票でも受理されたら取消不能 →
+  `setLiveMode(false)` + 当該議案は手動投票へ
 - **登録が遅すぎた(graceBad 警告)**: 単純な unregister → 再登録では回復しない
   (再登録すると猶予がその時点から再カウントされ、さらに遅くなる)。この提案は自動反映を
   諦め、**手動運用に切り替える**(従来どおり委任元から手動投票)。締切時に未反映の票が
