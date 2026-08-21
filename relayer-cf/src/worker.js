@@ -474,7 +474,7 @@ export async function tick(env) {
         }
         if (onchain !== keccak256(stringToBytes(c.snapshotSpace))) { await notifyError(c, "config", new Error(`SNAPSHOT_SPACE "${c.snapshotSpace}" がコントラクトの spaceHash と一致しません`)); return; }
         // H02R: fail-closed。環境変数で下限を下げられないよう、コード上の絶対下限 300 を併用する
-        const floor = Math.max(300, c.minRegistrationDelay);
+        const floor = Math.max(10, c.minRegistrationDelay); // 絶対下限 10 ブロック(約 2 分)。運用値も 10(2026-08-21 決定)
         if (c.network === "mainnet" && Number(delay) < floor) { await notifyError(c, "config", new Error(`registrationDelayBlocks(${delay}) が最低値 ${floor} 未満です`)); return; }
         spaceCheckedAt = Date.now();
       }

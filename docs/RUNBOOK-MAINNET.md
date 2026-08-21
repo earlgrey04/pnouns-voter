@@ -24,13 +24,13 @@ Sepolia でのリハーサル実績: 2026-08-20 (registrar/relayer 分離・tran
 
 ```bash
 OWNER=0x<当初は委任アドレス> REGISTRAR=0x<registrar> EXCLUDED=0x<pNouns トレジャリー> \
-REG_DELAY=7200 MARGIN=7200 \
+REG_DELAY=10 MARGIN=7200 \
   npx hardhat run scripts/mainnet/deploy-snapvoter.js --network mainnet
 ```
 
 (スクリプトはフォークで検証済み。`DRY_RUN=1` で引数確認のみ可)
 
-- `REG_DELAY=7200` (約 24 時間)。Worker の下限は 300 だが、運用値は 7200
+- `REG_DELAY=10` (約 2 分)。受付開始前に自動照合(2 分ごと)が必ず 1 周するための最小間隔。2026-08-21 の設計判断: 長い猶予(旧 7200)による「投票直後の NFT 移転で票が減る窓」を解消し、すり抜け型の誤登録は unregister ではなく setLiveMode(false) + その議案の手動運用で受け止める
 - `MARGIN=7200` (約 24 時間 — 決定済みの運用値。締切 = Nouns 投票終了の 24 時間前)
 - `OWNER` は当初、現行の委任アドレス(手順 7 で安定稼働後にマルチシグへ移管する。**移管を忘れないこと** — check-deploy の EXPECT_OWNER をマルチシグに切り替えて照合する)
 - 必須値に fallback はない。読み戻し検証に失敗すると非ゼロで終了する

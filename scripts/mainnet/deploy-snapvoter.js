@@ -1,7 +1,7 @@
 // mainnet 用デプロイ(RUNBOOK-MAINNET 手順 2)。liveMode は false のまま・委任も行わない。
-// 使い方(アドレスは必須・明示。REG_DELAY/MARGIN には運用既定値 7200/300 がある):
+// 使い方(アドレスは必須・明示。REG_DELAY/MARGIN には運用既定値 10/7200 がある):
 //   OWNER=0x<マルチシグ> REGISTRAR=0x<registrar> EXCLUDED=0x<トレジャリー>[,0x…] \
-//     REG_DELAY=7200 MARGIN=300 npx hardhat run scripts/mainnet/deploy-snapvoter.js --network mainnet
+//     REG_DELAY=10 MARGIN=7200 npx hardhat run scripts/mainnet/deploy-snapvoter.js --network mainnet
 //   DRY_RUN=1 … 引数の検証と表示のみ / OUT=<path> … 出力先(フォークでのテスト用)
 const { ethers, network } = require("hardhat");
 const fs = require("fs");
@@ -13,7 +13,7 @@ const MAINNET = {
 async function main() {
   const owner = process.env.OWNER, registrar = process.env.REGISTRAR;
   const excluded = (process.env.EXCLUDED || "").split(",").filter(Boolean);
-  const delay = Number(process.env.REG_DELAY || 7200);
+  const delay = Number(process.env.REG_DELAY || 10); // 約 2 分 = 受付前に自動照合が 1 周する間隔(2026-08-21 決定)
   const margin = Number(process.env.MARGIN || 7200); // 運用決定値: 締切 = Nouns 投票終了の約 24 時間前
   if (!owner || !registrar) throw new Error("OWNER(マルチシグ)と REGISTRAR を明示してください");
   // アドレスの厳格検証(第14回監査): checksum 不正・ゼロアドレスをデプロイ前に弾く
@@ -23,7 +23,7 @@ async function main() {
   }
   if (owner.toLowerCase() === registrar.toLowerCase()) throw new Error("owner と registrar は別アドレスにしてください");
   if (!excluded.length) throw new Error("EXCLUDED(トレジャリー等の除外アドレス)を明示してください");
-  if (!Number.isInteger(delay) || delay < 300) throw new Error("REG_DELAY は 300 以上(運用値 7200 = 約 24 時間)");
+  if (!Number.isInteger(delay) || delay < 10) throw new Error("REG_DELAY は 10 以上(運用値 10 = 約 2 分)");
   if (!Number.isInteger(margin) || margin < 10 || margin > 7200) throw new Error("MARGIN は 10〜7200 の整数(運用値 7200 = 約 24 時間)");
   const out = process.env.OUT || path.join(__dirname, "..", "..", "deployments", "mainnet.json");
   if (fs.existsSync(out) && JSON.parse(fs.readFileSync(out, "utf8")).snapVoter && process.env.FORCE !== "1") throw new Error(`${out} に既存デプロイがあります(上書きは FORCE=1)`);

@@ -8,7 +8,7 @@
 //
 // mainnet では EXPECT_OWNER / EXPECT_REGISTRAR / EXPECT_EXCLUDED / EXPECT_MARGIN が必須。
 // worker 段階以降は EXPECT_RELAYER と EXPECT_BOT(4 者分離)、delegated 以降は EXPECT_DELEGATOR も必須。
-// EXPECT_DELAY は既定 7200。
+// EXPECT_DELAY は既定 10(約 2 分)。
 //
 //   NETWORK=sepolia node scripts/check-deploy.mjs
 //   NETWORK=mainnet EXPECT_OWNER=0x… EXPECT_REGISTRAR=0x… EXPECT_EXCLUDED=0x… node scripts/check-deploy.mjs --stage deployed
@@ -61,7 +61,7 @@ async function main() {
   check("spaceHash = keccak256(space)", spaceHash === ethers.keccak256(ethers.toUtf8Bytes(space)), `space="${space}"`);
   const expSpace = MAIN ? "pnounsdao.eth" : (process.env.SNAPSHOT_SPACE || "earl-grey.eth");
   check("space が想定どおり", space === expSpace, `${space} (想定 ${expSpace})`);
-  const expDelay = Number(E("EXPECT_DELAY") || (MAIN ? 7200 : 1));
+  const expDelay = Number(E("EXPECT_DELAY") || (MAIN ? 10 : 1));
   check(`registrationDelayBlocks >= ${expDelay}`, Number(delay) >= expDelay, String(delay));
   if (requireEnv("EXPECT_MARGIN", "締切マージン")) if (E("EXPECT_MARGIN")) check("marginBlocks が想定どおり", Number(margin) === Number(E("EXPECT_MARGIN")), String(margin));
   check("refundEnabled", refund === true);

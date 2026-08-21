@@ -154,15 +154,25 @@ test("告知は Discord 2xx の後にだけ記録される(失敗 → 次 tick �
   assert.ok(kv.data.get([...kv.data.keys()].find((k) => k.includes("announced"))).includes(SNAP_ID), "snapId 付きで記録");
 });
 
-test("mainnet: 猶予がコード下限 300 未満なら何もせず停止(ハブにも触れない)", async () => {
-  const { env } = setup(handlers({ registrationDelayBlocks: () => 100n }), {
+test("mainnet: 猶予がコード下限 10 未満なら何もせず停止(ハブにも触れない)", async () => {
+  const { env } = setup(handlers({ registrationDelayBlocks: () => 5n }), {
     NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
     NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03",
-    MIN_REGISTRATION_DELAY: "0", // 環境変数で下げても Math.max(300, …) が効くことの確認
+    MIN_REGISTRATION_DELAY: "0", // 環境変数で下げても Math.max(10, …) が効くことの確認
   });
   await tick(env);
   assert.ok(F.discordBodies.some((b) => b.includes("最低値")), "設定エラー通知");
   assert.equal(F.hubCalls, 0, "ハブに到達しない");
+});
+
+test("mainnet: 猶予が運用値 10 ちょうどなら処理に進む", async () => {
+  const { env } = setup(handlers({ registrationDelayBlocks: () => 10n }), {
+    NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03",
+  });
+  F.hub = [hubProposal("https://nouns.wtf/vote/1")];
+  await tick(env);
+  assert.ok(F.hubCalls >= 1, "ハブに到達する(fail-closed が誤発動しない)");
 });
 
 test("mainnet: owner/registrar/relayer が同一なら停止", async () => {
