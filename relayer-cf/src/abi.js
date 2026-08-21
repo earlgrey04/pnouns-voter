@@ -452,6 +452,16 @@ export const METAGOV_ABI = [
   "type": "function"
  },
  {
+  "inputs": [
+   { "internalType": "string", "name": "snapshotProposal", "type": "string" },
+   { "internalType": "uint256", "name": "nounsProposalId", "type": "uint256" }
+  ],
+  "name": "registerProposal",
+  "outputs": [],
+  "stateMutability": "nonpayable",
+  "type": "function"
+ },
+ {
   "inputs": [],
   "name": "owner",
   "outputs": [{ "internalType": "address", "name": "", "type": "address" }],

@@ -111,6 +111,7 @@ async function main() {
   if (!verified) throw new Error(`ハブから提案 ${receipt.id} を 90 秒以内に読み戻せませんでした(登録を中止。ハブの遅延なら後で手動登録できます)`);
   console.log(`読み戻し検算 OK: space=${verified.space.id} / URL 一致 / choices 一致 → 登録します`);
 
+  if (flag("skip-register")) { console.log("--skip-register: オンチェーン登録は行いません(Worker の自動登録に任せます)"); return; }
   // オンチェーンの対応付け(registrar) — 鍵・権限・未登録は送信前に検証済み
   const w = registrarWallet.connect(provider);
   const abi = ["function registerProposal(string,uint256)", "function registrationDelayBlocks() view returns (uint256)"];

@@ -47,6 +47,7 @@ function fakePC(h) {
     async getBlockNumber() { calls.push("getBlockNumber"); return BigInt(h.__block); },
     async getBalance() { calls.push("getBalance"); return parseEther("1"); },
     async getTransactionReceipt() { throw new Error("not found"); },
+    async getLogs(x) { calls.push("getLogs"); return h.getLogs ? h.getLogs(x) : []; },
     async estimateContractGas(x) { calls.push("estimateGas:" + x.functionName); return 100000n; },
     async simulateContract(x) { calls.push("simulate:" + x.functionName); if (h.simulateContract) return h.simulateContract(x); return { request: {} }; },
   };
@@ -400,4 +401,61 @@ test("第16回監査: mainnet で linkOk=false なら、解禁後に実票があ
   assert.equal(writes.length, 0, "投函 tx を送らない");
   assert.equal(kv.ops.filter(([op, k]) => op === "put" && k.includes("snapsent")).length, 0, "送信中レコードも作らない");
   assert.ok(F.discordBodies.some((b) => b.includes("参照していません")), "linkwarn が出る");
+});
+
+// ---- 登録係の Cloudflare 実装(autoRegister) ----
+import { buildProposal } from "../src/register.js";
+const DESC = "# Test Prop\n\nHello pNouns members. This is the proposal body.";
+
+function regSetup(h, candOverride = {}, envOver = {}) {
+  const expected = buildProposal({ nounsId: 1, description: DESC });
+  const cand = { id: SNAP_ID, title: expected.title, body: expected.body, discussion: expected.discussion, choices: expected.choices, ...candOverride };
+  const regWrites = [];
+  const registrar = { account: { address: REGISTRAR }, writeContract: async (x) => { regWrites.push(x); return "0x" + "cd".repeat(32); } };
+  const kv = fakeKV(); const pc = fakePC(h);
+  __setClientsForTests(() => ({ publicClient: pc, walletClient: null, registrarClient: registrar }));
+  __resetWorkerStateForTests({ balanceCheckedAt: Date.now() });
+  const env = baseEnv(kv, { AUTO_REGISTER: "1", ...envOver });
+  return { kv, pc, env, cand, regWrites, expected };
+}
+const unregHandlers = (over = {}) => handlers({
+  snapToNouns: () => 0n,
+  nounsToSnap: () => "0x" + "00".repeat(32),
+  getLogs: (x) => (x.toBlock === x.fromBlock ? [{ eventName: "ProposalCreated", args: { id: 1n, description: DESC } }] : []),
+  ...over,
+});
+
+test("自動登録: 内容が完全一致する Snapshot 提案を検証して登録する", async () => {
+  const { kv, env, cand, regWrites } = regSetup(unregHandlers());
+  F.hub = [{ proposals: [cand] }, { proposals: [cand] }]; // 1回目=対応表解決、2回目=autoRegister の候補探索
+  await tick(env);
+  assert.equal(regWrites.length, 1, "registerProposal が送られる");
+  assert.equal(regWrites[0].functionName, "registerProposal");
+  assert.deepEqual(regWrites[0].args, [SNAP_ID, 1n]);
+  assert.equal(putsOf(kv, "flag:regsent:1").length, 1, "採掘待ちフラグ");
+  assert.ok(F.discordBodies.some((b) => b.includes("自動登録しました")));
+});
+
+test("自動登録: 本文がオンチェーンの期待値と一致しなければ登録せず警告", async () => {
+  const { env, cand, regWrites } = regSetup(unregHandlers(), { body: "改ざんされた本文" });
+  F.hub = [{ proposals: [cand] }, { proposals: [cand] }];
+  await tick(env);
+  assert.equal(regWrites.length, 0, "登録しない");
+  assert.ok(F.discordBodies.some((b) => b.includes("自動登録を保留")), "不一致の警告");
+});
+
+test("自動登録: choices の違いも拒否する(賛成/反対の入れ替え等)", async () => {
+  const { env, cand, regWrites } = regSetup(unregHandlers(), { choices: ["反対", "賛成", "棄権"] });
+  F.hub = [{ proposals: [cand] }, { proposals: [cand] }];
+  await tick(env);
+  assert.equal(regWrites.length, 0);
+});
+
+test("自動登録: 送信済みフラグがあれば再送しない", async () => {
+  const { kv, env, cand, regWrites } = regSetup(unregHandlers());
+  const ns = `11155111:${VOTER.toLowerCase()}:`;
+  kv.data.set(`${ns}flag:regsent:1`, "1");
+  F.hub = [{ proposals: [cand] }, { proposals: [cand] }];
+  await tick(env);
+  assert.equal(regWrites.length, 0);
 });

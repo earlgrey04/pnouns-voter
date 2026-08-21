@@ -32,7 +32,7 @@ async function fetchLimited(url, init) {
     return JSON.parse(new TextDecoder().decode(buf));
   } finally { clearTimeout(t); }
 }
-async function hubGql(c, query) {
+export async function hubGql(c, query) {
   const j = await fetchLimited(`${c.snapshotHub}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) });
   if (j.errors) throw new Error("hub graphql: " + JSON.stringify(j.errors).slice(0, 200));
   if (!j.data) throw new Error("hub graphql: no data");
