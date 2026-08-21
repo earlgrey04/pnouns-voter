@@ -8,6 +8,7 @@
 //  - 送信は {tx, at} を KV に記録し、10 分未採掘なら再試行。AlreadyRegistered は競合として扱う
 import { DAO_ABI, METAGOV_ABI, revertErrorName } from "./chain.js";
 import { hubGql, referencesNounsProposal } from "./snap.js";
+import { keccak256, stringToBytes } from "viem";
 
 // ---- scripts/lib/proposal-format.mjs と同一ロジック(同値性は回帰テストで担保) ----
 export const CHOICES = ["賛成", "反対", "棄権"];
@@ -71,20 +72,27 @@ export async function autoRegister(c, pc, registrar, store, notify, p) {
     console.warn(`[register] prop ${p.id}: 前回の登録 tx が${rcpt ? "revert" : "未採掘"}のため再試行します`);
   }
 
-  // 1) 候補の列挙(小さいフィールドのみ・本文は取らない)
-  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 50, orderBy: "created", orderDirection: desc) { id author type start end discussion } }`);
-  const refs = (data.proposals || []).filter((x) => referencesNounsProposal(x.discussion, p.id));
+  // 1) 候補の列挙: GraphQL 側で正規 bot に絞る(攻撃者の巨大 discussion 提案は来ない = 64KiB DoS 対策)。
+  //    small フィールドのみ。author が未設定の運用では自動登録しない(cfg で必須化済み)。
+  const LIST = 100; // 一覧上限。これを超える bot 提案が該当する状況は異常なので、超過は一意性不明として保留する
+  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}", author:"${c.snapshotBot}"}, first: ${LIST}, orderBy: "created", orderDirection: desc) { id type start end discussion } }`);
+  const all = data.proposals || [];
+  const refs = all.filter((x) => referencesNounsProposal(x.discussion, p.id));
   if (!refs.length) return; // bot がまだ提案を作っていない — 次 tick に再確認
+  if (all.length >= LIST && refs.length > 1) { // 一覧が上限に達し、かつ複数候補 = 範囲外に更なる候補がある恐れ
+    await warnOnce(c, store, notify, `reglist:${p.id}`, 86400, `⚠️ Prop ${p.id}: bot の提案が多く、候補の一意性を確認できないため自動登録を保留しました。`);
+    return;
+  }
 
-  // 2) 選別: 正規 bot の作成・single-choice・投票期間が現在有効
+  // 2) 選別: single-choice・投票期間が現在有効で、残り時間が投函に必要な余裕を上回る
   const now = Date.now() / 1000;
+  const minRemainSec = c.cronSec + c.submitBufferSec + 300; // 猶予明け後に投函・採掘できる最小残り時間
   const screened = refs.filter((x) =>
-    String(x.author || "").toLowerCase() === String(c.snapshotBot).toLowerCase() &&
     x.type === "single-choice" &&
-    Number(x.start) <= now && now < Number(x.end) && Number(x.end) - Number(x.start) <= 8 * 86400);
+    Number(x.start) <= now && Number(x.end) - now > minRemainSec && Number(x.end) - Number(x.start) <= 8 * 86400);
   if (!screened.length) {
     await warnOnce(c, store, notify, `regscreen:${p.id}`, 86400,
-      `⚠️ Prop ${p.id}: 本議案を参照する Snapshot 提案はありますが、作成者・形式・投票期間の条件を満たさないため自動登録しません(候補 ${refs.length} 件)。`);
+      `⚠️ Prop ${p.id}: 本議案を参照する Snapshot 提案はありますが、形式・投票期間(残り時間を含む)の条件を満たさないため自動登録しません(候補 ${refs.length} 件)。`);
     return;
   }
 
@@ -93,14 +101,17 @@ export async function autoRegister(c, pc, registrar, store, notify, p) {
   if (desc === null) { console.warn(`[register] prop ${p.id}: オンチェーン本文を取得できず登録を見送り`); return; }
   const expected = buildProposal({ nounsId: p.id, description: desc });
 
-  // 4) 候補を 1 件ずつ取得して完全一致を数える(最大 5 件)
+  // 4) 候補を 1 件ずつ取得して完全一致を数える。取得失敗(64KiB 超過等)はその候補だけスキップし走査を続ける
   const matches = [];
-  for (const cand of screened.slice(0, 5)) {
-    const d = await hubGql(c, `{ proposal(id:"${cand.id}") { id title body discussion choices } }`);
-    const x = d?.proposal;
+  let skipped = 0;
+  for (const cand of screened) {
+    let x = null;
+    try { x = (await hubGql(c, `{ proposal(id:"${cand.id}") { id title body discussion choices } }`))?.proposal; }
+    catch (e) { skipped++; console.warn(`[register] prop ${p.id}: 候補 ${cand.id.slice(0, 12)} の取得に失敗(スキップ): ${(e.message || "").slice(0, 60)}`); continue; }
     if (!x) continue;
     if (x.title === expected.title && (x.discussion || "") === expected.discussion && (x.body || "") === expected.body && JSON.stringify(x.choices) === JSON.stringify(expected.choices)) matches.push(x.id);
   }
+  if (skipped) await warnOnce(c, store, notify, `regskip:${p.id}`, 86400, `⚠️ Prop ${p.id}: 候補 ${skipped} 件を取得できず(サイズ超過など)検証をスキップしました。`);
   if (matches.length === 0) {
     await warnOnce(c, store, notify, `regmismatch:${p.id}`, 86400,
       `⚠️ Prop ${p.id}: 本議案を参照する Snapshot 提案の内容が、Nouns のオンチェーン本文から再計算した期待値と一致しないため、自動登録を保留しました。bot の作成内容を確認してください。`);
@@ -115,10 +126,19 @@ export async function autoRegister(c, pc, registrar, store, notify, p) {
   // 5) 登録(AlreadyRegistered は手動登録等との競合として静かに退く)
   try {
     const hash = await registrar.writeContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "registerProposal", args: [matches[0], BigInt(p.id)] });
-    await store.kvRaw.put(sentK, JSON.stringify({ tx: hash, at: Date.now() }), { expirationTtl: 3600 });
+    await store.kvRaw.put(sentK, JSON.stringify({ tx: hash, at: Date.now() }), { expirationTtl: 86400 * 3 }); // 提案期間以上(第19回監査: 1h では Worker 長時間停止で tx を見失う)
     await notify(c, [`📝 Prop ${p.id}: 対応表を自動登録しました(登録係: Cloudflare)。内容一致(title/body/discussion/choices)と作成者・形式・期間を検証済み。`, `Snapshot: ${matches[0]}`, `tx: ${c.explorer}/tx/${hash}`].join("\n"));
   } catch (e) {
-    if (revertErrorName(e) === "AlreadyRegistered") { console.log(`[register] prop ${p.id}: 既に登録済み(競合) — 次 tick で対応表を再解決`); return; }
+    if (revertErrorName(e) === "AlreadyRegistered") {
+      // 実際に登録された対応(nounsToSnap)を読み戻し、期待した Snapshot 提案のハッシュと一致するか確認する。
+      // 別 ID が割り込んで登録された場合は高優先度で警告して止める(静かに退かない)。
+      const expectedHash = keccak256(stringToBytes(matches[0]));
+      let got = null;
+      try { got = await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "nounsToSnap", args: [BigInt(p.id)] }); } catch {}
+      if (got && got.toLowerCase() === expectedHash.toLowerCase()) { console.log(`[register] prop ${p.id}: 期待どおり登録済み(競合)`); return; }
+      await warnOnce(c, store, notify, `regconflict:${p.id}`, 86400, `⚠️ Prop ${p.id}: 対応表が既に登録済みですが、登録されたハッシュ(${got ? String(got).slice(0, 14) : "取得失敗"}…)が期待した Snapshot 提案 ${matches[0].slice(0, 14)}… のハッシュ(${expectedHash.slice(0, 14)}…)と一致しません。誤登録の可能性 — 手動で確認してください。`);
+      return;
+    }
     await warnOnce(c, store, notify, `regerr:${p.id}`, 86400,
       `⚠️ Prop ${p.id}: 対応表の自動登録の送信に失敗しました(${(e.shortMessage || e.message || "").slice(0, 120)})。registrar の残高・RPC を確認してください。`);
   }

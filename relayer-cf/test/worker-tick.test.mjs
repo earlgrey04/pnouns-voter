@@ -465,13 +465,43 @@ test("自動登録: choices の違いも拒否する(賛成/反対の入れ替�
   assert.equal(regWrites.length, 0);
 });
 
-test("自動登録: 作成者が正規 bot でない候補は選別で落とし、詳細取得すらしない", async () => {
-  const { env, small, regWrites } = regSetup(unregHandlers(), { small: { author: "0x9999999999999999999999999999999999999999" } });
-  F.hub = [{ proposals: [small] }, { proposals: [small] }];
+test("自動登録: 正規 bot の候補が無ければ(GraphQL author 絞りで 0 件)登録も詳細取得もしない", async () => {
+  const { env, regWrites } = regSetup(unregHandlers());
+  F.hub = [{ proposals: [] }, { proposals: [] }];
   await tick(env);
   assert.equal(regWrites.length, 0);
   assert.equal(F.hubCalls, 2, "詳細クエリに進まない");
-  assert.ok(F.discordBodies.some((b) => b.includes("条件を満たさない")));
+});
+
+test("自動登録: 残り投票時間が短すぎる候補は選別で落とす", async () => {
+  const nowS = Math.floor(Date.now() / 1000);
+  const { env, small, regWrites } = regSetup(unregHandlers(), { small: { end: nowS + 60 } });
+  F.hub = [{ proposals: [small] }, { proposals: [small] }];
+  await tick(env);
+  assert.equal(regWrites.length, 0);
+  assert.ok(F.discordBodies.some((b) => b.includes("残り時間")));
+});
+
+test("自動登録: 詳細取得が失敗した候補はスキップし、走査を止めない", async () => {
+  const { env, small, detail, regWrites } = regSetup(unregHandlers());
+  const small2 = { ...small, id: "0x" + "cc".repeat(32) };
+  const detail2 = { ...detail, id: small2.id };
+  F.hub = [{ proposals: [small, small2] }, { proposals: [small, small2] }];
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const u = String(url);
+    if (u.startsWith(HUB)) {
+      const q = JSON.parse(init.body).query; F.hubCalls++;
+      if (q.includes("proposals(")) return new Response(JSON.stringify({ data: F.hub.shift() }), { status: 200 });
+      if (q.includes(small.id)) throw new Error("body too large"); // 1件目の詳細取得が失敗
+      return new Response(JSON.stringify({ data: { proposal: detail2 } }), { status: 200 });
+    }
+    return orig(url, init);
+  };
+  try { await tick(env); } finally { globalThis.fetch = orig; }
+  assert.equal(regWrites.length, 1, "2件目で登録される");
+  assert.deepEqual(regWrites[0].args, [small2.id, 1n]);
+  assert.ok(F.discordBodies.some((b) => b.includes("スキップ")));
 });
 
 test("自動登録: 投票が終了した候補は選別で落とす", async () => {
@@ -501,13 +531,38 @@ test("自動登録: 送信記録が新しい間は再送しない", async () => 
   assert.equal(regWrites.length, 0);
 });
 
-test("自動登録: AlreadyRegistered の revert は競合として静かに退く", async () => {
-  const err = new ContractFunctionRevertedError({ abi: METAGOV_ABI, data: "0x3a81d6fc", functionName: "registerProposal" }); // AlreadyRegistered()
-  const { env, small, detail, regWrites } = regSetup(unregHandlers(), { writeContract: async () => { throw err; } });
-  F.hub = regHub(small, detail);
-  await tick(env);
-  assert.equal(regWrites.length, 0);
-  assert.ok(!F.discordBodies.some((b) => b.includes("送信に失敗")), "競合はエラー扱いしない");
+// AlreadyRegistered の分岐は autoRegister を直接呼んで検証する
+// (tick 経由だと nounsToSnap 非ゼロが手前の unresolved 分岐に吸われ、autoRegister に届かないため)
+async function callAutoRegister(nounsToSnapHash, throwErr = true) {
+  const { autoRegister } = await import("../src/register.js");
+  const err = new ContractFunctionRevertedError({ abi: METAGOV_ABI, data: "0x3a81d6fc", functionName: "registerProposal" });
+  const expected = buildProposal({ nounsId: 1, description: DESC });
+  const nowS = Math.floor(Date.now() / 1000);
+  const small = { id: SNAP_ID, type: "single-choice", start: nowS - 100, end: nowS + 86400, discussion: expected.discussion };
+  const detail = { id: SNAP_ID, title: expected.title, body: expected.body, discussion: expected.discussion, choices: expected.choices };
+  F.hub = [{ proposals: [small] }, { proposal: detail }];
+  const kv = fakeKV();
+  const store = makeStoreLike(kv);
+  const pc = fakePC(handlers({ getLogs: (x) => (x.toBlock === x.fromBlock ? [{ eventName: "ProposalCreated", args: { id: 1n, description: DESC } }] : []), nounsToSnap: () => nounsToSnapHash }));
+  const notify = async (_c, text) => { F.discordBodies.push(text); return true; };
+  const registrar = { account: { address: REGISTRAR }, writeContract: async () => { throw err; } };
+  const c = { snapshotSpace: SPACE, snapshotBot: REGISTRAR_BOT, snapshotHub: HUB, metagov: VOTER, nounsDAO: DAO, explorer: "https://x", cronSec: 60, submitBufferSec: 120 };
+  await autoRegister(c, pc, registrar, store, notify, { id: 1, creationBlock: 50 });
+  return kv;
+}
+function makeStoreLike(kv) {
+  const P = "";
+  return { prefix: P, kvRaw: kv, getFlag: async (k) => kv.data.get(`flag:${k}`) || null, setFlag: async (k) => kv.data.set(`flag:${k}`, "1") };
+}
+
+test("自動登録(直接): AlreadyRegistered で期待どおりの登録なら静かに退く", async () => {
+  await callAutoRegister(keccak256(stringToBytes(SNAP_ID)));
+  assert.ok(!F.discordBodies.some((b) => b.includes("一致しません")), "期待どおりなら警告しない");
+});
+
+test("自動登録(直接): AlreadyRegistered だが別 ID が登録済みなら高優先度で警告", async () => {
+  await callAutoRegister(keccak256(stringToBytes("0x" + "ff".repeat(32))));
+  assert.ok(F.discordBodies.some((b) => b.includes("一致しません")), "別 ID 登録は警告する");
 });
 
 test("nounsDescription: 空文字への更新イベントを最新値として扱う(第18回監査の中)", async () => {

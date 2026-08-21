@@ -75,7 +75,9 @@ export function referencesNounsProposal(text, nounsId) {
 }
 
 export async function resolveMappings(c, pc, activeNounsIds = []) {
-  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id title end discussion } }`);
+  // 正規 bot が設定されていれば author で絞る(攻撃者の巨大 discussion 提案を候補から排除 = 64KiB DoS 対策・第19回監査)
+  const authorFilter = c.snapshotBot ? `, author:"${c.snapshotBot}"` : "";
+  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"${authorFilter}}, first: 20, orderBy: "created", orderDirection: desc) { id title end discussion } }`);
   if (!Array.isArray(data.proposals)) throw new Error("hub: proposals shape");
   const meta = new Map(data.proposals.map((p) => [p.id, p]));
   const found = new Map(); // nounsId -> snapId
@@ -95,7 +97,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     missing.forEach((id, i) => { if (hashes[i] && hashes[i] !== "0x0000000000000000000000000000000000000000000000000000000000000000") need.push({ id: Number(id), hash: hashes[i] }); });
     if (need.length) {
       // ハブから対象 space の提案を追加取得し、ハッシュ一致で snapId を特定(最大 200 件遡る)
-      const more = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 200, orderBy: "created", orderDirection: desc) { id title end discussion } }`);
+      const more = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"${authorFilter}}, first: 200, orderBy: "created", orderDirection: desc) { id title end discussion } }`);
       const byHash = new Map((more.proposals || []).map((p) => [keccak256(stringToBytes(p.id)), p]));
       for (const n of need) {
         const p = byHash.get(n.hash);
