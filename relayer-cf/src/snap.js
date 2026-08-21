@@ -78,7 +78,7 @@ export function referencesNounsProposal(text, nounsId) {
 export async function resolveMappings(c, pc, activeNounsIds = []) {
   // 直近提案は id のみ取得(title/discussion を一括で取ると 64KiB 応答上限に達し tick 全体が
   // fail-closed するため。第24回監査)。title/end/discussion は確定した snapId ごとに個別照会する。
-  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id } }`);
+  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: ${c.recentLimit || 20}, orderBy: "created", orderDirection: desc) { id } }`);
   if (!Array.isArray(data.proposals)) throw new Error("hub: proposals shape");
   const meta = new Map();
   const found = new Map(); // nounsId -> snapId

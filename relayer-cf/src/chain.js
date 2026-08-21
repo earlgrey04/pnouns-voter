@@ -51,6 +51,7 @@ export function cfg(env) {
     snapshotHub: env.SNAPSHOT_HUB || "https://hub.snapshot.org",
     ipfsGateway: env.IPFS_GATEWAY || "https://snapshot.4everland.link/ipfs",
     cronSec: Number(env.CRON_SEC || (env.NETWORK === "mainnet" ? 120 : 60)), // cron 間隔(秒)。署名受付締切の計算に使う
+    recentLimit: Number(env.RESOLVE_RECENT_LIMIT || 20), // resolveMappings の直近取得件数(検証用に縮小可)
     deployBlock: (() => { // ProposalRegistered イベント検索の起点(RPC 範囲制限対策・第25-26回監査)
       const v = env.VOTER_DEPLOY_BLOCK;
       if (v !== undefined && v !== "" && !/^[0-9]+$/.test(String(v))) throw new Error("VOTER_DEPLOY_BLOCK は非負整数で指定してください(got " + v + ")");
