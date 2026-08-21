@@ -89,6 +89,28 @@ async function main() {
   });
   console.log(`\nSnapshot 提案を作成: https://snapshot.box/#/s:${SPACE}/proposal/${receipt.id}`);
 
+  // 登録前の読み戻し検算(第17回監査の推奨): 作成した提案をハブから再取得し、
+  // 「これから登録しようとしている対応」が提案の実体と一致することを確認してから登録する。
+  // sequencer の応答(receipt.id)を無検証で registerProposal に渡さない。
+  // ハブの索引反映に数秒かかるため、最大 90 秒リトライする。
+  const expectedUrl = `https://nouns.wtf/vote/${nounsId}`;
+  let verified = null;
+  for (let i = 0; i < 18; i++) {
+    await new Promise((r) => setTimeout(r, 5000));
+    const rb = await (await fetch(`${HUB}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: `{ proposal(id:"${receipt.id}") { id space { id } discussion body choices state } }` }) })).json();
+    const pr = rb?.data?.proposal;
+    if (!pr) continue; // まだ索引されていない
+    const problems = [];
+    if (pr.space?.id !== SPACE) problems.push(`space 不一致: ${pr.space?.id}`);
+    if (!String(pr.discussion || "").includes(expectedUrl) && !String(pr.body || "").includes(expectedUrl)) problems.push(`本文/URL が ${expectedUrl} を指していない`);
+    if (JSON.stringify(pr.choices) !== JSON.stringify(p.choices)) problems.push(`choices 不一致: ${JSON.stringify(pr.choices)}`);
+    if (problems.length) throw new Error(`読み戻し検算に失敗(登録を中止。Snapshot 提案 ${receipt.id} は孤児として残るため確認してください): ${problems.join(" / ")}`);
+    verified = pr;
+    break;
+  }
+  if (!verified) throw new Error(`ハブから提案 ${receipt.id} を 90 秒以内に読み戻せませんでした(登録を中止。ハブの遅延なら後で手動登録できます)`);
+  console.log(`読み戻し検算 OK: space=${verified.space.id} / URL 一致 / choices 一致 → 登録します`);
+
   // オンチェーンの対応付け(registrar) — 鍵・権限・未登録は送信前に検証済み
   const w = registrarWallet.connect(provider);
   const abi = ["function registerProposal(string,uint256)", "function registrationDelayBlocks() view returns (uint256)"];

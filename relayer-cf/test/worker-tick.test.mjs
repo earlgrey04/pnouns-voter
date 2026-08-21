@@ -390,10 +390,13 @@ test("第16回監査: mainnet で linkOk=false なら、解禁後に実票があ
   const mainnetEnv = { NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
     NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03" };
   const { kv, env } = setup(submitHandlers({ eligibleAtBlock: () => 50n }), mainnetEnv, wallet); // 解禁済み
-  // 対応表は登録済みだが、Snapshot 提案の discussion が別議案(999)を指す = linkOk=false
-  F.hub = [{ proposals: [{ id: SNAP_ID, title: "T", end: Math.floor(Date.now() / 1000) + 3600, discussion: "https://nouns.wtf/vote/999", body: "" }] }];
+  // 対応表は登録済みだが、Snapshot 提案の discussion が別議案(999)を指す = linkOk=false。
+  // 実票も用意する(ゲートが破れていれば votes クエリ→投函まで到達してしまう構成)
+  F.hub = [{ proposals: [{ id: SNAP_ID, title: "T", end: Math.floor(Date.now() / 1000) + 3600, discussion: "https://nouns.wtf/vote/999", body: "" }] },
+           { votes: [{ voter: VOTER_A, ipfs: CID, choice: 1, created: TS }] }];
   F.envelope = goodEnvelope();
   await tick(env);
+  assert.equal(F.hubCalls, 1, "votes クエリにすら到達しない(linkBad で停止)");
   assert.equal(writes.length, 0, "投函 tx を送らない");
   assert.equal(kv.ops.filter(([op, k]) => op === "put" && k.includes("snapsent")).length, 0, "送信中レコードも作らない");
   assert.ok(F.discordBodies.some((b) => b.includes("参照していません")), "linkwarn が出る");
