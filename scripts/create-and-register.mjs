@@ -40,11 +40,13 @@ async function hubVotingPeriod() {
 }
 
 async function main() {
-  const nounsId = Number(arg("nouns"));
-  if (!nounsId) throw new Error("--nouns <提案番号> を指定してください");
+  const nounsArg = String(arg("nouns") || "");
+  if (!/^[1-9][0-9]*$/.test(nounsArg)) throw new Error("--nouns は正の整数で指定してください");
+  const nounsId = Number(nounsArg);
   const descId = process.env.DESC_FROM || nounsId; // テスト時は本文を別提案から借りられる
   const description = await nounsDescription(descId);
-  const p = buildProposal({ nounsId: descId, description });
+  // 本文は descId から借りても、対応表・discussion は必ず登録対象の nounsId で作る(第22回監査)
+  const p = buildProposal({ nounsId, description });
   const period = await hubVotingPeriod();
   console.log(`space=${SPACE} network=${NETWORK}`);
   console.log(`title: ${p.title}`);
@@ -60,6 +62,8 @@ async function main() {
   if (!voter) throw new Error(`deployments/${NETWORK}.json に snapVoter がありません`);
   const rpc = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
   if (!rpc) throw new Error(`${NETWORK} の RPC URL が未設定です`);
+  if (!process.env.MAINNET_RPC_URL) throw new Error("MAINNET_RPC_URL が未設定です(Snapshot の基準ブロック取得に全 network で必要)");
+  if (NETWORK !== "mainnet" && NETWORK !== "sepolia") throw new Error(`NETWORK は sepolia か mainnet(got ${NETWORK})`);
   // mainnet では提案作成(bot)と registrar の鍵をそれぞれ明示する(他の鍵への fallback は禁止)
   const botPhrase = NETWORK === "mainnet" ? process.env.SNAPSHOT_BOT_MNEMONIC : process.env.SEPOLIA_MNEMONIC;
   if (!botPhrase) throw new Error(NETWORK === "mainnet" ? "mainnet では SNAPSHOT_BOT_MNEMONIC の明示が必要です(fallback 禁止)" : "SEPOLIA_MNEMONIC が未設定です");
@@ -90,15 +94,31 @@ async function main() {
   if (NETWORK === "mainnet" && new Set(addrs).size < addrs.length) throw new Error(`mainnet では bot / registrar / owner を別アドレスにしてください: ${addrs.join(", ")}`);
   if (existing !== ethers.ZeroHash) throw new Error(`Nouns #${nounsId} には既に対応表が登録されています(${existing.slice(0, 18)}…)`);
 
+  // 冪等チェックポイント(第22回監査): 作成後・登録前に失敗して再実行した場合、Snapshot 提案を
+  // 再作成せず、記録済みの ID から読み戻し→登録を再開する(孤児提案の量産を防ぐ)。
+  const pendingPath = path.join(ROOT, "deployments", `${NETWORK}-pending.json`);
+  const pending = fs.existsSync(pendingPath) ? JSON.parse(fs.readFileSync(pendingPath, "utf8")) : {};
   const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true });
   const now = Math.floor(Date.now() / 1000);
-  const client = new snapshot.Client712(SEQ);
-  const receipt = await client.proposal(adapt(bot), bot.address, {
-    space: SPACE, type: "single-choice", title: p.title, body: p.body, discussion: p.discussion,
-    choices: p.choices, start: now, end: now + period, snapshot: await mainnetProvider.getBlockNumber(),
-    plugins: "{}", app: "pnouns-voter",
-  });
-  console.log(`\nSnapshot 提案を作成: https://snapshot.box/#/s:${SPACE}/proposal/${receipt.id}`);
+  let receipt, sentStart, sentEnd, sentSnapshot;
+  const ckpt = pending[String(nounsId)];
+  if (ckpt && ckpt.id) {
+    ({ id: receipt, start: sentStart, end: sentEnd, snapshot: sentSnapshot } = { id: ckpt.id, start: ckpt.start, end: ckpt.end, snapshot: ckpt.snapshot });
+    receipt = { id: ckpt.id };
+    console.log(`再開: 記録済みの Snapshot 提案 ${ckpt.id} を読み戻して登録します(再作成しません)`);
+  } else {
+    sentStart = now; sentEnd = now + period; sentSnapshot = await mainnetProvider.getBlockNumber();
+    const client = new snapshot.Client712(SEQ);
+    receipt = await client.proposal(adapt(bot), bot.address, {
+      space: SPACE, type: "single-choice", title: p.title, body: p.body, discussion: p.discussion,
+      choices: p.choices, start: sentStart, end: sentEnd, snapshot: sentSnapshot,
+      plugins: "{}", app: "pnouns-voter",
+    });
+    if (!/^0x[0-9a-fA-F]{64}$/.test(String(receipt.id || ""))) throw new Error(`sequencer が想定外の提案 ID を返しました: ${receipt.id}`);
+    pending[String(nounsId)] = { id: receipt.id, start: sentStart, end: sentEnd, snapshot: sentSnapshot, at: new Date().toISOString() };
+    fs.writeFileSync(pendingPath, JSON.stringify(pending, null, 2));
+    console.log(`\nSnapshot 提案を作成: https://snapshot.box/#/s:${SPACE}/proposal/${receipt.id}`);
+  }
 
   // 登録前の読み戻し検算(第17回監査の推奨): 作成した提案をハブから再取得し、
   // 「これから登録しようとしている対応」が提案の実体と一致することを確認してから登録する。
@@ -115,7 +135,7 @@ async function main() {
   let verified = null;
   for (let i = 0; i < 18; i++) {
     await new Promise((r) => setTimeout(r, 5000));
-    const rb = await (await fetch(`${HUB}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: `{ proposal(id:"${receipt.id}") { id author type space { id } title body discussion choices } }` }) })).json();
+    const rb = await (await fetch(`${HUB}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: `query($id:String!){ proposal(id:$id) { id author type space { id } title body discussion choices start end snapshot } }`, variables: { id: receipt.id } }) })).json();
     const pr = rb?.data?.proposal;
     if (!pr) continue; // まだ索引されていない
     const problems = [];
@@ -128,6 +148,10 @@ async function main() {
     if ((pr.discussion || "") !== p.discussion) problems.push("discussion 不一致");
     if (!discussionRefsProposal(pr.discussion)) problems.push(`discussion が nouns.wtf/vote/${nounsId} を厳密に指していない`);
     if (JSON.stringify(pr.choices) !== JSON.stringify(p.choices)) problems.push(`choices 不一致: ${JSON.stringify(pr.choices)}`);
+    if (Number(pr.start) !== sentStart) problems.push(`start 不一致: ${pr.start} != ${sentStart}`);
+    if (Number(pr.end) !== sentEnd) problems.push(`end 不一致: ${pr.end} != ${sentEnd}`);
+    if (Number(pr.snapshot) !== Number(sentSnapshot)) problems.push(`snapshot 不一致: ${pr.snapshot} != ${sentSnapshot}`);
+    if (Number(pr.end) <= Math.floor(Date.now() / 1000)) problems.push("読み戻し時点で投票期間が終了している");
     if (problems.length) throw new Error(`読み戻し検算に失敗(登録を中止。Snapshot 提案 ${receipt.id} は孤児として残るため確認してください): ${problems.join(" / ")}`);
     verified = pr;
     break;
@@ -140,6 +164,8 @@ async function main() {
   const c = new ethers.Contract(voter, abi, w);
   const tx = await c.registerProposal(receipt.id, nounsId);
   await tx.wait();
+  delete pending[String(nounsId)]; // チェックポイントを解消
+  fs.writeFileSync(pendingPath, JSON.stringify(pending, null, 2));
   const delay = Number(await c.registrationDelayBlocks());
   console.log(`対応付けを登録: Snapshot ${receipt.id.slice(0, 14)}… → Nouns #${nounsId} (tx ${tx.hash})`);
   if (delay) console.log(`※ 登録から ${delay} ブロック(約 ${Math.round(delay * 12 / 60)} 分)は票を受け付けません(誤登録の確認猶予)`);

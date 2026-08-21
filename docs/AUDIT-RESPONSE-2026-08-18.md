@@ -425,3 +425,22 @@ Cloudflare 侵害では registrar 鍵で直接登録が可能(既知の信頼モ
 
 テスト 46 pass。コア健全性は第21回で確認済み。残: 冪等チェックポイント・resolveMappings の
 DoS 恒久対策は本番前の改善課題。
+
+---
+
+## 第22回監査 (2026-08-21, Codex) — 確定引き継ぎ方式の詰め
+
+対象: 5a3d063。生ログ: `docs/audit-22-codex-raw.md`
+「読み戻しの body 完全一致は過剰拒否にならない(SDK は正規化しない)」「preflight・
+workflow 基本構成・.env 任意化・鍵配置は問題なし」を確認。残りを対応。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | 高 | 読み戻しに start/end/snapshot と receipt.id 形式検証・GraphQL variables が未追加 | 追加: 送信した start/end/snapshot を保存して完全一致を検証、読み戻し時点で投票期間内も確認。receipt.id を `^0x[0-9a-fA-F]{64}$` で検証。GraphQL は variables 化 |
+| 2 | 中 | **DESC_FROM 時に検算が必ず失敗する実バグ**(discussion が /vote/descId になり /vote/nounsId と衝突) | 修正: buildProposal を登録対象の nounsId で構築(本文だけ descId から借りる)。E2E ブロッカー解消 |
+| 3 | 中 | concurrency を別表記(01000/1e3)で迂回でき、再実行も非冪等 | nouns_id を `^[1-9][0-9]*$` に制限。作成済み ID を deployments/<net>-pending.json に記録し、再実行時は再作成せず読み戻し→登録から再開(登録成功で解消) |
+| 4 | 中 | 資料「Cloudflare 侵害は投函妨害のみ」は過小 | 「リレイヤー鍵だけの漏洩では投函妨害のみ」に限定。アカウント/配信 origin 侵害ではフィッシングが残る(対応表登録・票偽造は不可・公式画面なら無影響)と明記 |
+| 5 | 低 | workflow の environment/network が自由文字列 | network を choice 型(sepolia/mainnet)に。スクリプト冒頭でも列挙検証 |
+| 6 | 低 | Sepolia でも MAINNET_RPC_URL 欠落が不明瞭 | 全 network 必須として preflight で明示検査 |
+
+テスト 46 pass。resolveMappings の 64KiB DoS は引き続き既知の可用性 accepted risk。
