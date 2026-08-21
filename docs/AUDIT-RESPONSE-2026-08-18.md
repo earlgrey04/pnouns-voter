@@ -530,3 +530,30 @@ placeholder 停止・getLogs assert)はすべて成立。
 停止復旧・締切安全停止を実測 → ④合格後に live 化。
 
 テスト relayer 49 / contracts 19 pass。E2E #528/#529 成功。
+
+---
+
+## 第27回 live化条件の Sepolia 追加実測 (2026-08-21)
+
+### ① 多数票の複数 tick 分割排出 — 成功(#530)
+MAX_BATCH を一時 1 にして票を複数 tick に分割。accepted 0→2→3 と段階的に増え、
+取りこぼしなく execute。投票者数=3(期待どおり)、result=1。receipt 後の再走査が正常。
+※派生 12 投票者は earl-grey.eth の投票 validation で弾かれ規模は 3 票に留まったが、
+分割ロジック(複数 tick・再走査・取りこぼしなし)は実証。本番は実メンバーで多数票が自然発生。
+
+### ② 直近20件外のイベント逆引き
+- **C(経路単体・実 RPC): 成功**。resolveMappings を実 Sepolia RPC で直接呼び、
+  recentLimit=1 で #528/#529/#530 を「直近1件外」に追い出した状態でも 3/3 を
+  unresolved ゼロで解決(ProposalRegistered→snapId 復元→個別照会、全 linkOk=true、
+  deployBlock 起点 getLogs も機能)。
+- **B(Worker tick 全体): 投函まで成功・execute はテスト設定の時間制約で未達**。
+  RESOLVE_RECENT_LIMIT=1 の Worker 下で #531 を作り、押し出し提案で直近1件外にした結果、
+  Worker が #531 を逆引き経由で解決し投函(accepted=3)。ただし押し出し作業の
+  オーバーヘッドで execute 窓(voteDeadline〜endBlock = margin 5 ブロック≒1分)を超過し、
+  Nouns 提案が Defeated に遷移して execute skip。**仕組みのバグではなくテスト設定
+  (投票期間5分・margin 5ブロック)の時間制約**。本番は margin 7200(約24h)で窓は広大、
+  この問題は起きない。execute 自体は #528/#529/#530 で実証済み。
+
+**結論**: 逆引き経路は C(実 RPC)で完全実証、B で投函まで実地確認。execute の連続は
+本番の時間設定でのみ成立するため、本番見学モードで完走を確認する(第27回の切り分けどおり)。
+検証用の wrangler 一時設定(MAX_BATCH/RESOLVE_RECENT_LIMIT)は本番値に復帰済み。
