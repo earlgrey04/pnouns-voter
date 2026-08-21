@@ -59,6 +59,21 @@ async function main() {
   // ---- 鍵・設定の検証(第12回監査: Snapshot 提案を外部送信する「前」にすべて確認する。
   //      送信後に落ちると、オンチェーン登録されない孤児提案が Snapshot に残ってしまう) ----
   const dep = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", `${NETWORK}.json`), "utf8"));
+  // 提案単位のチェックポイント(第23-24回監査): TDZ を避けるため preflight より前に定義。
+  // 「不存在(ファイルなし)」と「破損(不正 JSON・schema 不一致)」を区別し、破損時は停止する。
+  const pendingPath = path.join(ROOT, "deployments", `${NETWORK}-pending-${nounsId}.json`);
+  const isValidCkpt = (j) => j && typeof j === "object"
+    && /^0x[0-9a-fA-F]{64}$/.test(j.id || "")
+    && Number.isSafeInteger(Number(j.start)) && Number.isSafeInteger(Number(j.end)) && Number.isSafeInteger(Number(j.snapshot))
+    && Number(j.start) < Number(j.end) && Number(j.snapshot) >= 0;
+  const readPending = () => {
+    if (!fs.existsSync(pendingPath)) return null;
+    let j; try { j = JSON.parse(fs.readFileSync(pendingPath, "utf8")); } catch { throw new Error(`チェックポイント ${pendingPath} が壊れています(不正 JSON)。中身を確認し、問題なければ削除してください。`); }
+    if (!isValidCkpt(j)) throw new Error(`チェックポイント ${pendingPath} の内容が不正です。中身を確認してください。`);
+    return j;
+  };
+  const writePending = (obj) => { const tmp = pendingPath + ".tmp"; fs.writeFileSync(tmp, JSON.stringify(obj, null, 2)); fs.renameSync(tmp, pendingPath); };
+  const clearPending = () => { try { fs.unlinkSync(pendingPath); } catch {} };
   const voter = dep.snapVoter || dep.voter;
   if (!voter) throw new Error(`deployments/${NETWORK}.json に snapVoter がありません`);
   const rpc = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
@@ -102,10 +117,6 @@ async function main() {
   // 冪等チェックポイント(第22回監査): 作成後・登録前に失敗して再実行した場合、Snapshot 提案を
   // 再作成せず、記録済みの ID から読み戻し→登録を再開する(孤児提案の量産を防ぐ)。
   // 提案単位のチェックポイント(第23回監査: network 単位の read-modify-write による競合を避ける)
-  const pendingPath = path.join(ROOT, "deployments", `${NETWORK}-pending-${nounsId}.json`);
-  const readPending = () => { try { const j = JSON.parse(fs.readFileSync(pendingPath, "utf8")); return (j && /^0x[0-9a-fA-F]{64}$/.test(j.id || "") && Number.isSafeInteger(Number(j.start)) && Number(j.start) < Number(j.end)) ? j : null; } catch { return null; } };
-  const writePending = (obj) => { const tmp = pendingPath + ".tmp"; fs.writeFileSync(tmp, JSON.stringify(obj, null, 2)); fs.renameSync(tmp, pendingPath); }; // temp + atomic rename
-  const clearPending = () => { try { fs.unlinkSync(pendingPath); } catch {} };
   const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true });
   const now = Math.floor(Date.now() / 1000);
   let receipt, sentStart, sentEnd, sentSnapshot;

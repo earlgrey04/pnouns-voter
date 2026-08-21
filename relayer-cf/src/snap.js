@@ -6,7 +6,7 @@
 //  M06R — 応答はストリームで 64KB 打ち切り。検証できない票では window を進めず、
 //         恒久的に取得できない票は dead-letter に記録して警告する(黙って捨てない)。
 import { METAGOV_ABI } from "./chain.js";
-import { keccak256, stringToBytes } from "viem";
+import { keccak256, stringToBytes, parseAbiItem } from "viem";
 
 const FETCH_TIMEOUT_MS = 8000;
 const MAX_BODY = 64 * 1024;
@@ -32,8 +32,9 @@ async function fetchLimited(url, init) {
     return JSON.parse(new TextDecoder().decode(buf));
   } finally { clearTimeout(t); }
 }
-export async function hubGql(c, query) {
-  const j = await fetchLimited(`${c.snapshotHub}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) });
+export async function hubGql(c, query, variables) {
+  const body = variables ? { query, variables } : { query };
+  const j = await fetchLimited(`${c.snapshotHub}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   if (j.errors) throw new Error("hub graphql: " + JSON.stringify(j.errors).slice(0, 200));
   if (!j.data) throw new Error("hub graphql: no data");
   return j.data;
@@ -75,9 +76,11 @@ export function referencesNounsProposal(text, nounsId) {
 }
 
 export async function resolveMappings(c, pc, activeNounsIds = []) {
-  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id title end discussion } }`);
+  // 直近提案は id のみ取得(title/discussion を一括で取ると 64KiB 応答上限に達し tick 全体が
+  // fail-closed するため。第24回監査)。title/end/discussion は確定した snapId ごとに個別照会する。
+  const data = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 20, orderBy: "created", orderDirection: desc) { id } }`);
   if (!Array.isArray(data.proposals)) throw new Error("hub: proposals shape");
-  const meta = new Map(data.proposals.map((p) => [p.id, p]));
+  const meta = new Map();
   const found = new Map(); // nounsId -> snapId
   if (data.proposals.length) {
     const res = await pc.multicall({
@@ -93,16 +96,36 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     const hashes = await pc.multicall({ contracts: missing.map((id) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "nounsToSnap", args: [BigInt(id)] })), allowFailure: false });
     const need = [];
     missing.forEach((id, i) => { if (hashes[i] && hashes[i] !== "0x0000000000000000000000000000000000000000000000000000000000000000") need.push({ id: Number(id), hash: hashes[i] }); });
-    if (need.length) {
-      // ハブから対象 space の提案を追加取得し、ハッシュ一致で snapId を特定(最大 200 件遡る)
-      const more = await hubGql(c, `{ proposals(where:{space:"${c.snapshotSpace}"}, first: 200, orderBy: "created", orderDirection: desc) { id title end discussion } }`);
-      const byHash = new Map((more.proposals || []).map((p) => [keccak256(stringToBytes(p.id)), p]));
-      for (const n of need) {
-        const p = byHash.get(n.hash);
-        if (p) { found.set(n.id, p.id); meta.set(p.id, p); }
-        else { unresolved.push(n.id); console.warn(`[snap] prop ${n.id}: 対応する Snapshot 提案がハブで見つかりません`); }
-      }
+    // 第24回監査: 200 件一括取得(64KiB 応答上限に達すると tick 全体が fail-closed)を廃止し、
+    // ProposalRegistered イベント(nounsProposalId は indexed)から確定 snapId を復元して個別照会する。
+    const ev = parseAbiItem("event ProposalRegistered(uint256 indexed nounsProposalId, string snapshotProposal)");
+    for (const n of need) {
+      let snapId = null;
+      try {
+        const logs = await pc.getLogs({ address: c.metagov, event: ev, args: { nounsProposalId: BigInt(n.id) }, fromBlock: "earliest", toBlock: "latest" });
+        // 最新の登録イベントを採用し、現在の対応表ハッシュと一致するものだけを信頼する(再登録に追従)
+        for (let i = logs.length - 1; i >= 0; i--) {
+          const cand = logs[i].args.snapshotProposal;
+          if (cand && keccak256(stringToBytes(cand)) === n.hash) { snapId = cand; break; }
+        }
+      } catch (e) { console.warn(`[snap] prop ${n.id}: ProposalRegistered ログ取得に失敗: ${(e.message || "").slice(0, 80)}`); }
+      if (!snapId) { unresolved.push(n.id); console.warn(`[snap] prop ${n.id}: 対応表の登録イベントから Snapshot ID を復元できません`); continue; }
+      // 確定した snapId の title/end/discussion だけを個別に取得(1 件なので 64KiB を超えない)
+      try {
+        const d = await hubGql(c, `query($id:String!){ proposal(id:$id) { id title end discussion } }`, { id: snapId });
+        const pr = d?.proposal;
+        if (pr) { found.set(n.id, snapId); meta.set(snapId, pr); }
+        else { unresolved.push(n.id); console.warn(`[snap] prop ${n.id}: Snapshot 提案 ${snapId} をハブで取得できません`); }
+      } catch (e) { unresolved.push(n.id); console.warn(`[snap] prop ${n.id}: Snapshot 提案の個別取得に失敗: ${(e.message || "").slice(0, 80)}`); }
     }
+  }
+  // 直近20件由来の found について、まだ meta が無い snapId を個別照会(1 件ずつなので 64KiB を超えない)
+  for (const snapId of new Set(found.values())) {
+    if (meta.has(snapId)) continue;
+    try {
+      const d = await hubGql(c, `query($id:String!){ proposal(id:$id) { id title end discussion } }`, { id: snapId });
+      if (d?.proposal) meta.set(snapId, d.proposal);
+    } catch (e) { console.warn(`[snap] snap ${snapId.slice(0, 12)} の個別取得に失敗: ${(e.message || "").slice(0, 60)}`); }
   }
   const mappings = [...found.entries()].map(([nounsId, snapId]) => {
     const m = meta.get(snapId) || {};

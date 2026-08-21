@@ -444,3 +444,24 @@ workflow 基本構成・.env 任意化・鍵配置は問題なし」を確認。
 | 6 | 低 | Sepolia でも MAINNET_RPC_URL 欠落が不明瞭 | 全 network 必須として preflight で明示検査 |
 
 テスト 46 pass。resolveMappings の 64KiB DoS は引き続き既知の可用性 accepted risk。
+
+---
+
+## 第24回監査 (2026-08-21, Codex) — E2E 成功後のクローズ確認
+
+対象: 9829903 + Sepolia 実 E2E(Prop 528 成功)。生ログ: `docs/audit-24-codex-raw.md`
+「実 E2E は正常系(作成→検算→登録→投函→execute→集計)を一貫実証」と確認。
+コード面クローズは高 2 件により不可 → 対応。
+
+| # | 重大度 | 指摘 | 対応 |
+|---|---|---|---|
+| 1 | **高** | create-and-register の readPending/clearPending を const 定義より前で呼ぶ TDZ バグ。登録成功後・pending 削除前に停止して再実行すると ReferenceError。初回 E2E は existing==0 で通過していた | 修正: チェックポイント関数を preflight より前(dep 読込直後)に移動。実チェーンで登録済み #528 の再実行が正常終了することを確認 |
+| 2 | **高** | resolveMappings の逆引きが 200 件一括取得で 64KiB 超過 → tick 全体 fail-closed(投函・execute も停止)の可用性 DoS | 修正: 逆引きを ProposalRegistered(nounsProposalId indexed)イベントからの snapId 復元 + 個別照会に変更。直近 20 件取得も id のみにし、title/end/discussion は確定 snapId ごとに個別照会。**可変長フィールドの一括取得を全廃**し 64KiB DoS を根絶 |
+| 3 | 中 | CI artifact が別 workflow run から復元できない | accepted: 現実装は同一 run の rerun のみ有効。別 run 引き継ぎは外部ストアが要るため、運用は「失敗後の再実行前に孤児提案を手動確認」を RUNBOOK に明記(§11)。冪造は at-least-once + 重複照合の位置づけ |
+| 4 | 中 | Snapshot 作成〜チェックポイント保存の孤児化窓(Snapshot に冪等 API なし) | accepted(達成不能): at-least-once + 手動照合。孤児検知は本番前提として RUNBOOK に記載 |
+| 5 | 中 | E2E スクリプトが失敗を成功終了で扱う | 改善課題(リリース判定に使うなら要 assert)。今回は最終 tally までオンチェーン確認済み |
+| 6 | 低 | チェックポイントの schema 検証不完全 | 修正: id/start/end/snapshot を厳密検証。破損 JSON は「不存在」と区別して停止(新規作成しない) |
+
+テスト 46 pass(resolveMappings のイベント方式化に伴い mock を 2 段照会へ更新)。
+Worker 再デプロイ済み。resolveMappings 変更は照合の中核のため、次回 E2E で
+「登録済み提案の再解決がイベント経由で正しく動く」ことを実チェーンで再確認する。

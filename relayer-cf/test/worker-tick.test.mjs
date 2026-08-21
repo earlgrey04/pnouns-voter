@@ -54,14 +54,27 @@ function fakePC(h) {
 }
 
 // ---- fetch mock: ハブと Discord を演じる ----
-const F = { hub: [], discordStatus: 200, discordBodies: [], hubCalls: 0, envelope: null };
+const F = { hub: [], discordStatus: 200, discordBodies: [], hubCalls: 0, envelope: null, detail: null };
+let _lastProposals = [];
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u.startsWith(HUB)) {
     F.hubCalls++;
+    const parsed = JSON.parse(init.body);
+    if (String(parsed.query).includes("proposal(id")) {
+      if (String(parsed.query).includes("votes")) { // snapshotVoterCount(締切時の未反映票照合)
+        const r = F.hub.shift();
+        return new Response(JSON.stringify({ data: r ?? { proposal: null } }), { status: 200 });
+      }
+      // resolveMappings の meta 個別照会(title/end/discussion)
+      const id = parsed.variables?.id;
+      const pr = _lastProposals.find((x) => x.id === id) || (F.detail && F.detail.id === id ? F.detail : null);
+      return new Response(JSON.stringify({ data: { proposal: pr } }), { status: 200 });
+    }
     const r = F.hub.shift();
     if (r instanceof Error) throw r;
     if (typeof r === "number") return new Response("error", { status: r });
+    _lastProposals = (r && r.proposals) || [];
     return new Response(JSON.stringify({ data: r ?? { proposals: [] } }), { status: 200 });
   }
   if (u === WEBHOOK) { F.discordBodies.push(JSON.parse(init.body).content); return new Response("", { status: F.discordStatus }); }
@@ -106,7 +119,7 @@ const setup = (h, envOver = {}, wallet = null) => {
 };
 const putsOf = (kv, part) => kv.ops.filter(([op, k]) => op === "put" && k.includes(part));
 
-beforeEach(() => { F.hub = []; F.discordStatus = 200; F.discordBodies = []; F.hubCalls = 0; F.envelope = null; __setClientsForTests(null); });
+beforeEach(() => { F.hub = []; F.discordStatus = 200; F.discordBodies = []; F.hubCalls = 0; F.envelope = null; F.detail = null; _lastProposals = []; __setClientsForTests(null); });
 
 test("ハブ障害: tick 全体が fail-closed(告知なし・KV 書き込みなし)", async () => {
   const { kv, env } = setup(handlers());
@@ -233,7 +246,7 @@ test("第13回監査 High: 登録猶予中は投函せず、票を dead-letter �
     const { kv, env } = setup(handlers({ eligibleAtBlock: () => 150n }), {}, wallet);
     F.hub = [hubProposal("https://nouns.wtf/vote/1")];
     await tick(env);
-    assert.equal(F.hubCalls, 1, "ハブ呼び出しは対応付けの 1 回だけ(votes クエリなし)");
+    assert.equal(F.hubCalls, 2, "一覧 + meta 個別照会の 2 回のみ(votes クエリに行かない)");
     assert.equal(putsOf(kv, "snapdrop").length, 0, "drop を数えない");
     assert.equal(kv.ops.filter(([op, k]) => k.includes("snapsent")).length, 0, "投函処理に入らない");
     assert.equal(putsOf(kv, "announced").length, 1, "告知自体は行われる(Snapshot では投票できる)");
@@ -397,7 +410,7 @@ test("第16回監査: mainnet で linkOk=false なら、解禁後に実票があ
            { votes: [{ voter: VOTER_A, ipfs: CID, choice: 1, created: TS }] }];
   F.envelope = goodEnvelope();
   await tick(env);
-  assert.equal(F.hubCalls, 1, "votes クエリにすら到達しない(linkBad で停止)");
+  assert.equal(F.hubCalls, 2, "一覧 + meta 個別照会のみ。votes クエリに到達しない(linkBad で停止)");
   assert.equal(writes.length, 0, "投函 tx を送らない");
   assert.equal(kv.ops.filter(([op, k]) => op === "put" && k.includes("snapsent")).length, 0, "送信中レコードも作らない");
   assert.ok(F.discordBodies.some((b) => b.includes("参照していません")), "linkwarn が出る");
