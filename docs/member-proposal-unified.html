@@ -460,10 +460,22 @@
 <tr><td>状況ページ(集計の確認・手動実行) / 公開設定 API</td><td><a href="https://pnouns-voter.x402-adsb-worker.workers.dev">pnouns-voter.x402-adsb-worker.workers.dev</a> / <a href="https://pnouns-voter.x402-adsb-worker.workers.dev/api/config">…/api/config</a><br><span style="font-size:13px;color:var(--ink-2)">閲覧だけならウォレット不要。ウォレットを接続すると、締切後に「手動で execute」(その時点の集計を Nouns DAO へ確定)ができます。ガスの返金は pNouns Voter のプールではなく、Nouns DAO 側の上限つき返金です。未反映票はこのボタンでは追加されません</span></td></tr>
 </table></div>
 
-<h3>本番(メインネット)で対象になるもの(参考)</h3>
+<h3>メインネットで現在動いているもの(リハーサル・2026-08-22〜)</h3>
 <div class="tbl"><table>
-<tr><td>pNouns NFT</td><td><code>0x4bE962499cE295b1ed180F923bf9c73b6357DE80</code></td></tr>
-<tr><td>Nouns DAO</td><td><code>0x6f3E6272A167e8AcCb32072d08E0957F9c79223d</code></td></tr>
+<tr><th>もの</th><th>アドレス / URL</th></tr>
+<tr><td><b>pNouns Voter コントラクト</b>(リハーサル用・見学モード)</td><td><code>0x77a503db95a58Cd452bf47814f35D7733a283502</code><br><a href="https://etherscan.io/address/0x77a503db95a58Cd452bf47814f35D7733a283502">Etherscan</a> ・ <a href="https://eth.blockscout.com/address/0x77a503db95a58Cd452bf47814f35D7733a283502">Blockscout</a></td></tr>
+<tr><td>リハーサル用 Snapshot スペース</td><td><a href="https://snapshot.box/#/s:earlgreyai.eth">snapshot.box/#/s:earlgreyai.eth</a>(本番は <code>pnounsdao.eth</code> 指定で設置し直します)</td></tr>
+<tr><td>リハーサル 1 本目(実在の Nouns #991 を対象)</td><td><a href="https://snapshot.box/#/s:earlgreyai.eth/proposal/0xbc0149283afb318f87b1f7287890f97fcf1be49b5a7e5c1a89f902c1fe606137">Snapshot 提案</a> ↔ <a href="https://nouns.wtf/vote/991">nouns.wtf/vote/991</a></td></tr>
+<tr><td>管理者(リハーサル中の暫定=デプロイ用。仕上げに委任アドレスへ移管予定)</td><td><code>0x21cbD40e86E26fCA96d389B69172E470cFE16271</code></td></tr>
+<tr><td>登録係(独立鍵)</td><td><code>0x68f6Fd72733c34dDEC4EAE5a4E1940B0A9D88a4B</code></td></tr>
+<tr><td>リレイヤー(独立鍵・Cloudflare)</td><td><code>0x0F9f1883b944dD2b3B0acA1f8D0954c624d37c6A</code></td></tr>
+<tr><td>状況ページ / 公開設定 API</td><td><a href="https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev">pnouns-voter-mainnet.x402-adsb-worker.workers.dev</a> / <a href="https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev/api/config">…/api/config</a></td></tr>
+</table></div>
+
+<h3>本番で対象になるもの(参考)</h3>
+<div class="tbl"><table>
+<tr><td>pNouns NFT(リハーサルでも投票の重みに使用中)</td><td><code>0x4bE962499cE295b1ed180F923bf9c73b6357DE80</code></td></tr>
+<tr><td>Nouns DAO(リハーサルでも対応表・締切の参照先)</td><td><code>0x6f3E6272A167e8AcCb32072d08E0957F9c79223d</code></td></tr>
 <tr><td>Nouns Token</td><td><code>0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03</code></td></tr>
 </table></div>
 
@@ -472,8 +484,13 @@
 あなたは独立した検証者です。以下の主張を、公開データを取得して事実確認してください。
 推測で埋めず、確認できなかった項目は「未確認」と報告してください。
 
-【対象】Sepolia (chainId 11155111) の PNounsSnapVoter
+【対象1】Sepolia (chainId 11155111) の PNounsSnapVoter
   0x64CdACeA6857c6560F3124c532AA4ed34152693F
+【対象2】mainnet (chainId 1) のリハーサル用 PNounsSnapVoter
+  0x77a503db95a58Cd452bf47814f35D7733a283502
+  (space=earlgreyai.eth、liveMode=false の見学モード。
+   nounsToSnap(991) が Snapshot 提案 0xbc0149…6137 の keccak256 と一致すること、
+   pNouns 0x4bE962499cE295b1ed180F923bf9c73b6357DE80 の実保有で集計されることを確認)
 
 【主張1】ソースコードが公開され、デプロイ済みコードと完全一致している
   → Sourcify API: https://sourcify.dev/server/v2/contract/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F
