@@ -12,6 +12,7 @@ const MAINNET = {
 };
 async function main() {
   const owner = process.env.OWNER, registrar = process.env.REGISTRAR;
+  const space = process.env.SPACE || "pnounsdao.eth"; // リハーサルでは SPACE=earl-grey.eth を明示(2026-08-22)
   const excluded = (process.env.EXCLUDED || "").split(",").filter(Boolean);
   const delay = Number(process.env.REG_DELAY || 10); // 約 2 分 = 受付前に自動照合が 1 周する間隔(2026-08-21 決定)
   const margin = Number(process.env.MARGIN || 7200); // 運用決定値: 締切 = Nouns 投票終了の約 24 時間前
@@ -30,16 +31,16 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   if (!deployer) throw new Error("デプロイ用アカウントがありません(MAINNET_DEPLOYER_KEY を設定)");
   console.log(`network=${network.name} deployer=${deployer.address}`);
-  console.log(`owner=${owner} registrar=${registrar}\nexcluded=${excluded.join(",")} delay=${delay} margin=${margin} space=pnounsdao.eth`);
+  console.log(`owner=${owner} registrar=${registrar}\nexcluded=${excluded.join(",")} delay=${delay} margin=${margin} space=${space}`);
   if (process.env.DRY_RUN === "1") { console.log("--- DRY_RUN: デプロイしません ---"); return; }
   if (network.name === "hardhat") await ethers.provider.send("hardhat_setNextBlockBaseFeePerGas", ["0x1"]); // フォークでのテスト実行用
   const F = await ethers.getContractFactory("PNounsSnapVoter");
-  const c = await F.deploy(MAINNET.PNOUNS, MAINNET.NOUNS_DAO, owner, registrar, "pnounsdao.eth", excluded, margin, delay);
+  const c = await F.deploy(MAINNET.PNOUNS, MAINNET.NOUNS_DAO, owner, registrar, space, excluded, margin, delay);
   await c.waitForDeployment();
   const addr = await c.getAddress();
   // 読み戻し検証(設定漏れをその場で検出)
   const checks = [
-    ["space", await c.space(), "pnounsdao.eth"],
+    ["space", await c.space(), space],
     ["registrationDelayBlocks", Number(await c.registrationDelayBlocks()), delay],
     ["marginBlocks", Number(await c.marginBlocks()), margin],
     ["owner", (await c.owner()).toLowerCase(), owner.toLowerCase()],

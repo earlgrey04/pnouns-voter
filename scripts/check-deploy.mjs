@@ -59,7 +59,7 @@ async function main() {
     v.space(), v.spaceHash(), v.registrationDelayBlocks(), v.marginBlocks(), v.owner(), v.registrar(), v.liveMode(), v.refundEnabled(),
   ]);
   check("spaceHash = keccak256(space)", spaceHash === ethers.keccak256(ethers.toUtf8Bytes(space)), `space="${space}"`);
-  const expSpace = MAIN ? "pnounsdao.eth" : (process.env.SNAPSHOT_SPACE || "earl-grey.eth");
+  const expSpace = process.env.EXPECT_SPACE || (MAIN ? "pnounsdao.eth" : (process.env.SNAPSHOT_SPACE || "earl-grey.eth")); // リハーサルは EXPECT_SPACE=earl-grey.eth を明示(2026-08-22)
   check("space が想定どおり", space === expSpace, `${space} (想定 ${expSpace})`);
   const expDelay = Number(E("EXPECT_DELAY") || (MAIN ? 10 : 1));
   check(`registrationDelayBlocks >= ${expDelay}`, Number(delay) >= expDelay, String(delay));
