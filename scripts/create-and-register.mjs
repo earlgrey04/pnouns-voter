@@ -122,7 +122,13 @@ async function main() {
   const [nState, nProp, curBlock] = await Promise.all([dao.state(nounsId), dao.proposals(nounsId), provider.getBlockNumber()]);
   const STATE_NAMES = ["Pending","Active","Canceled","Defeated","Succeeded","Queued","Expired","Executed","Vetoed","ObjectionPeriod","Updatable"];
   const st = Number(nState);
-  if (st !== 0 && st !== 1) throw new Error(`Nouns #${nounsId} の状態が ${STATE_NAMES[st] ?? st} です。本文が凍結される Pending/Active になってから作成してください(Updatable 中は提案者が本文を変更できます)`);
+  // 現行 pnouns-mirror と同じルール(2026-08-23 ユーザー決定): Nouns の投票が始まって(Active)から作る。
+  // Updatable 中は本文が変わり得る。Pending 中は投函もできない(ProposalNotVotable)。
+  if (st !== 1) {
+    const startBlock = Number(nProp[5]);
+    const untilStart = st === 0 || st === 10 ? `(投票開始まで約 ${(((startBlock - Number(curBlock)) * 12) / 3600).toFixed(1)} 時間)` : "";
+    throw new Error(`Nouns #${nounsId} の状態が ${STATE_NAMES[st] ?? st} です。投票開始(Active)後に作成してください${untilStart}`);
+  }
   const endBlock = Number(nProp[6]);
   const deadlineSec = (endBlock - Number(marginBlocks) - Number(curBlock)) * 12; // 集計締切までの概算秒
   const drainSec = 1800; // 排出余裕 30 分
