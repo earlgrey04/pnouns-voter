@@ -40,12 +40,12 @@ directory = "./public"
 crons = ["*/2 * * * *"]
 [[env.mainnet.kv_namespaces]]
 binding = "STATE"
-id = "REPLACE_WITH_MAINNET_KV_ID"
+id = "880f31d47c1249019ddea7ab1320fe80"
 [env.mainnet.vars]
 NETWORK = "mainnet"
-SNAPSHOT_SPACE = "pnounsdao.eth"
-VOTER = "REPLACE_AFTER_MAINNET_DEPLOY"
-VOTER_DEPLOY_BLOCK = "REPLACE_AFTER_MAINNET_DEPLOY" # コントラクトのデプロイブロック(必須・正の整数)
+SNAPSHOT_SPACE = "earlgreyai.eth" # リハーサル中。本運用時に pnounsdao.eth へ(要・再デプロイ後の VOTER 差し替えとセット)
+VOTER = "0x77a503db95a58Cd452bf47814f35D7733a283502"
+VOTER_DEPLOY_BLOCK = "25811147"
 PNOUNS = "0x4bE962499cE295b1ed180F923bf9c73b6357DE80"
 NOUNS_DAO = "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d"
 NOUNS_TOKEN = "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03"
