@@ -467,3 +467,18 @@ test("イベント逆引き: 個別照会が取れなければ unresolved(fail-c
   assert.equal(mappings.length, 0);
   assert.deepEqual(unresolved, [42], "解決できなければ提案単位で停止");
 });
+
+// mainnet リハーサル(2026-08-22)で発見: Nouns 投票開始前は投函しない
+test("Nouns 投票開始前(Pending)は投函せず、票をデッドレター化しない", async () => {
+  let wrote = 0;
+  const wallet = { account: { address: RELAYER }, writeContract: async () => { wrote++; return "0x" + "11".repeat(32); } };
+  const mainnetEnv = { NETWORK: "mainnet", PNOUNS: "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
+    NOUNS_DAO: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", NOUNS_TOKEN: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03", VOTER_DEPLOY_BLOCK: "1" };
+  const h = handlers({ state: () => 0 }); // Pending(投票開始前)
+  const { kv, env } = setup(h, mainnetEnv, wallet);
+  F.hub = [{ proposals: [{ id: SNAP_ID, title: "T", end: Math.floor(Date.now() / 1000) + 90000, discussion: "https://nouns.wtf/vote/1", body: "" }] }];
+  await tick(env);
+  assert.equal(wrote, 0, "投票開始前は投函しない");
+  const dropKeys = [...kv.data.keys()].filter((k) => k.includes("snapdrop"));
+  assert.equal(dropKeys.length, 0, "デッドレターに数えない");
+});

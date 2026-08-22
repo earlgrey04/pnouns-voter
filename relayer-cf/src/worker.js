@@ -244,13 +244,14 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     catch (e) {
       if (!isContractRevert(e)) { console.warn(`[snap] simulate transient error prop ${nounsId}: ${(e.shortMessage || e.message || "").slice(0, 120)}`); break; }
       // 第13回監査 High の二重防御: 猶予境界の競合など、票の欠陥ではない revert は数えずに次 tick へ
-      if (revertErrorName(e) === "RegistrationTooRecent") { console.warn(`[snap] prop ${nounsId}: registration delay not elapsed — retry next tick`); break; }
+      const en = revertErrorName(e);
+      if (en === "RegistrationTooRecent" || en === "ProposalNotVotable") { console.warn(`[snap] prop ${nounsId}: ${en} — timing, retry next tick`); break; }
       const good = [];
       for (const a2 of chunk.slice(0, 10)) {
         try { await pc.simulateContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "castSnapshotVotes", args: [[a2]], account: wc.account }); good.push(a2); }
         catch (e2) {
           const cid = cidOf.get(a2);
-          if (isContractRevert(e2) && revertErrorName(e2) !== "RegistrationTooRecent" && cid) { // 決定的な revert だけ回数を数え、5 回でデッドレター(後続票を塞がない)
+          if (isContractRevert(e2) && !["RegistrationTooRecent", "ProposalNotVotable"].includes(revertErrorName(e2)) && cid) { // 決定的な revert だけ回数を数え、5 回でデッドレター(後続票を塞がない)
             drops[cid] = (drops[cid] || 0) + 1; dropChanged = true;
             if (drops[cid] === 5) await notify(c, [`⚠️ Prop ${nounsId}: 1 票がオンチェーンで受理されませんでした(5 回試行)。集計から除外します。`, `投票者: ${a2.from}`, `データ ID: ${cid}`].join("\n"));
           }
@@ -543,7 +544,10 @@ export async function tick(env) {
             // 第13回監査 High: 登録猶予中はコントラクトが RegistrationTooRecent で revert する。
             // これを投函失敗として数えると、猶予中(24h)に届いた正常票が dead-letter 化されるため、
             // 解禁ブロックまで投函自体を行わない(票は Snapshot に残り、解禁後に投函される)。
-            if (snapInfo && !(mg.eligibleAt && block < mg.eligibleAt)) {
+            // mainnet リハーサル(2026-08-22)で判明: Nouns の投票開始前(Updatable/Pending)は
+            // コントラクトが ProposalNotVotable で拒否する。投函は Active(state=1)のときだけ行い、
+            // それまでの票は Snapshot ハブに残して開始後に投函する(消えない)。
+            if (snapInfo && p.state === 1 && !(mg.eligibleAt && block < mg.eligibleAt)) {
               const rush = shouldRushSubmit(c, block, mg.deadline);
               await submitFromSnapshot(c, pc, wc, store, snapInfo, p.id, rush);
             }
