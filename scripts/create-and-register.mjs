@@ -98,8 +98,9 @@ async function main() {
   const expectedChainId = NETWORK === "mainnet" ? 1n : 11155111n;
   const gotChainId = (await provider.getNetwork()).chainId;
   if (gotChainId !== expectedChainId) throw new Error(`RPC の chainId(${gotChainId}) が ${NETWORK}(${expectedChainId}) と一致しません`);
-  const pre = new ethers.Contract(voter, ["function registrar() view returns (address)", "function owner() view returns (address)", "function nounsToSnap(uint256) view returns (bytes32)", "function spaceHash() view returns (bytes32)"], provider);
-  const [reg, own, existing, spaceHash] = await Promise.all([pre.registrar(), pre.owner(), pre.nounsToSnap(nounsId), pre.spaceHash()]);
+  const pre = new ethers.Contract(voter, ["function registrar() view returns (address)", "function owner() view returns (address)", "function nounsToSnap(uint256) view returns (bytes32)", "function spaceHash() view returns (bytes32)", "function nounsDAO() view returns (address)", "function marginBlocks() view returns (uint256)"], provider);
+  const [reg, own, existing, spaceHash, daoAddr, marginBlocks] = await Promise.all([pre.registrar(), pre.owner(), pre.nounsToSnap(nounsId), pre.spaceHash(), pre.nounsDAO(), pre.marginBlocks()]);
+
   if (spaceHash !== ethers.keccak256(ethers.toUtf8Bytes(SPACE))) throw new Error(`コントラクトの spaceHash が SPACE="${SPACE}" と一致しません`);
   const rAddr = registrarWallet.address.toLowerCase();
   // 通常ジョブでは registrar アドレスとの一致のみ許可(第21回監査)。owner 鍵での登録は緊急用の別フラグ
@@ -113,6 +114,20 @@ async function main() {
     if (ck && existing === ethers.keccak256(ethers.toUtf8Bytes(ck.id))) { clearPending(); console.log(`Nouns #${nounsId} は既にこの提案(${ck.id.slice(0, 14)}…)で登録済みです。チェックポイントを解消しました。`); return; }
     throw new Error(`Nouns #${nounsId} には既に対応表が登録されています(${existing.slice(0, 18)}…)`);
   }
+
+  // タイミング検査(2026-08-23、mainnet リハーサル #991 の教訓):
+  // ① Updatable(本文更新可能)中は作らない — メンバーが確定前の本文に投票してしまう
+  // ② Snapshot の締切が「Nouns 締切 − マージン」に収まることを事前に確認する
+  const dao = new ethers.Contract(daoAddr, ["function state(uint256) view returns (uint8)", "function proposals(uint256) view returns (uint256,address,uint256,uint256,uint256,uint256 startBlock,uint256 endBlock,uint256,uint256,uint256,bool,bool,bool,uint256,uint256)"], provider);
+  const [nState, nProp, curBlock] = await Promise.all([dao.state(nounsId), dao.proposals(nounsId), provider.getBlockNumber()]);
+  const STATE_NAMES = ["Pending","Active","Canceled","Defeated","Succeeded","Queued","Expired","Executed","Vetoed","ObjectionPeriod","Updatable"];
+  const st = Number(nState);
+  if (st !== 0 && st !== 1) throw new Error(`Nouns #${nounsId} の状態が ${STATE_NAMES[st] ?? st} です。本文が凍結される Pending/Active になってから作成してください(Updatable 中は提案者が本文を変更できます)`);
+  const endBlock = Number(nProp[6]);
+  const deadlineSec = (endBlock - Number(marginBlocks) - Number(curBlock)) * 12; // 集計締切までの概算秒
+  const drainSec = 1800; // 排出余裕 30 分
+  if (period + drainSec > deadlineSec) throw new Error(`時間が足りません: Snapshot ${period/3600}h + 排出余裕が、集計締切(Nouns 締切24h前)まで ${Math.max(0,deadlineSec/3600).toFixed(1)}h に収まりません`);
+  console.log(`Nouns #${nounsId}: ${STATE_NAMES[st]}、集計締切まで約 ${(deadlineSec/3600).toFixed(1)} 時間(Snapshot ${period/3600}h + 余裕が収まることを確認)`);
 
   // 冪等チェックポイント(第22回監査): 作成後・登録前に失敗して再実行した場合、Snapshot 提案を
   // 再作成せず、記録済みの ID から読み戻し→登録を再開する(孤児提案の量産を防ぐ)。
