@@ -98,12 +98,23 @@ async function render() {
         <div class="against">反対 ${mg.tokens[0]} <small>(${mg.voters[0]}名)</small></div>
         <div class="abstain">棄権 ${mg.tokens[2]} <small>(${mg.voters[2]}名)</small></div>
       </div>
-      ${p.pendingSignatures ? `<div class="row" style="margin-top:6px"><button class="submitall" data-p="${p.id}">投函待ちの署名 ${p.pendingSignatures} 件を自分で投函する(誰でも可・ガス自己負担)</button><a class="muted" href="/api/signatures/${p.id}" target="_blank">署名一覧(公開)</a></div>` : `<div class="muted"><a href="/api/signatures/${p.id}" target="_blank">署名一覧(公開)</a></div>`}
+      ${snapMode ? "" : (p.pendingSignatures ? `<div class="row" style="margin-top:6px"><button class="submitall" data-p="${p.id}">投函待ちの署名 ${p.pendingSignatures} 件を自分で投函する(誰でも可・ガス自己負担)</button><a class="muted" href="/api/signatures/${p.id}" target="_blank">署名一覧(公開)</a></div>` : `<div class="muted"><a href="/api/signatures/${p.id}" target="_blank">署名一覧(公開)</a></div>`)}
       <div class="muted">現時点の判定: <b>${mg.executed ? "確定 → " : ""}${mg.tokens[0] + mg.tokens[1] + mg.tokens[2] ? SUPPORT[mg.result] : "投票なし(このままなら Nouns DAO には投票しません)"}</b>${mg.executed ? "(Nouns DAO に投票済み)" : ""}</div>
       <div id="my-${p.id}"></div>`;
     root.appendChild(el);
     el.querySelectorAll("button.submitall").forEach((b) => b.addEventListener("click", () => manualSubmit(Number(b.dataset.p))));
-    if (snapMode && p.votable) { const d = document.createElement("div"); d.className = "muted"; const url = p.snapshotProposalId ? `https://snapshot.box/#/s:${CONFIG.snapshotSpace}/proposal/${p.snapshotProposalId}` : `https://snapshot.box/#/s:${CONFIG.snapshotSpace}`; d.innerHTML = `投票は <a href="${url}" target="_blank" rel="noopener">Snapshot(${escapeHtml(CONFIG.snapshotSpace)})</a> から。結果は自動でオンチェーンに反映されます。`; el.appendChild(d); }
+    if (snapMode && p.votable) {
+      const d = document.createElement("div"); d.className = "muted";
+      if (p.snapshotProposalId) {
+        const url = `https://snapshot.box/#/s:${CONFIG.snapshotSpace}/proposal/${p.snapshotProposalId}`;
+        const waiting = p.stateName === "Pending" || p.stateName === "Updatable";
+        d.innerHTML = `投票は <a href="${url}" target="_blank" rel="noopener">Snapshot(${escapeHtml(CONFIG.snapshotSpace)})</a> から(票の一覧もここで公開)。` +
+          (waiting ? `票は Snapshot に保管され、<b>Nouns 本体の投票開始後</b>に数分ごとへオンチェーン反映されます(上の集計はそれまで 0 のままです)。` : `票は数分ごとに自動でオンチェーンへ反映されます。`);
+      } else {
+        d.innerHTML = `この議案はまだ対応表に未登録です(Nouns の投票開始後、自動処理が Snapshot 提案を作成・登録します)。`;
+      }
+      el.appendChild(d);
+    }
     else if (account && p.votable) await renderMine(p);
   }
   if (closed.length) {
