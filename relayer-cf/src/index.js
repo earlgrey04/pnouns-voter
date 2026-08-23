@@ -40,14 +40,16 @@ app.get("/api/proposals", async (ctx) => {
   const limited = closedN ? wanted.slice(0, closedN) : wanted;
   const snapmap = c.snapshotSpace ? ((await ctx.env.STATE.get(`${store.prefix}snapmap`, "json")) || {}) : {};
   const snapByNouns = Object.fromEntries(Object.entries(snapmap).map(([k, v]) => [v, k]));
-  const list = await Promise.all(limited.map(async (p) => {
+  const list = (await Promise.all(limited.map(async (p) => {
+    try {
     const votable = p.state === 0 || p.state === 1;
     const [title, mg, sum, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.getSummary(p.id), store.getExecuted(p.id)]);
     const snapshotProposalId = snapByNouns[p.id] || null;
     const votes = sum.votes;
     const acceptUntil = mg.deadline ? acceptDeadline(c, mg.deadline) : 0;
     return { ...p, title, snapshotProposalId, metagov: { ...mg, acceptDeadline: c.snapshotSpace ? mg.deadline : acceptUntil }, votable: votable && block < (c.snapshotSpace ? mg.deadline : acceptUntil), pendingSignatures: votes.filter((v) => !v.tx && !v.dropped).length, submittedVoters: votes.filter((v) => v.tx).length, executed };
-  }));
+    } catch (e) { console.warn(`[api] prop ${p.id} skipped: ${(e.shortMessage || e.message || "").slice(0, 80)}`); return null; }
+  }))).filter(Boolean);
   const res = ctx.json({ block, proposals: list });
   const toCache = new Response(res.body, res); toCache.headers.set("Cache-Control", "public, max-age=30");
   ctx.executionCtx.waitUntil(cache.put(cacheKey, toCache.clone()));

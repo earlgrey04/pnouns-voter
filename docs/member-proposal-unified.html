@@ -483,7 +483,7 @@
 </div>
 <h4 class="sub">備え 1(約 2 分の受付停止)と備え 2(自動検算)の詳しい理屈と限界</h4>
   <p style="margin:10px 0 6px;font-size:14px"><b>備え 1「約 2 分の間隔」の役割と限界</b>:<br>
-<b>役割</b> — 対応表は、票を 1 票でも受け付けた後は取り消せない仕様です(受理済みの票を無効化させないため)。そこで登録から約 2 分は票を受け付けず、その間に自動検算(備え 2)が必ず 1 回は走って、誤登録なら⚠️警告が出るようにしています。この間隔が無いと、取り違え事故が起きたとき、誰も気づく前に<b>自動のリレイヤー自身が普段どおり票を投函して、誤った対応表を取消不能にしてしまいます</b>。2 分あれば「票が入る前に警告 → 取り消して正しく登録し直す」という軽い復旧で済みます。<br>
+<b>役割</b> — 対応表は、票を 1 票でも受け付けた後は取り消せない仕様です(受理済みの票を無効化させないため)。そこで登録から約 2 分は票を受け付けず、その間に自動検算(備え 2)が原則 1 回は走って、誤登録なら⚠️警告が出るようにしています(巡回は 2 分ごと。オンチェーンが保証するのは間隔で、検算の実行はクラウド側の動作のため、クラウド遅延時の例外はあり得ます)。この間隔が無いと、取り違え事故が起きたとき、誰も気づく前に<b>自動のリレイヤー自身が普段どおり票を投函して、誤った対応表を取消不能にしてしまいます</b>。2 分あれば「票が入る前に警告 → 取り消して正しく登録し直す」という軽い復旧で済みます。<br>
 <b>限界</b> — 投函は誰でもできる操作なので、受付開始の直後に悪意の第三者が票を投函すれば、対応表はその時点で取消不能になります。つまりこの 2 分は「取消の機会」までは保証せず、<b>「検算が受付より先に走ること」を保証する</b>仕組みです。<br>
 <b>それでも安全な理由</b> — 対応表が取消不能になっても、確定(Nouns DAO への投票)までには集計締切まで数日あります。検算の⚠️警告(数分で出ます)を受けて管理者が停止すれば、誤った投票が Nouns に届くことはなく、その議案は従来どおり手動で投票します(停止は Nouns への最終投票だけを止め、集計は続きます)。<br>
 <b>補足</b> — 受付開始の時点は登録の瞬間に固定され、管理者にも前倒しできません(万一管理者の鍵が漏れても、検算の機会を奪えないようにするためです)。なお巡回間隔が「2 分」なのは釣り合いの値です: <b>投票からオンチェーン計上までの時間差(この間に NFT を移転すると票が減り得る窓・§4)をできるだけ短くしたい</b>一方で、登録猶予(約 2 分)の間に自動照合が必ず 1 周まわること、無料枠のクラウド利用の範囲に収まることを両立させています。</p>
@@ -680,7 +680,7 @@
 <p style="font-size:13.5px;color:var(--ink-2)">テストネットでの検証フェーズは完了し、自動巡回は停止しています(2026-08-24)。コントラクト・全記録・状況ページは引き続き公開されており、以下はいつでも第三者が検証できます。</p>
 <div class="tbl"><table>
 <tr><th>もの</th><th>アドレス / URL</th></tr>
-<tr><td><b>pNouns Voter コントラクト</b>(検証対象の本体)</td><td><code>0x64CdACeA6857c6560F3124c532AA4ed34152693F</code><br><a href="https://sepolia.etherscan.io/address/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Etherscan</a> ・ <a href="https://eth-sepolia.blockscout.com/address/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Blockscout</a> ・ <a href="https://repo.sourcify.dev/contracts/full_match/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Sourcify(全ソースコード)</a></td></tr>
+<tr><td><b>pNouns Voter コントラクト</b>(検証対象の本体)</td><td><code>0x64CdACeA6857c6560F3124c532AA4ed34152693F</code><br><a href="https://sepolia.etherscan.io/address/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Etherscan</a> ・ <a href="https://eth-sepolia.blockscout.com/address/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Blockscout</a> ・ <a href="https://repo.sourcify.dev/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F">Sourcify(全ソースコード)</a></td></tr>
 <tr><td>テスト用 Snapshot スペース</td><td><a href="https://snapshot.box/#/s:earl-grey.eth">snapshot.box/#/s:earl-grey.eth</a>(本番は <code>pnounsdao.eth</code>)</td></tr>
 <tr><td>Sepolia の Nouns DAO(公式テスト版)</td><td><code>0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57</code></td></tr>
 <tr><td>Sepolia の Nouns Token(公式テスト版)</td><td><code>0x4C4674bb72a096855496a7204962297bd7e12b85</code></td></tr>
@@ -694,7 +694,7 @@
 <h3>メインネットで現在動いているもの(リハーサル・2026-08-22〜)</h3>
 <div class="tbl"><table>
 <tr><th>もの</th><th>アドレス / URL</th></tr>
-<tr><td><b>pNouns Voter コントラクト</b>(リハーサル用・見学モード)</td><td><code>0x77a503db95a58Cd452bf47814f35D7733a283502</code><br><a href="https://etherscan.io/address/0x77a503db95a58Cd452bf47814f35D7733a283502">Etherscan</a> ・ <a href="https://eth.blockscout.com/address/0x77a503db95a58Cd452bf47814f35D7733a283502">Blockscout</a></td></tr>
+<tr><td><b>pNouns Voter コントラクト</b>(リハーサル用・見学モード)</td><td><code>0x77a503db95a58Cd452bf47814f35D7733a283502</code><br><a href="https://etherscan.io/address/0x77a503db95a58Cd452bf47814f35D7733a283502">Etherscan</a> ・ <a href="https://eth.blockscout.com/address/0x77a503db95a58Cd452bf47814f35D7733a283502">Blockscout(ソース検証済み)</a> ・ <a href="https://repo.sourcify.dev/1/0x77a503db95a58Cd452bf47814f35D7733a283502">Sourcify(完全一致検証・全ソース)</a></td></tr>
 <tr><td>リハーサル用 Snapshot スペース</td><td><a href="https://snapshot.box/#/s:earlgreyai.eth">snapshot.box/#/s:earlgreyai.eth</a>(本番は <code>pnounsdao.eth</code> 指定で設置し直します)</td></tr>
 <tr><td>リハーサル 1 本目(実在の Nouns #991 を対象)</td><td><a href="https://snapshot.box/#/s:earlgreyai.eth/proposal/0xbc0149283afb318f87b1f7287890f97fcf1be49b5a7e5c1a89f902c1fe606137">Snapshot 提案</a> ↔ <a href="https://nouns.wtf/vote/991">nouns.wtf/vote/991</a></td></tr>
 <tr><td>管理者(リハーサル中の暫定=デプロイ用。仕上げに<b>アールグレイの管理用ウォレット vote.earl-grey.eth</b>へ移管する予行演習を行います。本番では §9 のとおり、さらに <b>pNouns のマルチシグへの移管</b>を検討します)</td><td><code>0x21cbD40e86E26fCA96d389B69172E470cFE16271</code></td></tr>
@@ -721,12 +721,15 @@
   0x77a503db95a58Cd452bf47814f35D7733a283502
   (space=earlgreyai.eth、liveMode=false の見学モード。
    nounsToSnap(991) が Snapshot 提案 0xbc0149…6137 の keccak256 と一致すること、
-   pNouns 0x4bE962499cE295b1ed180F923bf9c73b6357DE80 の実保有で集計されることを確認)
+   pNouns 0x4bE962499cE295b1ed180F923bf9c73b6357DE80 の実保有で集計されることを確認。
+   注: 集計は Nouns 本体の投票開始後に始まるため、開始前は tally が 0 で正しい)
 
 【主張1】ソースコードが公開され、デプロイ済みコードと完全一致している
-  → Sourcify API: https://sourcify.dev/server/v2/contract/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F
-    "match": "exact_match" を確認。ソース全文は
-    https://repo.sourcify.dev/contracts/full_match/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F
+  → Sourcify API(v2): https://sourcify.dev/server/v2/contract/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F
+    "match": "exact_match" を確認。mainnet(対象2)も同様に
+    https://sourcify.dev/server/v2/contract/1/0x77a503db95a58Cd452bf47814f35D7733a283502
+    で exact_match を確認できる。ソース全文(新 UI):
+    https://repo.sourcify.dev/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F
 
 【主張2】コントラクトは Snapshot の署名を自分で検証している
   → 上記ソースの castSnapshotVotes() / _castVote() を読む。
@@ -734,7 +737,7 @@
     NFT 保有照会、_votedBitmap による二重計上防止、timestamp による再投票制御、
     spaceHash の固定(コンストラクタで keccak256("earl-grey.eth"))
 
-【主張3】対応表の登録から 10 ブロック(約 2 分)は票を受け付けない(本番設定。受付前に自動検算が走ることの保証)
+【主張3】対応表の登録から 10 ブロック(約 2 分)は票を受け付けない(登録と受付開始を分ける間隔。検算が先に走るための時間確保が目的 — オンチェーンが保証するのは間隔のみで、検算プログラムの実行自体はクラウド側の動作)
   → ソースの registerProposal() で eligibleAtBlock = block.number + registrationDelayBlocks、
     unregisterProposal() は snapshotVotesAccepted != 0 なら revert、
     setRegistrationDelayBlocks() が既登録の eligibleAtBlock に影響しないことを確認。
@@ -751,6 +754,8 @@
   → Sepolia(対象1): owner() = 0x10849D31…8925, registrar() = 0xfE07E953…c9ae。
     リレイヤー 0xBbE0b0fe…D561 は https://pnouns-voter.x402-adsb-worker.workers.dev/api/config
     の "relayer" と一致し、3 者が互いに異なること。
+    ※アドレスの相異まで確認可。秘密鍵が別の場所・主体で保管されていることは
+    オンチェーンからは証明できない(保管方針は §2 に記載)。
     mainnet リハーサル(対象2): owner() = 0x21cbD40e…6271(暫定・§10 の表参照),
     registrar() = 0x68f6Fd72…8a4B, リレイヤー 0x0F9f1883…7c6A は
     https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev/api/config と一致すること。
@@ -769,7 +774,9 @@
       orderDirection:desc) { id title choices scores votes } }
     (mainnet リハーサル分は space:"earlgreyai.eth" で同様に取得)
     任意の提案 id について { votes(where:{proposal:"&lt;id&gt;"}) { voter choice created ipfs } }
-    で 1 票ずつの署名レコードを取得し、上の VoteCast の内訳と突き合わせる。
+    で 1 票ずつの投票レコードを取得する。署名の本体は GraphQL には含まれず、
+    各票の ipfs(CID)から https://snapshot.4everland.link/ipfs/&lt;CID&gt; で
+    署名つきメッセージ全体を取得できる。これを上の VoteCast の内訳と突き合わせる。
 
 【注意】
 - Cloudflare 上で動くプログラム(リレイヤー)の実行コードは外部から証明できません。
