@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 720" width="100%" role="img" aria-labelledby="system-title system-desc">
+  <title id="system-title">pNouns Voter の仕組み全体</title>
+  <desc id="system-desc">メンバーの Snapshot 投票を、クラウドの自動処理がオンチェーンへ運び、コントラクトが検証・集計して Nouns DAO に投票する流れ。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 Z" fill="var(--ink-2)"/>
+    </marker>
+    <style>
+      text { font-family: system-ui, sans-serif; fill: var(--ink); }
+      .zone-label { font-size: 13px; font-weight: 700; letter-spacing: .06em; }
+      .zone-label.human { fill: var(--accent); }
+      .zone-label.cloud { fill: var(--cloud); }
+      .zone-label.chain { fill: var(--chain); }
+      .title { font-size: 15px; font-weight: 700; }
+      .body { font-size: 12px; }
+      .note { font-size: 12px; fill: var(--ink-2); }
+      .arrow { fill: none; stroke: var(--ink-2); stroke-width: 1.8; marker-end: url(#arrow); }
+      .arrow-label { font-size: 12px; font-weight: 700; paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; }
+      .human-box { fill: var(--accent-soft); stroke: var(--accent); }
+      .cloud-box { fill: var(--cloud-soft); stroke: var(--cloud); }
+      .chain-box { fill: var(--chain-soft); stroke: var(--chain); }
+      .ok-box { fill: var(--ok-soft); stroke: var(--ok); }
+      .box { stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="738" height="718" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+
+  <!-- 人 -->
+  <rect x="14" y="14" width="712" height="142" rx="8" fill="var(--accent-soft)" stroke="var(--line)"/>
+  <text class="zone-label human" x="30" y="39">人</text>
+
+  <rect class="box human-box" x="68" y="55" width="210" height="78" rx="8"/>
+  <text class="title" x="173" y="80" text-anchor="middle">メンバー</text>
+  <text class="body" x="173" y="103" text-anchor="middle">Snapshot で投票</text>
+  <text class="note" x="173" y="122" text-anchor="middle">署名のみ・ガス 0 円</text>
+
+  <rect class="box human-box" x="452" y="45" width="240" height="96" rx="8"/>
+  <text class="title" x="572" y="70" text-anchor="middle">管理者</text>
+  <text class="body" x="572" y="92" text-anchor="middle">アールグレイの委任アドレス</text>
+  <text class="body" x="572" y="114" text-anchor="middle">緊急停止・設定変更</text>
+  <text class="note" x="572" y="133" text-anchor="middle">受理済みの票は変更不可</text>
+
+  <!-- クラウド -->
+  <rect x="14" y="168" width="712" height="292" rx="8" fill="var(--cloud-soft)" stroke="var(--line)"/>
+  <text class="zone-label cloud" x="30" y="193">クラウド</text>
+
+  <rect class="box cloud-box" x="34" y="211" width="250" height="176" rx="8"/>
+  <text class="title" x="159" y="238" text-anchor="middle">GitHub の自動処理</text>
+  <text class="body" x="52" y="265">
+    <tspan x="52">・20分ごとに Nouns の</tspan>
+    <tspan x="52" dy="22">　投票開始を検知</tspan>
+    <tspan x="52" dy="22">・Snapshot 提案を作成・検算</tspan>
+    <tspan x="52" dy="22">・対応表をオンチェーンに登録</tspan>
+    <tspan x="52" dy="22">・Discord に投票リンクと</tspan>
+    <tspan x="52" dy="22">　締切を告知</tspan>
+  </text>
+
+  <rect class="box cloud-box" x="314" y="218" width="170" height="112" rx="8"/>
+  <text class="title" x="399" y="246" text-anchor="middle">Snapshot</text>
+  <text class="body" x="399" y="271" text-anchor="middle">提案と署名を公開保存</text>
+  <text class="note" x="399" y="294" text-anchor="middle">メンバーの投票画面</text>
+  <text class="note" x="399" y="313" text-anchor="middle">手順は今までどおり</text>
+
+  <rect class="box cloud-box" x="514" y="211" width="192" height="176" rx="8"/>
+  <text class="title" x="610" y="238" text-anchor="middle">Cloudflare リレイヤー</text>
+  <text class="body" x="610" y="266" text-anchor="middle">2分ごとに Snapshot から</text>
+  <text class="body" x="610" y="287" text-anchor="middle">署名を取得</text>
+  <text class="body" x="610" y="318" text-anchor="middle">コントラクトへ運ぶだけ</text>
+  <text class="note" x="610" y="343" text-anchor="middle">書き換えると署名が無効</text>
+  <text class="note" x="610" y="364" text-anchor="middle">専用の集計権限なし</text>
+
+  <!-- オンチェーン -->
+  <rect x="14" y="472" width="712" height="232" rx="8" fill="var(--chain-soft)" stroke="var(--line)"/>
+  <text class="zone-label chain" x="30" y="497">オンチェーン</text>
+
+  <rect class="box chain-box" x="82" y="520" width="378" height="144" rx="8"/>
+  <text class="title" x="271" y="547" text-anchor="middle">pNouns Voter コントラクト</text>
+  <text class="body" x="105" y="574">
+    <tspan x="105">1. 署名を検証</tspan>
+    <tspan fill="var(--ink-2)">（ECDSA / スマートウォレットは EIP-1271）</tspan>
+    <tspan x="105" dy="25">2. pNouns 保有枚数で集計</tspan>
+    <tspan x="105" dy="25">3. 集計締切後、確定結果どおり自動投票</tspan>
+  </text>
+
+  <rect class="box ok-box" x="520" y="541" width="170" height="102" rx="8"/>
+  <text class="title" x="605" y="571" text-anchor="middle">Nouns DAO</text>
+  <text class="body" x="605" y="598" text-anchor="middle">投票が記録される</text>
+  <text class="note" x="605" y="621" text-anchor="middle">集計の内訳も公開</text>
+
+  <!-- 接続 -->
+  <path class="arrow" d="M173 133 V184 H399 V218"/>
+  <text class="arrow-label" x="282" y="179" text-anchor="middle">署名</text>
+
+  <path class="arrow" d="M284 257 H314"/>
+  <text class="arrow-label" x="299" y="246" text-anchor="middle">提案</text>
+
+  <path class="arrow" d="M484 274 H514"/>
+  <text class="arrow-label" x="499" y="263" text-anchor="middle">署名</text>
+
+  <path class="arrow" d="M610 387 V439 H392 V520"/>
+  <text class="arrow-label" x="503" y="434" text-anchor="middle">投函</text>
+
+  <path class="arrow" d="M159 387 V432 H150 V520"/>
+  <text class="arrow-label" x="182" y="427">対応表を登録</text>
+
+  <path class="arrow" d="M692 93 H716 V502 H438 V520"/>
+  <text class="arrow-label" x="616" y="496" text-anchor="middle">緊急停止</text>
+
+  <path class="arrow" d="M460 592 H520"/>
+  <text class="arrow-label" x="490" y="581" text-anchor="middle">投票</text>
+</svg>

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 740 430" width="100%" role="img" aria-labelledby="schedule-title schedule-desc">
+  <title id="schedule-title">提案1本の標準スケジュール</title>
+  <desc id="schedule-desc">Nouns DAO の投票開始から96時間までに、Snapshot 投票、票の自動反映、集計締切、自動投票が行われる時期を示す横タイムライン。</desc>
+  <defs>
+    <style>
+      text { font-family: system-ui, sans-serif; fill: var(--ink); }
+      .row-label { font-size: 13px; font-weight: 700; }
+      .bar-label { font-size: 12px; font-weight: 700; }
+      .note { font-size: 12px; fill: var(--ink-2); }
+      .tick { font-size: 12px; fill: var(--ink-2); }
+    </style>
+  </defs>
+
+  <rect x="1" y="1" width="738" height="428" rx="8" fill="var(--surface)" stroke="var(--line)"/>
+
+  <!-- 共通目盛り: x=168..700 が 0..96h -->
+  <text class="note" x="434" y="27" text-anchor="middle">Nouns 投票開始からの時間（4日間）</text>
+  <g stroke="var(--line)" stroke-width="1">
+    <line x1="168" y1="42" x2="168" y2="344"/>
+    <line x1="301" y1="42" x2="301" y2="344"/>
+    <line x1="434" y1="42" x2="434" y2="344"/>
+    <line x1="567" y1="42" x2="567" y2="344"/>
+    <line x1="700" y1="42" x2="700" y2="344"/>
+  </g>
+  <g class="tick" text-anchor="middle">
+    <text x="168" y="57">0h</text>
+    <text x="301" y="57">24h</text>
+    <text x="434" y="57">48h</text>
+    <text x="567" y="57">72h</text>
+    <text x="700" y="57">96h</text>
+  </g>
+
+  <!-- Nouns DAO 投票期間 -->
+  <text class="row-label" x="24" y="93">Nouns DAO</text>
+  <text class="note" x="24" y="112">投票期間</text>
+  <rect x="168" y="76" width="532" height="44" rx="8" fill="var(--chain-soft)" stroke="var(--chain)"/>
+  <text class="bar-label" x="434" y="103" text-anchor="middle">0〜96h（4日間）</text>
+
+  <!-- 検知・作成 -->
+  <text class="row-label" x="24" y="151">検知・作成</text>
+  <line x1="171" y1="136" x2="171" y2="172" stroke="var(--cloud)" stroke-width="5"/>
+  <rect x="163" y="146" width="16" height="16" rx="8" fill="var(--cloud)"/>
+  <text class="bar-label" x="186" y="151">Snapshot を作成</text>
+  <text class="note" x="186" y="169">開始から最大20〜30分</text>
+
+  <!-- Snapshot 投票 -->
+  <text class="row-label" x="24" y="208">Snapshot 投票</text>
+  <text class="note" x="24" y="227">メンバーが投票</text>
+  <rect x="171" y="190" width="266" height="44" rx="8" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1.5"/>
+  <text class="bar-label" x="304" y="217" text-anchor="middle">約0.5〜48.5h（48時間）</text>
+
+  <!-- 自動反映 -->
+  <text class="row-label" x="24" y="265">票の自動反映</text>
+  <rect x="171" y="249" width="396" height="36" rx="8" fill="var(--cloud-soft)" stroke="var(--cloud)"/>
+  <text class="bar-label" x="369" y="272" text-anchor="middle">Snapshot 期間中〜集計締切まで、数分ごとに随時</text>
+
+  <!-- 自動投票 -->
+  <text class="row-label" x="24" y="322">Nouns DAO へ</text>
+  <text class="note" x="24" y="341">自動投票</text>
+  <rect x="567" y="306" width="133" height="38" rx="8" fill="var(--ok-soft)" stroke="var(--ok)" stroke-width="1.5"/>
+  <text class="bar-label" x="633.5" y="330" text-anchor="middle">締切後に実行</text>
+
+  <!-- 72h 集計締切 -->
+  <line x1="567" y1="65" x2="567" y2="353" stroke="var(--accent)" stroke-width="2"/>
+  <rect x="472" y="354" width="190" height="43" rx="8" fill="var(--accent-soft)" stroke="var(--accent)"/>
+  <text class="bar-label" x="567" y="372" text-anchor="middle">72h：集計締切</text>
+  <text class="note" x="567" y="390" text-anchor="middle">Nouns 締切の24時間前</text>
+
+  <text class="note" x="370" y="416" text-anchor="middle">時刻は目安（ブロック時間による）。投票の締切は毎回の告知に記載</text>
+</svg>
