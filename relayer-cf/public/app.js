@@ -84,6 +84,12 @@ async function render() {
   for (const p of proposals) {
     const mg = p.metagov;
     const blocksLeft = (mg.acceptDeadline || mg.deadline) - block; // 署名受付の残り
+    if (snapMode && !p.snapshotProposalId) {
+      // 対応表未登録の議案は集計対象外なのでカードにしない(開始直後なら自動作成待ち・時間不足なら対象外)
+      const d = document.createElement("div"); d.className = "muted"; d.style.margin = "6px 2px";
+      d.innerHTML = `Prop ${p.id} ${escapeHtml(p.title)} — この仕組みでは未登録(Nouns: ${p.stateName}。投票開始直後は数十分以内に自動作成されます。投票期間の残りが足りない議案は対象外) <a href="https://nouns.wtf/vote/${p.id}" target="_blank" rel="noopener">nouns.wtf</a>`;
+      root.appendChild(d); continue;
+    }
     const el = document.createElement("div");
     el.className = "card";
     el.innerHTML = `

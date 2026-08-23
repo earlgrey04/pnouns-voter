@@ -626,15 +626,16 @@
   <li>締切は Nouns の投票終了の 7,200 ブロック前(約 24 時間前。いまの Snapshot 48 時間より長く投票できます)。</li>
   <li>コントラクトは後から書き換え不可。<b>NFT や資産は預けません</b>(預けるのはガス代のみ)。</li>
 </ul>
-<h3>導入の進め方(段階ごとに機械チェックを通します)</h3>
+<h3>導入の進め方</h3>
+<p style="font-size:14px;margin-bottom:6px"><b>「機械チェック」とは</b>: 各段階の間で、<b>設定値・鍵の分離・委任の状態・各所の残高が想定どおりかを、照合プログラムがオンチェーンの実際の値と突き合わせて全項目確認する</b>ことです。人の目視や思い込みではなく、全項目 ✅ にならない限り次の段階へ進みません(照合プログラムはテストネットとメインネットのリハーサルで使用済みです)。</p>
 <ol>
   <li><b>先行リハーサル(実施中・メンバー合意の前・アールグレイ費用負担)</b> — メンバーに提案する前に、メインネット上に<b>テスト用の Snapshot スペース向け</b>で設置し、実在の Nouns 提案・実際のガス代・実際の時間の流れで通しを検証します(§8 参照)。仕上げに、<b>委任前の「投票トランザクション」テスト</b>も行います: 委任前は投票の重みが 0 のため実際の賛否に影響しない状態で、コントラクトが Nouns DAO へ本当に投票を送信できることまで確認します。pNouns の現行運用・Snapshot・Discord には一切影響しません。ここで問題が出れば直してから、次の段階に進みます。</li>
   <li><b>見学モードで設置(メンバー合意後・pNouns 用スペースで設置し直し)</b> — Nouns には投票せず、集計だけを実際の提案で数回行い、手動運用の結果と一致するか確認します。<b>この間も現行の手動運用は継続する</b>ため、メンバーの投票の流れと Nouns への反映は今までどおりです(裏で自動集計が並走し、一致を Discord で報告します)。この段階でアールグレイが準備した ETH から、返金プールへ 0.05 ETH、リレイヤーへ 0.01 ETH、登録係へ 0.005 ETH を配分します(委任アドレスの既存ガス代は温存)。<b>コントラクト管理者はアールグレイの委任アドレス</b>です。</li>
-  <li>一致を確認 → <b>メンバーの合意</b>。</li>
+  <li><b>一致の確認 → メンバーの合意</b> — 見学モードの自動集計と手動運用の結果が複数の提案で一致したことを確認し、その実績と本資料を添えてメンバーに諮ります。<b>合意の方法は、いつもの pnounsdao.eth での Snapshot 投票を想定</b>しています(議題:「Nouns 投票権の委任先を、アールグレイ個人のウォレットからこのコントラクトへ変更する」ことへの賛否)。</li>
   <li>マルチシグが投票権の委任先をコントラクトへ変更(1 トランザクション・いつでも戻せる)し、委任を機械確認した後、当初の管理者である委任アドレスが <code>setLiveMode(true)</code> を実行して本番開始。</li>
   <li><b>当面の管理はアールグレイ(委任アドレス)が担当</b>します。安定稼働を確認した後、<b>pNouns マルチシグへの管理者権限の移管を検討</b>します(1 トランザクション。移管手順はテストネットで演習済み。移管後は緊急停止・ガス回収・鍵交代にマルチシグの承認が必要になります)。</li>
 </ol>
-<p style="font-size:14px">各段階の後に、設定・鍵の分離・委任・残高を機械的に照合するチェックを実行し、全項目が通るまで次へ進みません(手順書と照合プログラムは作成済み・テストネットで検証済み)。</p>
+
 <h3>止め方(段階別)</h3>
 <div class="tbl"><table>
 <tr><th>段階</th><th>操作(誰が・何を)</th><th>止まるもの / 続くもの</th></tr>
@@ -714,7 +715,7 @@
   → ソースの registerProposal() で eligibleAtBlock = block.number + registrationDelayBlocks、
     unregisterProposal() は snapshotVotesAccepted != 0 なら revert、
     setRegistrationDelayBlocks() が既登録の eligibleAtBlock に影響しないことを確認。
-    (テストネットの現在値は eth_call registrationDelayBlocks() = 5(実験用)。本番は 10)
+    (Sepolia のテスト値は 5。mainnet リハーサル(対象2)は本番と同じ 10 — eth_call registrationDelayBlocks() で確認可)
 
 【主張4】管理者にも票の偽造・改変・任意の Nouns 投票をする権限がない
   → ソースの onlyOwner 関数を列挙する。setExcluded / setMarginBlocks / setLiveMode /
@@ -723,21 +724,27 @@
     票を作る・書き換える・execute の結果を指定する関数がないこと。
     (registerProposal / unregisterProposal は owner も呼べるが、猶予と取消不能条件は §3 のとおり)
 
-【主張5】鍵が分離されている(テストネットで実証中)
-  → eth_call: owner() = 0x10849D31…8925, registrar() = 0xfE07E953…c9ae。
+【主張5】鍵が分離されている
+  → Sepolia(対象1): owner() = 0x10849D31…8925, registrar() = 0xfE07E953…c9ae。
     リレイヤー 0xBbE0b0fe…D561 は https://pnouns-voter.x402-adsb-worker.workers.dev/api/config
     の "relayer" と一致し、3 者が互いに異なること。
+    mainnet リハーサル(対象2): owner() = 0x21cbD40e…6271(暫定・§10 の表参照),
+    registrar() = 0x68f6Fd72…8a4B, リレイヤー 0x0F9f1883…7c6A は
+    https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev/api/config と一致すること。
 
 【主張6】Nouns の投票権が委任されており、実際に自動投票が成立している
   → Nouns Token (Sepolia 0x4C4674bb…2b85) の getCurrentVotes(0x64CdACe…693F) &gt; 0。
     Sepolia Nouns DAO (0x35d2670d…4A57) の VoteCast イベントで、
     voter = 0x64CdACe…693F の投票と reason 文(集計内訳)を確認。
     例: 提案 #528〜#530 (2026-08-21 に確定引き継ぎ方式で自動実行。#528/#529 は賛成3/反対2/棄権1→FOR)
+    ※mainnet(対象2)は委任前・見学モードのため、Nouns 投票権 = 0 で VoteCast が
+    存在しないのが正しい状態(§8・§9 の段階どおり)
 
 【主張7】Snapshot の票は誰でも取得でき、集計を検算できる
   → https://hub.snapshot.org/graphql に POST:
     { proposals(where:{space:"earl-grey.eth"}, first:5, orderBy:"created",
       orderDirection:desc) { id title choices scores votes } }
+    (mainnet リハーサル分は space:"earlgreyai.eth" で同様に取得)
     任意の提案 id について { votes(where:{proposal:"&lt;id&gt;"}) { voter choice created ipfs } }
     で 1 票ずつの署名レコードを取得し、上の VoteCast の内訳と突き合わせる。
 
