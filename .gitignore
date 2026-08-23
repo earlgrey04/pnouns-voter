@@ -9,3 +9,6 @@ relayer-cf/.wrangler
 relayer-cf/.dev.vars
 deployments/*-pending*.json
 .env.mainnet
+
+.env*
+!.env.example

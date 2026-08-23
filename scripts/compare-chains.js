@@ -1,6 +1,6 @@
 const { ethers } = require("ethers");
-require("dotenv").config({ path: "/mnt/data/pnouns-metagov/.env" });
-const abi = require("/tmp/claude-1000/-mnt-data-NounsDAO-pNouns/7b7add64-e2ae-4555-9958-ee7574f1f78b/scratchpad/impl_main.json").abi;
+require("dotenv").config();
+const abi = require("./abi/nouns-dao-impl.json").abi; // 事前に Etherscan 等から取得して配置
 const CH = {
   mainnet: { rpc: process.env.MAINNET_RPC_URL, dao: "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d", token: "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03", ah: "0x830BD73E4184ceF73443C15111a1DF14e495C706" },
   sepolia: { rpc: "https://ethereum-sepolia-rpc.publicnode.com", dao: "0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57", token: "0x4C4674bb72a096855496a7204962297bd7e12b85", ah: "0x488609b7113FCf3B761A05956300d605E8f6BcAf" },
