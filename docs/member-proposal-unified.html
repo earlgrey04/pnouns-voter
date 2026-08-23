@@ -723,7 +723,10 @@
   (space=earlgreyai.eth、liveMode=false の見学モード。
    nounsToSnap(991) が Snapshot 提案 0xbc0149…6137 の keccak256 と一致すること、
    pNouns 0x4bE962499cE295b1ed180F923bf9c73b6357DE80 の実保有で集計されることを確認。
-   注: 集計は Nouns 本体の投票開始後に始まるため、開始前は tally が 0 で正しい)
+   注: 集計は Nouns 本体の投票開始後に始まるため、開始前は tally が 0 で正しい。
+   実例: 投票開始後の 2026-08-24 に castSnapshotVotes
+   tx 0xc801ee37c8d300335fe8bd5cf70f05c5913830d5c1b501d5ac50e34167712a75 で
+   2 票 27 枚が計上され、同一 tx 内のプール→リレイヤーのガス返金も確認できる)
 
 【主張1】ソースコードが公開され、デプロイ済みコードと完全一致している
   → Sourcify API(v2): https://sourcify.dev/server/v2/contract/11155111/0x64CdACeA6857c6560F3124c532AA4ed34152693F
@@ -749,7 +752,9 @@
     setRegistrar / setRegistrationDelayBlocks / setRefundEnabled / setRefundCapPerProposal /
     sweep(+ OpenZeppelin Ownable 標準の transferOwnership / renounceOwnership)のみで、
     票を作る・書き換える・execute の結果を指定する関数がないこと。
-    (registerProposal / unregisterProposal は owner も呼べるが、猶予と取消不能条件は §3 のとおり)
+    (registerProposal / unregisterProposal は owner も呼べるが、猶予と取消不能条件は §3 のとおり)。
+    なお管理者は停止(liveMode)・除外設定・締切余裕の変更など運用上の権限は持つ —
+    これは §2 の記載どおりで、「偽造・任意結果の指定ができない」ことと両立する
 
 【主張5】鍵が分離されている
   → Sepolia(対象1): owner() = 0x10849D31…8925, registrar() = 0xfE07E953…c9ae。
