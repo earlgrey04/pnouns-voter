@@ -8,7 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 directory = "./public"
 
 [triggers]
-crons = ["* * * * *"]
+crons = []  # Sepolia フェーズ完了に伴い巡回停止(2026-08-24)。再開はこの行を戻して deploy
 
 [[kv_namespaces]]
 binding = "STATE"
