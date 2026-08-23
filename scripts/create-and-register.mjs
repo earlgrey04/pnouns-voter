@@ -39,9 +39,39 @@ async function hubVotingPeriod() {
   return r?.data?.space?.voting?.period || 172800;
 }
 
+// 自動検知(2026-08-23 実装): 「投票中(Active)で、対応表が未登録で、48h+余裕が締切に収まる」
+// Nouns 提案のうち最も新しい 1 件を選ぶ(1 回の実行で 1 件だけ = Snapshot の日次上限を守る)。
+// 該当がなければ null(正常終了)。個別の詳細検査は main の preflight が改めて行う。
+async function detectTarget() {
+  const dep = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", `${NETWORK}.json`), "utf8"));
+  const voter = dep.snapVoter;
+  const rpc = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
+  const provider = new ethers.JsonRpcProvider(rpc, undefined, { staticNetwork: true });
+  const c = new ethers.Contract(voter, ["function nounsToSnap(uint256) view returns (bytes32)", "function nounsDAO() view returns (address)", "function marginBlocks() view returns (uint256)"], provider);
+  const daoAddr = await c.nounsDAO();
+  const dao = new ethers.Contract(daoAddr, ["function proposalCount() view returns (uint256)", "function state(uint256) view returns (uint8)", "function proposals(uint256) view returns (uint256,address,uint256,uint256,uint256,uint256 startBlock,uint256 endBlock,uint256,uint256,uint256,bool,bool,bool,uint256,uint256)"], provider);
+  const [count, margin, curBlock, period] = await Promise.all([dao.proposalCount(), c.marginBlocks(), provider.getBlockNumber(), hubVotingPeriod()]);
+  for (let id = Number(count); id > Math.max(0, Number(count) - 15); id--) {
+    const [st, mapped] = await Promise.all([dao.state(id), c.nounsToSnap(id)]);
+    if (Number(st) !== 1) continue;                       // 投票中(Active)のみ
+    if (mapped !== ethers.ZeroHash) continue;             // 登録済みは対象外
+    const pr = await dao.proposals(id);
+    const deadlineSec = (Number(pr[6]) - Number(margin) - Number(curBlock)) * 12;
+    if (period + 1800 > deadlineSec) { console.log(`#${id}: 投票中だが残り時間不足のためスキップ(締切まで ${(deadlineSec/3600).toFixed(1)}h)`); continue; }
+    return id;
+  }
+  return null;
+}
+
 async function main() {
-  const nounsArg = String(arg("nouns") || "");
-  if (!/^[1-9][0-9]*$/.test(nounsArg)) throw new Error("--nouns は正の整数で指定してください");
+  let nounsArg = String(arg("nouns") || "");
+  if (process.argv.includes("--auto")) {
+    const found = await detectTarget();
+    if (found === null) { console.log("自動検知: 作成対象の提案はありません"); return; }
+    console.log(`自動検知: Nouns #${found} を作成対象に選定`);
+    nounsArg = String(found);
+  }
+  if (!/^[1-9][0-9]*$/.test(nounsArg)) throw new Error("--nouns は正の整数で指定してください(または --auto)");
   const nounsId = Number(nounsArg);
   if (!Number.isSafeInteger(nounsId)) throw new Error("--nouns が大きすぎます");
   const descId = process.env.DESC_FROM || nounsId; // テスト時は本文を別提案から借りられる
@@ -204,6 +234,11 @@ async function main() {
   const tx = await c.registerProposal(receipt.id, nounsId);
   await tx.wait();
   clearPending(); // チェックポイントを解消
+  if (process.env.DISCORD_WEBHOOK_URL) {
+    try {
+      await fetch(process.env.DISCORD_WEBHOOK_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ content: `🆕 Prop ${nounsId} の Snapshot 投票を作成・登録しました(${NETWORK})\nhttps://snapshot.box/#/s:${SPACE}/proposal/${receipt.id}` }) });
+    } catch (e) { console.warn("Discord 通知失敗:", e.message); }
+  }
   const delay = Number(await c.registrationDelayBlocks());
   console.log(`対応付けを登録: Snapshot ${receipt.id.slice(0, 14)}… → Nouns #${nounsId} (tx ${tx.hash})`);
   if (delay) console.log(`※ 登録から ${delay} ブロック(約 ${Math.round(delay * 12 / 60)} 分)は票を受け付けません(誤登録の確認猶予)`);

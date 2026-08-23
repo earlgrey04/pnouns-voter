@@ -1,27 +1,31 @@
 # Nouns 提案 → Snapshot 提案作成 → 読み戻し検算 → 対応表登録 を一体で実行する。
 # 確定引き継ぎ方式(第21回監査): 作成した処理が提案 ID をそのまま登録する。
+# 自動検知(2026-08-23): 20 分ごとの定期実行で「投票中・未登録・時間内」の提案を検知して
+# 1 件だけ作成する(--auto)。手動起動(nouns_id 指定)も引き続き可能。
 name: create-and-register
 on:
+  schedule:
+    - cron: "*/20 * * * *"
   workflow_dispatch:
     inputs:
       nouns_id:
-        description: "Nouns 提案番号"
-        required: true
+        description: "Nouns 提案番号(空なら自動検知)"
+        required: false
       network:
         description: "対象ネットワーク"
         type: choice
         options: ["sepolia", "mainnet"]
-        default: "sepolia"
-# 同一提案の二重作成を防ぐ(第21回監査): Nouns ID 単位で直列化
+        default: "mainnet"
+# 同一提案の二重作成を防ぐ(第21回監査): 直列化。自動実行どうしも重ならない
 concurrency:
-  group: create-and-register-${{ github.event.inputs.network }}-${{ github.event.inputs.nouns_id }}
+  group: create-and-register-${{ github.event.inputs.network || 'mainnet' }}-${{ github.event.inputs.nouns_id || 'auto' }}
   cancel-in-progress: false
 permissions:
   contents: read
 jobs:
   run:
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.network }}   # 承認・secret を環境で分離
+    environment: ${{ github.event.inputs.network || 'mainnet' }}   # 承認・secret を環境で分離
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,23 +36,31 @@ jobs:
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          name: pending-${{ github.event.inputs.network }}-${{ github.event.inputs.nouns_id }}
+          name: pending-${{ github.event.inputs.network || 'mainnet' }}-${{ github.event.inputs.nouns_id || 'auto' }}
           path: deployments
       - name: create + verify + register
         env:
-          NETWORK: ${{ github.event.inputs.network }}
+          NETWORK: ${{ github.event.inputs.network || 'mainnet' }}
+          # リハーサル中は earlgreyai.eth。本番移行時に repo variable SNAPSHOT_SPACE を pnounsdao.eth へ
+          SNAPSHOT_SPACE: ${{ vars.SNAPSHOT_SPACE || 'earlgreyai.eth' }}
           SEPOLIA_MNEMONIC: ${{ secrets.SEPOLIA_MNEMONIC }}
           SNAPSHOT_BOT_MNEMONIC: ${{ secrets.SNAPSHOT_BOT_MNEMONIC }}
           REGISTRAR_MNEMONIC: ${{ secrets.REGISTRAR_MNEMONIC }}
           SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
           MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
-        run: node scripts/create-and-register.mjs --nouns "${{ github.event.inputs.nouns_id }}"
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -n "${{ github.event.inputs.nouns_id }}" ]; then
+            node scripts/create-and-register.mjs --nouns "${{ github.event.inputs.nouns_id }}"
+          else
+            node scripts/create-and-register.mjs --auto
+          fi
       # 未登録で終わった場合にチェックポイントを次 run へ引き継ぐ(登録成功時はファイルが消えているので空)
       - name: save checkpoint
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pending-${{ github.event.inputs.network }}-${{ github.event.inputs.nouns_id }}
-          path: deployments/${{ github.event.inputs.network }}-pending-${{ github.event.inputs.nouns_id }}.json
+          name: pending-${{ github.event.inputs.network || 'mainnet' }}-${{ github.event.inputs.nouns_id || 'auto' }}
+          path: deployments/*-pending-*.json
           if-no-files-found: ignore
           retention-days: 7
