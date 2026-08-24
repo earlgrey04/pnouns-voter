@@ -54,6 +54,6 @@ BLOCKSCOUT = "https://eth.blockscout.com"
 MIN_PENDING_AGE_SEC = "120"
 MAX_BATCH = "10"
 EXECUTE_GAS_MULT = "1.3"
-LOW_BALANCE_ETH = "0.01"
+LOW_BALANCE_ETH = "0.001"  # リハーサル中の警告閾値(少額運用のためノイズ抑制)。本番移行時に 0.01 へ戻す
 PUBLIC_URL = "https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev"
 # secrets(--env mainnet で put): RPC_URL, RELAYER_PRIVATE_KEY, DISCORD_WEBHOOK_URL
