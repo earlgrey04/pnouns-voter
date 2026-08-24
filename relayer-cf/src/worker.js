@@ -164,12 +164,20 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
       else console.warn(`[snap] castSnapshotVotes reverted ${tx}`);
     }
     if (!allMined && Date.now() - Date.parse(pending.at) < 10 * 60 * 1000) return;
+    // 受領確認が RPC 不調で取れないまま 10 分経過した場合も、オンチェーンの計上数が
+    // 送信前より増えていれば成功として通知する(黙って通知を落とさない。2026-08-25 #991 の教訓)
+    if (!anySuccess && pending.acceptedBefore !== undefined) {
+      try {
+        const accNow = Number(await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "snapshotVotesAccepted", args: [BigInt(nounsId)] }));
+        if (accNow > Number(pending.acceptedBefore)) anySuccess = true;
+      } catch {}
+    }
     await store.kvRaw.delete(sentK);
     // cursor はここでは進めない(次 tick に voterRec を見て、確定したものだけ「解決済み」として前進する)
     if (anySuccess && !(await store.getFlag(`notified:${pending.txs[0]}`))) {
       const mg = await metagovInfo(c, pc, nounsId);
       const sent = await queueNotify(c, store, [
-        `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました (gas ${gasTotal})。`,
+        `🗳️ Prop ${nounsId}: Snapshot の ${pending.count} 票をオンチェーンに反映しました${gasTotal > 0n ? ` (gas ${gasTotal})` : ""}。`,
         `現在の集計: 賛成 ${mg.tokens[1]} / 反対 ${mg.tokens[0]} / 棄権 ${mg.tokens[2]} (投票者 ${mg.voters[1]}/${mg.voters[0]}/${mg.voters[2]} 名)`,
         `tx: ${explorerTx(c, pending.txs[0])}`,
       ].join("\n"), pending.txs[0]);
@@ -236,6 +244,8 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
   if (dropChanged) await store.kvRaw.put(`${store.prefix}snapdrop:${nounsId}`, JSON.stringify(drops), { expirationTtl: 86400 * 30 });
   if (!args.length) return;
 
+  let acceptedBefore;
+  try { acceptedBefore = Number(await pc.readContract({ address: c.metagov, abi: METAGOV_ABI, functionName: "snapshotVotesAccepted", args: [BigInt(nounsId)] })); } catch {}
   const txs = []; let count = 0;
   for (let b = 0; b < batches; b++) {
     const chunk = args.slice(b * c.maxBatch, (b + 1) * c.maxBatch);
@@ -274,7 +284,7 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
     txs.push(hash); count += chunk.length;
   }
   if (dropChanged) await store.kvRaw.put(`${store.prefix}snapdrop:${nounsId}`, JSON.stringify(drops), { expirationTtl: 86400 * 30 });
-  if (txs.length) await store.kvRaw.put(sentK, JSON.stringify({ txs, at: new Date().toISOString(), count }));
+  if (txs.length) await store.kvRaw.put(sentK, JSON.stringify({ txs, at: new Date().toISOString(), count, acceptedBefore }));
 }
 
 async function submitPending(c, pc, wc, store, proposalId, block, onchainDeadline) {
