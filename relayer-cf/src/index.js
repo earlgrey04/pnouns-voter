@@ -26,6 +26,7 @@ app.get("/api/config", (ctx) => {
 });
 
 app.get("/api/proposals", async (ctx) => {
+  try {
   const c = cfg(ctx.env);
   // Cache API(コロ単位)で 30 秒キャッシュ。クエリ差でキャッシュを迂回されないよう closed は 0/8 に正規化してキーにする
   const closedN = ctx.req.query("closed") ? 8 : 0;
@@ -54,6 +55,7 @@ app.get("/api/proposals", async (ctx) => {
   const toCache = new Response(res.body, res); toCache.headers.set("Cache-Control", "public, max-age=30");
   ctx.executionCtx.waitUntil(cache.put(cacheKey, toCache.clone()));
   return toCache;
+  } catch (e) { console.warn(`[api] proposals failed: ${String(e && (e.message || e)).slice(0, 200)}`); return ctx.json({ error: "temporarily unavailable" }, 500); }
 });
 
 app.get("/api/tokens/:address", async (ctx) => {
