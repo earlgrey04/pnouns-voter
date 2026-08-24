@@ -784,6 +784,22 @@
     各票の ipfs(CID)から https://snapshot.4everland.link/ipfs/&lt;CID&gt; で
     署名つきメッセージ全体を取得できる。これを上の VoteCast の内訳と突き合わせる。
 
+【POST リクエストを送れない AI の場合(読み取り GET のみの環境)】
+ブロックチェーン RPC と Snapshot GraphQL はどちらも POST 方式のため、GET しか
+できない AI では主張 6・7 が「未確認」になります。その場合は以下の GET だけで
+代替検証できます(すべて鍵不要・ブラウザで開いても可):
+- 対応表(nounsToSnap の代替): 登録トランザクションのログを GET
+  https://eth.blockscout.com/api/v2/transactions/0xa9684c1ee9c23b3c44cdbd491fb17df0ebd70e008ab25f3855e874a39a73a320/logs
+  → ProposalRegistered イベントに nounsProposalId=991 と Snapshot 提案 ID が出る
+- 票の計上(tally の代替): 投函トランザクションのログを GET
+  https://eth.blockscout.com/api/v2/transactions/0xc801ee37c8d300335fe8bd5cf70f05c5913830d5c1b501d5ac50e34167712a75/logs
+  → SnapVoteCounted イベント 2 件(投票者・選択肢・枚数)が出る
+- Sepolia の自動投票実績(主張 6): VoteCast を含むトランザクションを GET
+  https://eth-sepolia.blockscout.com/api/v2/transactions/0x45eccb17e40ccc827c55f0b36b9edf9c82482900fbf18c3b5c8cd1f1fb6f0195/logs
+- なお、コードを実行できる AI(Claude Code 等)なら本手順がそのまま実行できます。
+  POST が必要な箇所は、AI に curl コマンドを作らせて人がターミナルで実行し、
+  結果を貼り戻す方法でも検証できます。
+
 【注意】
 - Cloudflare 上で動くプログラム(リレイヤー)の実行コードは外部から証明できません。
   これは仕様であり、上記のとおり「クラウドを信頼しなくても票が守られる」設計かどうかを
