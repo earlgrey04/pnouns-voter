@@ -796,6 +796,14 @@
   → SnapVoteCounted イベント 2 件(投票者・選択肢・枚数)が出る
 - Sepolia の自動投票実績(主張 6): VoteCast を含むトランザクションを GET
   https://eth-sepolia.blockscout.com/api/v2/transactions/0x45eccb17e40ccc827c55f0b36b9edf9c82482900fbf18c3b5c8cd1f1fb6f0195/logs
+  → VoteCast イベントに voter=コントラクト・proposalId=528・support=1(FOR)・
+  votes=2・集計内訳つきの reason 文が出る
+- 署名本体(主張 7 の代替): 各票の署名つきメッセージは IPFS ゲートウェイから GET できる。
+  例: mainnet #991 の 2 票の実物
+  https://snapshot.4everland.link/ipfs/bafkreihrelrfhvfk6mr7ogu34tk65r56u45wfm2xduihwipclnifhuza34
+  https://snapshot.4everland.link/ipfs/bafkreig365djsjmfzung2ozi5st4qtorf67vanwombnuohqgxptdktg7km
+  → data.message(from/space/proposal/choice/timestamp)と sig(署名 65 バイト)が出る。
+  上の SnapVoteCounted の内訳と突き合わせられる
 - なお、コードを実行できる AI(Claude Code 等)なら本手順がそのまま実行できます。
   POST が必要な箇所は、AI に curl コマンドを作らせて人がターミナルで実行し、
   結果を貼り戻す方法でも検証できます。
