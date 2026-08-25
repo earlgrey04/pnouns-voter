@@ -219,5 +219,5 @@ app.onError((e, ctx) => {
 
 export default {
   fetch: app.fetch,
-  async scheduled(event, env, ectx) { ectx.waitUntil(tick(env)); },
+  async scheduled(event, env, ectx) { ectx.waitUntil(tick(env).catch((e) => { console.error("[tick] fatal", (e && e.stack) || String(e)); throw e; })); },
 };
