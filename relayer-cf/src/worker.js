@@ -492,7 +492,7 @@ export async function tick(env) {
         // 状況ページ用の対応表キャッシュ(snapmap)。第18-20回の登録係作り直しで書き手が消えた退行を修復(2026-08-23)。
         // 値が変わったときだけ書く(無料枠の KV 書込み上限対策)
         try {
-          const mapObj = Object.fromEntries(mappings.map((m) => [m.snapId, Number(m.nounsId)]));
+          const mapObj = Object.fromEntries(mappings.map((m) => [m.snapId, { n: Number(m.nounsId), end: Number(m.snapEnd) || 0 }]));
           const curMap = await store.kvRaw.get(`${store.prefix}snapmap`, "json");
           if (JSON.stringify(curMap) !== JSON.stringify(mapObj)) await store.kvRaw.put(`${store.prefix}snapmap`, JSON.stringify(mapObj));
         } catch (e) { console.warn("[worker] snapmap cache update failed", e.message); }

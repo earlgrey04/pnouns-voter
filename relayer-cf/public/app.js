@@ -95,7 +95,14 @@ async function render() {
     el.innerHTML = `
       <div class="row" style="justify-content:space-between">
         <div><b>Prop ${p.id}</b> ${escapeHtml(p.title)}</div>
-        <span class="badge ${p.votable ? "active" : ""}">${p.votable ? "受付中" : "締切"} / Nouns: ${p.stateName}</span>
+        <span class="badge ${p.votable ? "active" : ""}">${(() => {
+          if (!p.votable) return "締切";
+          if (snapMode && p.snapshotEnd) {
+            const nowS = Date.now() / 1000;
+            return nowS < p.snapshotEnd ? "投票受付中(Snapshot)" : "Snapshot投票終了・確定待ち";
+          }
+          return "受付中";
+        })()} / Nouns: ${p.stateName}</span>
       </div>
       <div class="muted">${snapMode ? "投票締切(オンチェーン反映)" : "署名受付締切"}: block ${mg.acceptDeadline || mg.deadline}(残り約 ${blocksLeft > 0 ? Math.round(blocksLeft * 12 / 60) : 0} 分, ${blocksLeft} ブロック)${snapMode ? "" : ` ・ オンチェーン締切: block ${mg.deadline}(この間は自分で投函する場合のみ可)`} ・ 投函待ち署名 ${p.pendingSignatures} 件 ・ 投函済み ${p.submittedVoters} 名 ・ pNouns Voter の Nouns 投票力 ${mg.metagovVotes}
         <a href="https://nouns.wtf/vote/${p.id}" target="_blank" rel="noopener">nouns.wtf</a></div>
@@ -114,8 +121,14 @@ async function render() {
       if (p.snapshotProposalId) {
         const url = `https://snapshot.box/#/s:${CONFIG.snapshotSpace}/proposal/${p.snapshotProposalId}`;
         const waiting = p.stateName === "Pending" || p.stateName === "Updatable";
-        d.innerHTML = `投票は <a href="${url}" target="_blank" rel="noopener">Snapshot(${escapeHtml(CONFIG.snapshotSpace)})</a> から(票の一覧もここで公開)。` +
-          (waiting ? `票は Snapshot に保管され、<b>Nouns 本体の投票開始後</b>に数分ごとへオンチェーン反映されます(上の集計はそれまで 0 のままです)。` : `票は数分ごとに自動でオンチェーンへ反映されます。`);
+        const snapClosed = p.snapshotEnd && Date.now() / 1000 > p.snapshotEnd;
+        if (snapClosed) {
+          d.innerHTML = `<b>Snapshot の投票は終了しました</b>(${new Date(p.snapshotEnd * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })} 締切・<a href="${url}" target="_blank" rel="noopener">結果を見る</a>)。上の集計が最終値で、オンチェーン集計締切の後に確定処理されます。`;
+        } else {
+          d.innerHTML = `投票は <a href="${url}" target="_blank" rel="noopener">Snapshot(${escapeHtml(CONFIG.snapshotSpace)})</a> から(票の一覧もここで公開)` +
+            (p.snapshotEnd ? `。<b>Snapshot の投票締切: ${new Date(p.snapshotEnd * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}</b>` : "") + `。` +
+            (waiting ? `票は Snapshot に保管され、<b>Nouns 本体の投票開始後</b>に数分ごとへオンチェーン反映されます(上の集計はそれまで 0 のままです)。` : `票は数分ごとに自動でオンチェーンへ反映されます。`);
+        }
       } else {
         d.innerHTML = `この議案はまだ対応表に未登録です(Nouns の投票開始後、自動処理が Snapshot 提案を作成・登録します)。`;
       }
