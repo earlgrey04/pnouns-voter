@@ -7,6 +7,9 @@ compatibility_flags = ["nodejs_compat"]
 [assets]
 directory = "./public"
 
+[limits]
+cpu_ms = 30000  # Workers Paid の CPU 上限を明示(無料プランではこの設定自体がデプロイで拒否される)
+
 [triggers]
 crons = []  # Sepolia フェーズ完了に伴い巡回停止(2026-08-24)。再開はこの行を戻して deploy
 
@@ -36,6 +39,8 @@ PUBLIC_URL = "https://pnouns-voter.x402-adsb-worker.workers.dev"
 name = "pnouns-voter-mainnet"
 [env.mainnet.assets]
 directory = "./public"
+[env.mainnet.limits]
+cpu_ms = 30000
 [env.mainnet.triggers]
 crons = ["*/2 * * * *"]
 [[env.mainnet.kv_namespaces]]
