@@ -199,6 +199,16 @@ app.get("/api/proposal/:id", async (ctx) => {
 });
 
 // 手動トリガ(TICK_TOKEN 設定時のみ有効)
+app.get("/api/health", async (ctx) => {
+  const c = cfg(ctx.env);
+  const store = makeStore(ctx.env.STATE, storeNs(c));
+  const hb = await store.kvRaw.get(`${store.prefix}hb`, "json");
+  const lastTick = hb && hb.t ? hb.t : null;
+  const ageSec = lastTick ? Math.max(0, Math.floor((Date.now() - Date.parse(lastTick)) / 1000)) : null;
+  // ハートビートは約 10 分間隔でしか書かれないため、25 分(1500 秒)を超えたら巡回停止とみなす
+  return ctx.json({ network: c.network, lastTick, ageSec, stale: ageSec === null || ageSec > 1500 });
+});
+
 app.post("/api/tick", async (ctx) => {
   if (!ctx.env.TICK_TOKEN) return ctx.json({ error: "disabled" }, 404);
   if (ctx.req.header("x-tick-token") !== ctx.env.TICK_TOKEN) return ctx.json({ error: "forbidden" }, 403);

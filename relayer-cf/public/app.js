@@ -228,6 +228,19 @@ async function manualSubmit(proposalId) {
 // M-08: EIP-6963 の icon は data:image/* の URI だけ許可(自己申告値を無検証で属性に入れない)
 function safeIcon(u) { return typeof u === "string" && /^data:image\/(png|svg\+xml|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(u) && u.length < 200000; }
 function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+async function updateHealth() {
+  try {
+    const h = await api("/api/health");
+    const el = $("#health");
+    if (!el) return;
+    if (h.lastTick === null) { el.textContent = "自動巡回(リレイヤー)の記録: まだありません"; return; }
+    const min = Math.floor(h.ageSec / 60);
+    el.innerHTML = h.stale
+      ? `⚠️ 自動巡回(リレイヤー)が約 <b>${min} 分間</b>確認できていません。反映が遅れることがありますが、票は消えません(Snapshot に保管され、復旧後に反映されます)`
+      : `自動巡回(リレイヤー): 正常に動作中(最終記録 ${min} 分前)`;
+    el.style.color = h.stale ? "#b45309" : "";
+  } catch {}
+}
 (async () => {
   CONFIG = await api("/api/config");
   $("#net").textContent = `${CONFIG.network} · pNouns Voter ${CONFIG.metagov.slice(0, 8)}…`;
@@ -237,5 +250,7 @@ function escapeHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&am
   await new Promise((r) => setTimeout(r, 300));
   if (localStorage.getItem("pnouns-voter-connected")) await connect(true); // 前回接続していれば自動復元
   await render();
+  updateHealth();
   setInterval(render, 60000);
+  setInterval(updateHealth, 60000);
 })();

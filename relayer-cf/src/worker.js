@@ -599,6 +599,12 @@ export async function tick(env) {
         await notifyError(c, `worker prop ${p.id}`, e);
       }
     }
+    // ハートビート: tick の正常完了を記録(状況ページ /api/health と外部監視が参照)。
+    // KV 無料枠(書込み 1,000/日)を守るため約 10 分に 1 回だけ書く。
+    try {
+      const hb = await store.kvRaw.get(`${store.prefix}hb`, "json");
+      if (!hb || !hb.t || Date.now() - Date.parse(hb.t) > 9.5 * 60 * 1000) await store.kvRaw.put(`${store.prefix}hb`, JSON.stringify({ t: new Date().toISOString() }));
+    } catch (e) { console.warn("[worker] heartbeat write failed", e.message); }
   } catch (e) {
     await notifyError(c, "worker tick", e);
   }

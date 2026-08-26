@@ -43,6 +43,7 @@
     pNouns 保有者は「署名するだけ」で投票できます(ガス代不要)。署名は公開され、リレイヤー(自動プログラム)が 2 分ごとに Snapshot を確認し、新しい投票があればオンチェーンの pNouns Voter へ自動で投函します(投票から数分で下の集計に反映されます)。同じ署名は公開されているため、リレイヤーが止まっていても誰でも代わりに投函できます。締切後は pNouns Voter が確定した集計どおり Nouns DAO に投票します。
     重みは保有 pNouns 数(トレジャリー分は除外)。同数の場合は投票者数が多い方、それも同数なら棄権。誰も投票しなかった提案には投票しません。
   </div>
+  <div id="health" class="muted" style="margin:-6px 0 10px 6px"></div>
   <div id="proposals"></div>
   <div class="card"><div id="msg" class="muted">読み込み中…</div></div>
 </main>

@@ -1,0 +1,32 @@
+name: health-watch
+# リレイヤー(Cloudflare Worker)の外部見張り番。
+# Worker 自身は自分の cron 停止を通知できない(死んだプロセスは喋れない)ため、
+# GitHub Actions から /api/health を定期確認し、ハートビートが 25 分途絶えたら Discord に警告する。
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check relayer heartbeat (mainnet)
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          H=$(curl -sf --max-time 30 "https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev/api/health" || echo '{}')
+          AGE=$(echo "$H" | python3 -c "import json,sys; d=json.load(sys.stdin); a=d.get('ageSec'); print(a if a is not None else 999999)")
+          echo "health: $H"
+          if [ "$AGE" -gt 1500 ]; then
+            # 初回(検知後 15 分以内)と、以降は約 6 時間ごとに再警告(毎 15 分のスパム化を防ぐ)
+            if [ "$AGE" -lt 2400 ] || [ $((AGE % 21600)) -lt 900 ]; then
+              MIN=$((AGE / 60)); [ "$AGE" -ge 999999 ] && TEXT="ハートビートを取得できません(API 応答なし)" || TEXT="巡回が約 ${MIN} 分間確認できません"
+              curl -s -X POST -H 'content-type: application/json' \
+                -d "{\"content\":\"⚠️ pnouns-voter(mainnet): リレイヤーの${TEXT}。票は消えませんが反映が遅れています。Cloudflare の状態を確認してください。\"}" \
+                "$DISCORD_WEBHOOK_URL" > /dev/null
+              echo "alert sent"
+            else
+              echo "alert suppressed (repeat window)"
+            fi
+          fi
