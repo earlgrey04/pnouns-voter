@@ -482,3 +482,25 @@ test("Nouns 投票開始前(Pending)は投函せず、票をデッドレター�
   const dropKeys = [...kv.data.keys()].filter((k) => k.includes("snapdrop"));
   assert.equal(dropKeys.length, 0, "デッドレターに数えない");
 });
+
+test("告知済みの提案がキャンセルされたら 1 回だけ 🚫 通知する", async () => {
+  let st = 1;
+  const { kv, env } = setup(handlers({ state: () => st }));
+  // 告知済みの状態を再現(storeNs = `${chainId}:${metagov}` = sepolia 11155111 + VOTER)
+  await kv.put(`11155111:${VOTER.toLowerCase()}:announced:1`, "2026-09-01T00:00:00Z|" + SNAP_ID);
+  st = 2; // Canceled
+  F.hub = [hubProposal(), hubProposal()];
+  await tick(env);
+  const n1 = F.discordBodies.filter((b) => b.includes("🚫 Prop 1") && b.includes("キャンセル"));
+  assert.equal(n1.length, 1, "キャンセル通知が 1 回出る");
+  F.hub = [hubProposal(), hubProposal()];
+  await tick(env);
+  assert.equal(F.discordBodies.filter((b) => b.includes("🚫 Prop 1")).length, 1, "2 回目の tick では再通知しない");
+});
+
+test("告知していない提案のキャンセルは通知しない", async () => {
+  const { env } = setup(handlers({ state: () => 2 }));
+  F.hub = [hubProposal(), hubProposal()];
+  await tick(env);
+  assert.equal(F.discordBodies.filter((b) => b.includes("🚫")).length, 0);
+});

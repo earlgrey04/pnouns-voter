@@ -4,6 +4,7 @@ import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI,
 import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, supplementCheckPlan, uniqueVoterCandidates, scanKey, deadKey, failKey, snapshotVoterCount } from "./snap.js";
 import { keccak256, stringToBytes } from "viem";
 import { makeStore } from "./store.js";
+import { memberAnnounceText, memberResultText, wrapDraft } from "./member-draft.js";
 
 async function notify(c, text) {
   console.log("[notify]", text.replace(/\n/g, " ⏎ "));
@@ -71,7 +72,11 @@ async function announceNew(c, pc, store, p, block, snapInfo) {
       `提案の内容: https://nouns.wtf/vote/${p.id}`,
     ];
     // 送信できたときだけ「告知済み」にする。先に記録すると、Discord 障害時に永久に未告知になる
-    if (await notify(c, lines.join("\n"))) await store.putAnnounced(p.id, `${new Date().toISOString()}|${snapInfo.snapId}`);
+    if (await notify(c, lines.join("\n"))) {
+      await store.putAnnounced(p.id, `${new Date().toISOString()}|${snapInfo.snapId}`);
+      // メンバー向け告知の下書き(現行テンプレ)。運営チャンネルに参考として添えるだけで自動投稿はしない(2026-08-29 決定)
+      if (snapInfo.snapEnd) await notify(c, wrapDraft(`Prop ${p.id} の告知文`, memberAnnounceText(c.snapshotSpace, p.id, snapInfo.snapEnd)));
+    }
     return;
   }
   const title = await proposalTitle(c, pc, store, p.id, p.creationBlock, p.state);
@@ -357,6 +362,8 @@ async function maybeExecute(c, pc, wc, store, p, block, mg) {
           `tx: ${explorerTx(c, ex.tx)}`,
           c.blockscout ? `イベント(VoteCast の reason に集計を記載): ${c.blockscout}/tx/${ex.tx}?tab=logs` : null,
         ].filter(Boolean).join("\n"));
+        // メンバー向け結果報告の下書き(現行テンプレ)。参考用・自動投稿はしない
+        await notify(c, wrapDraft(`Prop ${p.id} の結果報告文`, memberResultText(p.id, info.result)));
       } else {
         // シャドー(liveMode=false)の execute: 確定扱いにしない(liveMode=true になれば再実行)
         await store.putExecuted(p.id, { shadow: true, tx: ex.tx, result: info.result, at: new Date().toISOString() });
@@ -505,7 +512,22 @@ export async function tick(env) {
       if (!mappingsResolved) return;
     }
     for (const p of proposals) {
-      if (p.state !== 0 && p.state !== 1) continue;
+      if (p.state !== 0 && p.state !== 1) {
+        // 告知済みの提案が Nouns 側で取消/拒否されたら 1 回だけ通知する(2026-09-01 ユーザー要望)。
+        // それ以外の終了状態(Defeated/Executed 等)は通常の結末なので通知しない。
+        try {
+          if ((p.state === 2 || p.state === 8) && (await store.getAnnounced(p.id)) && !(await store.getFlag(`cancelnotice:${p.id}`))) {
+            const word = p.state === 8 ? "拒否(veto)" : "キャンセル";
+            const sent = await notify(c, [
+              `🚫 Prop ${p.id} は Nouns 側で${word}されました。この提案への投票は不要になりました。`,
+              `Snapshot 側の投票は反映されず、締切後の Nouns DAO への投票も行いません。`,
+              `提案の内容: https://nouns.wtf/vote/${p.id}`,
+            ].join("\n"));
+            if (sent) await store.setFlag(`cancelnotice:${p.id}`, 86400 * 30);
+          }
+        } catch (e) { console.warn("[worker] cancel notice failed", e.message); }
+        continue;
+      }
       try {
         const snapInfo = snapByNouns.get(p.id) || null;
         // H-1(第11回監査): ハブが正常応答でも「オンチェーンに対応表があるのに Snapshot 提案を
