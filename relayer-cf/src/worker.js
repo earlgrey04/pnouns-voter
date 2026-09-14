@@ -1,10 +1,10 @@
 // cron ワーカー: 告知 / 投函 / execute / 残高警告。
 // 1 回の呼び出しでの外部呼び出し(RPC・KV)を最小化: multicall、バッチ一括 simulate、receipt は待たず次回 tick で確定(reconcile)。
-import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, storeNs, shouldRushSubmit, snapshotTimelineSafe, allOwners, revertErrorName } from "./chain.js";
+import { cfg, clients, recentProposals, metagovInfo, proposalTitle, METAGOV_ABI, DAO_ABI, storeNs, shouldRushSubmit, snapshotTimelineSafe, allOwners, revertErrorName } from "./chain.js";
 import { resolveMappings, planSubmission, fetchEnvelope, fetchRows, supplementCheckPlan, uniqueVoterCandidates, scanKey, deadKey, failKey, snapshotVoterCount } from "./snap.js";
 import { keccak256, stringToBytes } from "viem";
 import { makeStore } from "./store.js";
-import { memberAnnounceText, memberResultText, wrapDraft } from "./member-draft.js";
+import { memberAnnounceText, memberResultText, wrapDraft, memberShadowResultText, memberNoVotesText, memberCancelText } from "./member-draft.js";
 
 async function notify(c, text) {
   console.log("[notify]", text.replace(/\n/g, " ⏎ "));
@@ -17,6 +17,19 @@ async function notify(c, text) {
   catch (e) { console.warn("discord notify failed", e.message); return false; }
 }
 const explorerTx = (c, h) => `${c.explorer}/tx/${h}`;
+
+// メンバー向けチャンネルへの自動通知(MEMBER_WEBHOOK_URL 設定時のみ・best effort)。
+// mentions=true のときだけロールメンションを発火させる(告知用)。
+async function notifyMember(c, text, mentions = false) {
+  if (!c.memberWebhook) return true;
+  console.log("[notifyMember]", text.replace(/\n/g, " ⏎ "));
+  try {
+    const body = { content: text, allowed_mentions: mentions ? { parse: ["roles"] } : { parse: [] } };
+    const r = await fetch(c.memberWebhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    if (!r.ok) { console.warn("member notify http", r.status); return false; }
+    return true;
+  } catch (e) { console.warn("member notify failed", e.message); return false; }
+}
 
 // 第12回監査: 確定 tx の通知はトリガー(送信中レコード)が次 tick で消えるため、送信失敗すると
 // 再送の機会がない。失敗分を単一の KV キーに積み、次 tick の冒頭で再送する(list API は使わない)。
@@ -74,8 +87,12 @@ async function announceNew(c, pc, store, p, block, snapInfo) {
     // 送信できたときだけ「告知済み」にする。先に記録すると、Discord 障害時に永久に未告知になる
     if (await notify(c, lines.join("\n"))) {
       await store.putAnnounced(p.id, `${new Date().toISOString()}|${snapInfo.snapId}`);
-      // メンバー向け告知の下書き(現行テンプレ)。運営チャンネルに参考として添えるだけで自動投稿はしない(2026-08-29 決定)
-      if (snapInfo.snapEnd) await notify(c, wrapDraft(`Prop ${p.id} の告知文`, memberAnnounceText(c.snapshotSpace, p.id, snapInfo.snapEnd)));
+      if (snapInfo.snapEnd) {
+        const text = memberAnnounceText(c.snapshotSpace, p.id, snapInfo.snapEnd);
+        // シャドー運用(2026-09-14 決定): メンバー webhook 設定時は本告知を自動投稿。未設定時は従来どおり運営向け下書きのみ
+        if (c.memberWebhook) await notifyMember(c, text, true);
+        else await notify(c, wrapDraft(`Prop ${p.id} の告知文`, text));
+      }
     }
     return;
   }
@@ -368,6 +385,14 @@ async function maybeExecute(c, pc, wc, store, p, block, mg) {
         // シャドー(liveMode=false)の execute: 確定扱いにしない(liveMode=true になれば再実行)
         await store.putExecuted(p.id, { shadow: true, tx: ex.tx, result: info.result, at: new Date().toISOString() });
         await notify(c, [`🕶️ [シャドー運用] Prop ${p.id} の pNouns 集計結果は **${WORDS[info.result]}** でした(Nouns DAO には投票していません)。`, `集計: 賛成 ${info.tokens[1]} / 反対 ${info.tokens[0]} / 棄権 ${info.tokens[2]} (投票者 ${info.voters[1]}/${info.voters[0]}/${info.voters[2]} 名)`, `tx: ${explorerTx(c, ex.tx)}`].join("\n"));
+        // 並走テスト: 現行委任先の手動投票(on-chain)と照合してメンバーへ報告(2026-09-14 決定)
+        if (c.memberWebhook) {
+          let manual = null;
+          if (c.manualDelegate) {
+            try { const r2 = await pc.readContract({ address: c.nounsDAO, abi: DAO_ABI, functionName: "getReceipt", args: [BigInt(p.id), c.manualDelegate] }); if (r2.hasVoted) manual = Number(r2.support); } catch (e) { console.warn("manual receipt read failed", e.message); }
+          }
+          await notifyMember(c, memberShadowResultText(p.id, info.result, info.tokens, info.voters, explorerTx(c, ex.tx), manual));
+        }
       }
     } else if (info.executed) await store.putExecuted(p.id, { external: true, revertedTx: ex.tx });
     else await store.putExecuted(p.id, null); // 未実行 → 再試行
@@ -381,6 +406,7 @@ async function maybeExecute(c, pc, wc, store, p, block, mg) {
   if (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] === 0) {
     await store.putExecuted(p.id, { skipped: "no votes", at: new Date().toISOString() });
     await notify(c, [`ℹ️ Prop ${p.id}: pNouns の投票がなかったため、Nouns DAO には投票しません。`, `提案の内容: https://nouns.wtf/vote/${p.id}`].join("\n"));
+    if (c.memberWebhook && !mg.liveMode) await notifyMember(c, memberNoVotesText(p.id)); // 並走テスト中のみ(本番化後は文面を差し替える)
     return;
   }
   const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "execute", args: [BigInt(p.id)], account: wc.account });
@@ -524,6 +550,7 @@ export async function tick(env) {
               `提案の内容: https://nouns.wtf/vote/${p.id}`,
             ].join("\n"));
             if (sent) await store.setFlag(`cancelnotice:${p.id}`, 86400 * 30);
+            if (sent && c.memberWebhook) await notifyMember(c, memberCancelText(p.id, word));
           }
         } catch (e) { console.warn("[worker] cancel notice failed", e.message); }
         continue;

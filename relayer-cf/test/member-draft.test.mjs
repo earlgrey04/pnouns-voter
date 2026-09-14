@@ -33,3 +33,18 @@ test("運営チャンネル向けはコードブロックで包む(メンショ�
   assert.ok(t.startsWith("📝 Prop 1 の告知文"));
   assert.ok(t.includes("```\nx\n```"));
 });
+
+test("シャドー判定の報告文: 一致・不一致・未投票の 3 パターン", async () => {
+  const { memberShadowResultText, memberNoVotesText } = await import("../src/member-draft.js");
+  const t1 = memberShadowResultText(997, 1, [0, 36, 5], [0, 3, 1], "https://x/tx/0xabc", 1);
+  assert.ok(t1.startsWith("🕶️【並走テスト中の自動システムからの報告です"));
+  assert.match(t1, /「賛成」— 手動での投票と一致しました ✅/);
+  assert.match(t1, /賛成 36枚 \/ 反対 0枚 \/ 棄権 5枚\(投票者 3\/0\/1 名\)/);
+  const t2 = memberShadowResultText(997, 1, [0, 36, 5], [0, 3, 1], "https://x/tx/0xabc", 0);
+  assert.ok(t2.startsWith("⚠️"));
+  assert.match(t2, /相違があったため/);
+  assert.match(t2, /委任先の変更は、一致が確認できるまで行いません/);
+  const t3 = memberShadowResultText(997, 2, [0, 0, 5], [0, 0, 1], "https://x/tx/0xabc", null);
+  assert.match(t3, /手動投票の完了後に一致を確認します/);
+  assert.match(memberNoVotesText(998), /「投票しない」でした/);
+});

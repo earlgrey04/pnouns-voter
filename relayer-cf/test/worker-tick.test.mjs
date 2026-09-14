@@ -17,6 +17,7 @@ const SPACE = "earl-grey.eth";
 const SNAP_ID = "0x" + "ab".repeat(32);
 const SNAP_HASH = keccak256(stringToBytes(SNAP_ID));
 const WEBHOOK = "https://discord.test/webhook";
+const MWEBHOOK = "https://discord.test/member";
 const HUB = "https://hub.test";
 
 // ---- 偽 KV ----
@@ -79,6 +80,7 @@ globalThis.fetch = async (url, init) => {
     return new Response(JSON.stringify({ data: r ?? { proposals: [] } }), { status: 200 });
   }
   if (u === WEBHOOK) { F.discordBodies.push(JSON.parse(init.body).content); return new Response("", { status: F.discordStatus }); }
+  if (u === MWEBHOOK) { const b = JSON.parse(init.body); F.memberBodies.push(b.content); F.memberMentions.push((b.allowed_mentions?.parse || []).join(",")); return new Response("", { status: 200 }); }
   if (u.includes("/ipfs")) { return F.envelope ? new Response(JSON.stringify(F.envelope), { status: 200 }) : new Response("nf", { status: 404 }); }
   throw new Error("unexpected fetch: " + u);
 };
@@ -120,7 +122,7 @@ const setup = (h, envOver = {}, wallet = null) => {
 };
 const putsOf = (kv, part) => kv.ops.filter(([op, k]) => op === "put" && k.includes(part));
 
-beforeEach(() => { F.hub = []; F.discordStatus = 200; F.discordBodies = []; F.hubCalls = 0; F.envelope = null; F.detail = null; _lastProposals = []; __setClientsForTests(null); });
+beforeEach(() => { F.hub = []; F.discordStatus = 200; F.discordBodies = []; F.memberBodies = []; F.memberMentions = []; F.hubCalls = 0; F.envelope = null; F.detail = null; _lastProposals = []; __setClientsForTests(null); });
 
 test("ハブ障害: tick 全体が fail-closed(告知なし・KV 書き込みなし)", async () => {
   const { kv, env } = setup(handlers());
@@ -503,4 +505,34 @@ test("告知していない提案のキャンセルは通知しない", async ()
   F.hub = [hubProposal(), hubProposal()];
   await tick(env);
   assert.equal(F.discordBodies.filter((b) => b.includes("🚫")).length, 0);
+});
+
+test("MEMBER_WEBHOOK_URL 設定時: 告知はメンバーへ自動投稿(メンション有効)、運営への下書きは出さない", async () => {
+  const { env } = setup(handlers());
+  env.MEMBER_WEBHOOK_URL = MWEBHOOK;
+  F.hub = [hubProposal("https://nouns.wtf/vote/1"), hubProposal("https://nouns.wtf/vote/1")];
+  await tick(env);
+  assert.equal(F.memberBodies.filter((b) => b.includes("Prop 1をsnapshotにあげました！")).length, 1, "メンバーへ告知");
+  assert.equal(F.memberMentions[0], "roles", "ロールメンションを発火");
+  assert.equal(F.discordBodies.filter((b) => b.includes("参考用・自動投稿はしません")).length, 0, "下書きは出さない");
+});
+
+test("MEMBER_WEBHOOK_URL 未設定時: 従来どおり運営向け下書きのみ", async () => {
+  const { env } = setup(handlers());
+  F.hub = [hubProposal("https://nouns.wtf/vote/1"), hubProposal("https://nouns.wtf/vote/1")];
+  await tick(env);
+  assert.equal(F.memberBodies.length, 0);
+  assert.equal(F.discordBodies.filter((b) => b.includes("参考用・自動投稿はしません")).length, 1);
+});
+
+test("キャンセル検知: メンバーへもテスト表記付きで通知", async () => {
+  let st = 1;
+  const { kv, env } = setup(handlers({ state: () => st }));
+  env.MEMBER_WEBHOOK_URL = MWEBHOOK;
+  await kv.put(`11155111:${VOTER.toLowerCase()}:announced:1`, "2026-09-14T00:00:00Z|" + SNAP_ID);
+  st = 2;
+  F.hub = [hubProposal(), hubProposal()];
+  await tick(env);
+  const m = F.memberBodies.filter((b) => b.includes("🚫【テスト中の自動システムが検知したお知らせです】") && b.includes("Prop 1 は Nouns 側でキャンセルされました"));
+  assert.equal(m.length, 1);
 });

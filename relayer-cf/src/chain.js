@@ -47,6 +47,8 @@ export function cfg(env) {
     minPendingAgeSec: Number(env.MIN_PENDING_AGE_SEC || 20),
     maxBatch: (() => { const n = Number(env.MAX_BATCH || 10); if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("MAX_BATCH must be 1..10"); return n; })(), // 1 tx にまとめる署名数の上限
     announce: env.ANNOUNCE !== "0",
+    memberWebhook: env.MEMBER_WEBHOOK_URL || null, // メンバー向けチャンネルの webhook(シャドー運用の自動通知。未設定なら従来どおり運営通知のみ)
+    manualDelegate: env.MANUAL_DELEGATE ? env.MANUAL_DELEGATE.toLowerCase() : null, // 手動投票に使う現行の委任先(シャドー結果との一致判定に使用)
     snapshotSpace: env.SNAPSHOT_SPACE || null, // B3: 設定時は Snapshot ハブから投票を取得するモード
     snapshotHub: env.SNAPSHOT_HUB || "https://hub.snapshot.org",
     ipfsGateway: env.IPFS_GATEWAY || "https://snapshot.4everland.link/ipfs",
