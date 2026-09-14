@@ -4,6 +4,8 @@
 
 // pNouns⚡DAO のロール ID(現行の告知と同じ 2 つ)
 export const MEMBER_ROLE_IDS = ["1030636444726865991", "1069748233166917672"];
+// メンションは本文の末尾に置く(2026-09-15 ユーザー指定の形式)
+export const MEMBER_FOOTER = ["☝️", "よろしくお願いします！", ...MEMBER_ROLE_IDS.map((id) => `<@&${id}>`)].join("\n");
 export const SUPPORT_WORDS = ["反対", "賛成", "棄権"]; // Nouns の support 値順
 
 // "8月28日14時7分ごろ"(現行: TZ=Asia/Tokyo date +'%-m月%-d日%-H時%-M分ごろ')
@@ -16,26 +18,23 @@ export function formatDeadlineJst(unixSec) {
 // 受付開始の告知(現行テンプレ: メンション 1 行 + 4 行。URL 行頭の半角スペースも慣例どおり)
 export function memberAnnounceText(space, nounsId, snapEndSec) {
   return [
-    MEMBER_ROLE_IDS.map((id) => `<@&${id}>`).join(" "),
     `Prop ${nounsId}をsnapshotにあげました！`,
     `投票よろしくお願いします！`,
     `締切時間：${formatDeadlineJst(snapEndSec)}`,
     ` https://snapshot.box/#/s:${space}`,
+    MEMBER_FOOTER,
   ].join("\n");
 }
 
 // 投票完了の結果報告(現行テンプレ: メンションは 2 行、空行区切り)
 export function memberResultText(nounsId, support) {
   return [
-    ...MEMBER_ROLE_IDS.map((id) => `<@&${id}>`),
-    ``,
     `結果をNouns DAOに投票しました！`,
     ``,
     `✅Prop ${nounsId} ${SUPPORT_WORDS[support]}`,
     ``,
-    `引き続きよろしくお願いします。`,
-    ``,
     `https://nouns.wtf/vote`,
+    MEMBER_FOOTER,
   ].join("\n");
 }
 
@@ -61,11 +60,12 @@ export function memberShadowResultText(nounsId, result, tokens, voters, txUrl, m
     head,
     `集計: 賛成 ${tokens[1]}枚 / 反対 ${tokens[0]}枚 / 棄権 ${tokens[2]}枚(投票者 ${voters[1]}/${voters[0]}/${voters[2]} 名)`,
     `ブロックチェーン上の記録: ${txUrl}`,
+    MEMBER_FOOTER,
   ].join("\n");
 }
 
 export function memberNoVotesText(nounsId) {
-  return [`🕶️${SHADOW_HEADER}`, `Prop ${nounsId}: pNouns からの投票がなかったため、自動判定は「投票しない」でした(手動運用と同じ判断です)`].join("\n");
+  return [`🕶️${SHADOW_HEADER}`, `Prop ${nounsId}: pNouns からの投票がなかったため、自動判定は「投票しない」でした(手動運用と同じ判断です)`, MEMBER_FOOTER].join("\n");
 }
 
 export function memberCancelText(nounsId, word) {
@@ -73,5 +73,6 @@ export function memberCancelText(nounsId, word) {
     `🚫【テスト中の自動システムが検知したお知らせです】`,
     `Prop ${nounsId} は Nouns 側で${word}されました。この提案への投票は不要になりました。`,
     `提案の内容: https://nouns.wtf/vote/${nounsId}`,
+    MEMBER_FOOTER,
   ].join("\n");
 }

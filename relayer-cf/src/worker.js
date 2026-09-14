@@ -391,7 +391,7 @@ async function maybeExecute(c, pc, wc, store, p, block, mg) {
           if (c.manualDelegate) {
             try { const r2 = await pc.readContract({ address: c.nounsDAO, abi: DAO_ABI, functionName: "getReceipt", args: [BigInt(p.id), c.manualDelegate] }); if (r2.hasVoted) manual = Number(r2.support); } catch (e) { console.warn("manual receipt read failed", e.message); }
           }
-          await notifyMember(c, memberShadowResultText(p.id, info.result, info.tokens, info.voters, explorerTx(c, ex.tx), manual));
+          await notifyMember(c, memberShadowResultText(p.id, info.result, info.tokens, info.voters, explorerTx(c, ex.tx), manual), true);
         }
       }
     } else if (info.executed) await store.putExecuted(p.id, { external: true, revertedTx: ex.tx });
@@ -406,7 +406,7 @@ async function maybeExecute(c, pc, wc, store, p, block, mg) {
   if (mg.tokens[0] + mg.tokens[1] + mg.tokens[2] === 0) {
     await store.putExecuted(p.id, { skipped: "no votes", at: new Date().toISOString() });
     await notify(c, [`ℹ️ Prop ${p.id}: pNouns の投票がなかったため、Nouns DAO には投票しません。`, `提案の内容: https://nouns.wtf/vote/${p.id}`].join("\n"));
-    if (c.memberWebhook && !mg.liveMode) await notifyMember(c, memberNoVotesText(p.id)); // 並走テスト中のみ(本番化後は文面を差し替える)
+    if (c.memberWebhook && !mg.liveMode) await notifyMember(c, memberNoVotesText(p.id), true); // 並走テスト中のみ(本番化後は文面を差し替える)
     return;
   }
   const gas = await pc.estimateContractGas({ address: c.metagov, abi: METAGOV_ABI, functionName: "execute", args: [BigInt(p.id)], account: wc.account });
@@ -550,7 +550,7 @@ export async function tick(env) {
               `提案の内容: https://nouns.wtf/vote/${p.id}`,
             ].join("\n"));
             if (sent) await store.setFlag(`cancelnotice:${p.id}`, 86400 * 30);
-            if (sent && c.memberWebhook) await notifyMember(c, memberCancelText(p.id, word));
+            if (sent && c.memberWebhook) await notifyMember(c, memberCancelText(p.id, word), true);
           }
         } catch (e) { console.warn("[worker] cancel notice failed", e.message); }
         continue;
