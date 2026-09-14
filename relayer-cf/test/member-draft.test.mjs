@@ -16,8 +16,6 @@ test("受付開始の告知文(メンションは末尾フッター形式・2026
     "投票よろしくお願いします！",
     "締切時間：8月28日14時7分ごろ",
     " https://snapshot.box/#/s:pnounsdao.eth",
-    "☝️",
-    "よろしくお願いします！",
   ].join("\n"));
 });
 test("結果報告文(メンションは末尾フッター形式)", () => {
@@ -27,8 +25,6 @@ test("結果報告文(メンションは末尾フッター形式)", () => {
     "結果をNouns DAOに投票しました！", "",
     "✅Prop 992 棄権", "",
     "https://nouns.wtf/vote",
-    "☝️",
-    "よろしくお願いします！",
   ].join("\n"));
   assert.match(memberResultText(1, 0), /✅Prop 1 反対/);
   assert.match(memberResultText(1, 1), /✅Prop 1 賛成/);
@@ -43,6 +39,7 @@ test("シャドー判定の報告文: 一致・不一致・未投票の 3 パタ
   const { memberShadowResultText, memberNoVotesText } = await import("../src/member-draft.js");
   const t1 = memberShadowResultText(997, 1, [0, 36, 5], [0, 3, 1], "https://x/tx/0xabc", 1);
   assert.ok(t1.split("\n")[2].startsWith("🕶️【並走テスト中の自動システムからの報告です"));
+  assert.ok(!t1.includes("☝️"));
   assert.ok(t1.startsWith("<@&1030636444726865991>"));
   assert.match(t1, /「賛成」— 手動での投票と一致しました ✅/);
   assert.match(t1, /賛成 36枚 \/ 反対 0枚 \/ 棄権 5枚\(投票者 3\/0\/1 名\)/);

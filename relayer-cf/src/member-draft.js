@@ -4,9 +4,8 @@
 
 // pNouns⚡DAO のロール ID(現行の告知と同じ 2 つ)
 export const MEMBER_ROLE_IDS = ["1030636444726865991", "1069748233166917672"];
-// メンションは文頭に 2 行で置き、締めに ☝️ + よろしくお願いします！(2026-09-15 ユーザー指定の形式)
+// メンションは文頭に 2 行(2026-09-15 ユーザー指定。締めの定型文は付けない)
 export const MEMBER_HEADER = MEMBER_ROLE_IDS.map((id) => `<@&${id}>`).join("\n");
-export const MEMBER_FOOTER = ["☝️", "よろしくお願いします！"].join("\n");
 export const SUPPORT_WORDS = ["反対", "賛成", "棄権"]; // Nouns の support 値順
 
 // "8月28日14時7分ごろ"(現行: TZ=Asia/Tokyo date +'%-m月%-d日%-H時%-M分ごろ')
@@ -24,7 +23,6 @@ export function memberAnnounceText(space, nounsId, snapEndSec) {
     `投票よろしくお願いします！`,
     `締切時間：${formatDeadlineJst(snapEndSec)}`,
     ` https://snapshot.box/#/s:${space}`,
-    MEMBER_FOOTER,
   ].join("\n");
 }
 
@@ -37,7 +35,6 @@ export function memberResultText(nounsId, support) {
     `✅Prop ${nounsId} ${SUPPORT_WORDS[support]}`,
     ``,
     `https://nouns.wtf/vote`,
-    MEMBER_FOOTER,
   ].join("\n");
 }
 
@@ -64,12 +61,11 @@ export function memberShadowResultText(nounsId, result, tokens, voters, txUrl, m
     head,
     `集計: 賛成 ${tokens[1]}枚 / 反対 ${tokens[0]}枚 / 棄権 ${tokens[2]}枚(投票者 ${voters[1]}/${voters[0]}/${voters[2]} 名)`,
     `ブロックチェーン上の記録: ${txUrl}`,
-    MEMBER_FOOTER,
   ].join("\n");
 }
 
 export function memberNoVotesText(nounsId) {
-  return [MEMBER_HEADER, `🕶️${SHADOW_HEADER}`, `Prop ${nounsId}: pNouns からの投票がなかったため、自動判定は「投票しない」でした(手動運用と同じ判断です)`, MEMBER_FOOTER].join("\n");
+  return [MEMBER_HEADER, `🕶️${SHADOW_HEADER}`, `Prop ${nounsId}: pNouns からの投票がなかったため、自動判定は「投票しない」でした(手動運用と同じ判断です)`].join("\n");
 }
 
 export function memberCancelText(nounsId, word) {
@@ -78,6 +74,5 @@ export function memberCancelText(nounsId, word) {
     `🚫【テスト中の自動システムが検知したお知らせです】`,
     `Prop ${nounsId} は Nouns 側で${word}されました。この提案への投票は不要になりました。`,
     `提案の内容: https://nouns.wtf/vote/${nounsId}`,
-    MEMBER_FOOTER,
   ].join("\n");
 }
