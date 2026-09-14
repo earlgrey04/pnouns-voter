@@ -48,9 +48,9 @@ binding = "STATE"
 id = "880f31d47c1249019ddea7ab1320fe80"
 [env.mainnet.vars]
 NETWORK = "mainnet"
-SNAPSHOT_SPACE = "earlgreyai.eth" # リハーサル中。本運用時に pnounsdao.eth へ(要・再デプロイ後の VOTER 差し替えとセット)
-VOTER = "0x77a503db95a58Cd452bf47814f35D7733a283502"
-VOTER_DEPLOY_BLOCK = "25811147"
+SNAPSHOT_SPACE = "pnounsdao.eth" # 本番(2026-09-14 切替)
+VOTER = "0x2a28548989ce393F3Fa5846cC4D9EAfbFB254b0a"
+VOTER_DEPLOY_BLOCK = "25975757"
 PNOUNS = "0x4bE962499cE295b1ed180F923bf9c73b6357DE80"
 NOUNS_DAO = "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d"
 NOUNS_TOKEN = "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03"
@@ -59,6 +59,6 @@ BLOCKSCOUT = "https://eth.blockscout.com"
 MIN_PENDING_AGE_SEC = "120"
 MAX_BATCH = "10"
 EXECUTE_GAS_MULT = "1.3"
-LOW_BALANCE_ETH = "0.001"  # リハーサル中の警告閾値(少額運用のためノイズ抑制)。本番移行時に 0.01 へ戻す
+LOW_BALANCE_ETH = "0.001"  # シャドー中はテスト資金の流用のため低め。委任切替時に 0.01 へ
 PUBLIC_URL = "https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev"
 # secrets(--env mainnet で put): RPC_URL, RELAYER_PRIVATE_KEY, DISCORD_WEBHOOK_URL
