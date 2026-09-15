@@ -62,5 +62,6 @@ EXECUTE_GAS_MULT = "1.3"
 LOW_BALANCE_ETH = "0.001"  # シャドー中はテスト資金の流用のため低め。委任切替時に 0.01 へ
 MANUAL_DELEGATE = "0xD2355D2C0Fb7c992dF43DcAf5251A7f773CD0A7e" # 現行の手動投票の委任先(シャドー結果との一致判定)。委任切替後は削除
 # secrets 追加: MEMBER_WEBHOOK_URL(メンバー向けチャンネルの webhook。シャドー自動通知)
+# secrets 任意: SNAPSHOT_API_KEY(hub のレート制限緩和。docs.snapshot.box/tools/api/api-keys で無料申請)
 PUBLIC_URL = "https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev"
 # secrets(--env mainnet で put): RPC_URL, RELAYER_PRIVATE_KEY, DISCORD_WEBHOOK_URL

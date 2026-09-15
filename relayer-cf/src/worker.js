@@ -463,7 +463,13 @@ export async function notifyError(c, where, e) {
   console.error(`[${where}]`, msg);
   if (Date.now() - lastErrNotify < 3600 * 1000) return;
   lastErrNotify = Date.now();
-  await notify(c, [`⚠️ リレイヤーでエラーが発生しました(${where}): ${msg.slice(0, 200)}`, `KV の 1 日上限(無料枠)や RPC 障害の可能性があります。Cloudflare のダッシュボード(Workers & Pages → KV Metrics)を確認してください。`, `上限到達中は署名の受付・投函が止まりますが、票は消えません。締切が近い提案は投票ページの「手動で execute」で救済できます。`].join("\n"));
+  // エラー種別ごとに案内を書き分ける(2026-09-15。「KV の上限」定型文が hub 障害でも出て紛らわしかったため)
+  const guide = where === "snapshot hub"
+    ? [`Snapshot ハブ(投票データの取得元)の一時的な障害・混雑の可能性が高いです。2 分ごとに自動で再試行し、票は消えません。`, `数時間続く場合のみ、締切が近い提案は投票ページの「手動で execute」で救済できます。`]
+    : where === "config"
+      ? [`設定の不整合です。修正されるまで安全側に停止します(票は消えません)。`]
+      : [`RPC 障害、または KV の一時的な問題の可能性があります。2 分ごとに自動で再試行し、票は消えません。`, `長く続く場合は Cloudflare のダッシュボード(Workers & Pages)を確認してください。締切が近い提案は投票ページの「手動で execute」で救済できます。`];
+  await notify(c, [`⚠️ リレイヤーでエラーが発生しました(${where}): ${msg.slice(0, 200)}`, ...guide].join("\n"));
 }
 
 let lastBalanceCheck = 0;

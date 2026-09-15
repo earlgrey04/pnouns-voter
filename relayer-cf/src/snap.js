@@ -34,7 +34,9 @@ async function fetchLimited(url, init) {
 }
 export async function hubGql(c, query, variables) {
   const body = variables ? { query, variables } : { query };
-  const j = await fetchLimited(`${c.snapshotHub}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const headers = { "content-type": "application/json" };
+  if (c.snapshotApiKey) headers["x-api-key"] = c.snapshotApiKey; // docs.snapshot.box/tools/api/api-keys
+  const j = await fetchLimited(`${c.snapshotHub}/graphql`, { method: "POST", headers, body: JSON.stringify(body) });
   if (j.errors) throw new Error("hub graphql: " + JSON.stringify(j.errors).slice(0, 200));
   if (!j.data) throw new Error("hub graphql: no data");
   return j.data;

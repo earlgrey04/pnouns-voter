@@ -51,6 +51,7 @@ export function cfg(env) {
     manualDelegate: env.MANUAL_DELEGATE ? env.MANUAL_DELEGATE.toLowerCase() : null, // 手動投票に使う現行の委任先(シャドー結果との一致判定に使用)
     snapshotSpace: env.SNAPSHOT_SPACE || null, // B3: 設定時は Snapshot ハブから投票を取得するモード
     snapshotHub: env.SNAPSHOT_HUB || "https://hub.snapshot.org",
+    snapshotApiKey: env.SNAPSHOT_API_KEY || null, // 任意。設定時は x-api-key で送信し、共有 IP のレート制限(100req/分)の巻き添えを回避
     ipfsGateway: env.IPFS_GATEWAY || "https://snapshot.4everland.link/ipfs",
     cronSec: Number(env.CRON_SEC || (env.NETWORK === "mainnet" ? 120 : 60)), // cron 間隔(秒)。署名受付締切の計算に使う
     recentLimit: Number(env.RESOLVE_RECENT_LIMIT || 20), // resolveMappings の直近取得件数(検証用に縮小可)
