@@ -5,7 +5,7 @@
 //  M01R — 対応付けは毎 tick オンチェーンで再検証する(取消・再登録に追従)。
 //  M06R — 応答はストリームで 64KB 打ち切り。検証できない票では window を進めず、
 //         恒久的に取得できない票は dead-letter に記録して警告する(黙って捨てない)。
-import { METAGOV_ABI } from "./chain.js";
+import { METAGOV_ABI, getLogsRanged } from "./chain.js";
 import { keccak256, stringToBytes, parseAbiItem } from "viem";
 
 const FETCH_TIMEOUT_MS = 8000;
@@ -104,7 +104,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     for (const n of need) {
       let snapId = null;
       try {
-        const logs = await pc.getLogs({ address: c.metagov, event: ev, args: { nounsProposalId: BigInt(n.id) }, fromBlock: c.deployBlock || 0n, toBlock: "latest" });
+        const logs = await getLogsRanged(c, pc, { address: c.metagov, event: ev, args: { nounsProposalId: BigInt(n.id) }, fromBlock: c.deployBlock || 0n, toBlock: "latest" });
         // 最新の登録イベントを採用し、現在の対応表ハッシュと一致するものだけを信頼する(再登録に追従)
         for (let i = logs.length - 1; i >= 0; i--) {
           const cand = logs[i].args.snapshotProposal;

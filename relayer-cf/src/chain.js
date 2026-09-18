@@ -55,6 +55,7 @@ export function cfg(env) {
     ipfsGateway: env.IPFS_GATEWAY || "https://snapshot.4everland.link/ipfs",
     cronSec: Number(env.CRON_SEC || (env.NETWORK === "mainnet" ? 120 : 60)), // cron 間隔(秒)。署名受付締切の計算に使う
     recentLimit: Number(env.RESOLVE_RECENT_LIMIT || 20), // resolveMappings の直近取得件数(検証用に縮小可)
+    logsMaxRange: (() => { const n = Number(env.GETLOGS_MAX_RANGE || 0); if (!Number.isInteger(n) || n < 0) throw new Error("GETLOGS_MAX_RANGE must be >= 0"); return n; })(), // getLogs の 1 回あたりブロック範囲上限(0=無制限)。公開 RPC(dRPC 無料 10,000 等)向け
     deployBlock: (() => { // ProposalRegistered イベント検索の起点(RPC 範囲制限対策・第25-26回監査)
       const v = env.VOTER_DEPLOY_BLOCK;
       if (v !== undefined && v !== "" && !/^[0-9]+$/.test(String(v))) throw new Error("VOTER_DEPLOY_BLOCK は非負整数で指定してください(got " + v + ")");
@@ -161,6 +162,21 @@ export async function recentProposals(c, pc) {
 //  - Pending/Active(本文凍結後)に初めて取得したときだけ KV(title:{id}:final)に保存(書込み 1 回/提案)
 //  - Updatable 中はメモリ内キャッシュ 30 秒のみ(KV に書かない)
 const titleMem = new Map();
+// getLogs を c.logsMaxRange ブロックずつに分割して取得する(0 なら従来どおり 1 回)。
+// 公開 RPC は範囲上限で拒否するものが多い(2026-09-19 Alchemy 上限超過時の応急対応)。
+export async function getLogsRanged(c, pc, params) {
+  const step = BigInt(c.logsMaxRange || 0);
+  if (step === 0n) return pc.getLogs(params);
+  const from0 = BigInt(params.fromBlock ?? 0n);
+  const latest = params.toBlock == null || params.toBlock === "latest" ? await pc.getBlockNumber() : BigInt(params.toBlock);
+  const out = [];
+  for (let from = from0; from <= latest; from += step) {
+    const to = from + step - 1n < latest ? from + step - 1n : latest;
+    out.push(...(await pc.getLogs({ ...params, fromBlock: from, toBlock: to })));
+  }
+  return out;
+}
+
 export async function proposalTitle(c, pc, store, id, creationBlock, state) {
   const frozen = state === 0 || state === 1;
   const kv = store ? store.kvRaw : null;
@@ -172,7 +188,7 @@ export async function proposalTitle(c, pc, store, id, creationBlock, state) {
     const events = DAO_ABI.filter((x) => x.type === "event");
     const latest = await pc.getBlockNumber();
     const created = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: BigInt(creationBlock), events });
-    const updates = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: latest, events: events.filter((e) => e.name === "ProposalUpdated" || e.name === "ProposalDescriptionUpdated"), args: { id: BigInt(id) } });
+    const updates = await getLogsRanged(c, pc, { address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: latest, events: events.filter((e) => e.name === "ProposalUpdated" || e.name === "ProposalDescriptionUpdated"), args: { id: BigInt(id) } });
     let desc = "";
     for (const l of created) if (l.eventName && l.eventName.startsWith("ProposalCreated") && Number(l.args.id) === id) desc = String(l.args.description || "");
     for (const l of updates) if (Number(l.args.id) === id) desc = String(l.args.description ?? desc); // 空文字への更新も有効な最新値(第18回監査)
