@@ -46,7 +46,7 @@ async function detectTarget() {
   const dep = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", `${NETWORK}.json`), "utf8"));
   const voter = dep.snapVoter;
   const rpc = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
-  const provider = new ethers.JsonRpcProvider(rpc, undefined, { staticNetwork: true });
+  const provider = new ethers.JsonRpcProvider(rpc, undefined, { staticNetwork: true, batchMaxCount: 1 }); // Infura はバッチの 429 応答に id が無く ethers が照合できないためバッチ無効
   const c = new ethers.Contract(voter, ["function nounsToSnap(uint256) view returns (bytes32)", "function nounsDAO() view returns (address)", "function marginBlocks() view returns (uint256)"], provider);
   const daoAddr = await c.nounsDAO();
   const dao = new ethers.Contract(daoAddr, ["function proposalCount() view returns (uint256)", "function state(uint256) view returns (uint8)", "function proposals(uint256) view returns (uint256,address,uint256,uint256,uint256,uint256 startBlock,uint256 endBlock,uint256,uint256,uint256,bool,bool,bool,uint256,uint256)"], provider);
@@ -122,7 +122,7 @@ async function main() {
 
   // オンチェーン preflight(第13回監査): registrar 権限・コントラクト実在・未登録を送信前に確認する。
   // 「鍵は存在するが権限がない」場合、送信後に NotRegistrar で落ちると孤児提案が残るため。
-  const provider = new ethers.JsonRpcProvider(rpc);
+  const provider = new ethers.JsonRpcProvider(rpc, undefined, { batchMaxCount: 1 });
   const code = await provider.getCode(voter);
   if (code === "0x") throw new Error(`${voter} にコントラクトがありません(deployments/${NETWORK}.json が古い可能性)`);
   const expectedChainId = NETWORK === "mainnet" ? 1n : 11155111n;
@@ -168,7 +168,7 @@ async function main() {
   // 冪等チェックポイント(第22回監査): 作成後・登録前に失敗して再実行した場合、Snapshot 提案を
   // 再作成せず、記録済みの ID から読み戻し→登録を再開する(孤児提案の量産を防ぐ)。
   // 提案単位のチェックポイント(第23回監査: network 単位の read-modify-write による競合を避ける)
-  const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true });
+  const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true, batchMaxCount: 1 });
   const now = Math.floor(Date.now() / 1000);
   let receipt, sentStart, sentEnd, sentSnapshot;
   const ckpt = readPending();

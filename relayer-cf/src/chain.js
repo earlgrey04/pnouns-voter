@@ -1,5 +1,5 @@
 // viem ベースのチェーンアクセス。env(wrangler vars/secrets)から設定を読む。
-import { createPublicClient, createWalletClient, http, getAddress, parseAbi, verifyTypedData, keccak256, toBytes } from "viem";
+import { createPublicClient, createWalletClient, http, fallback, getAddress, parseAbi, verifyTypedData, keccak256, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { mainnet, sepolia } from "viem/chains";
 import { METAGOV_ABI } from "./abi.js";
@@ -96,10 +96,22 @@ export function submitCapacity(c, block, onchainDeadline) {
   return Math.max(0, ticks) * c.rushBatches * c.maxBatch;
 }
 export const storeNs = (c) => `${c.chainId}:${c.metagov.toLowerCase()}`;
+// RPC_URL はカンマ区切りで複数指定できる(先頭が主、以降がフォールバック)。
+// 2026-09-19: Infura Core は毎秒 500 クレジット(eth_call 約 6 回/秒)しかなく、tick の連続呼び出しで 429 になる。
+// さらに Infura はバッチ JSON-RPC の 429 を id 無しのエラー配列で返し、viem/ethers のバッチ照合が壊れるためバッチは使わない。
+// 429(HTTP / -32005)は viem が再試行対象にしており、fallback は失敗した要求をそのまま次の URL に流す。
+export function rpcUrls(raw) { return String(raw || "").split(",").map((s) => s.trim()).filter(Boolean); }
+export function rpcTransport(c) {
+  const urls = rpcUrls(c.rpcUrl);
+  const retry = { retryCount: 4, retryDelay: 500 }; // 0.5s, 1s, 2s, 4s
+  if (urls.length <= 1) return http(urls[0], { batch: false, ...retry });
+  return fallback(urls.map((u) => http(u, { batch: false })), retry);
+}
 export function clients(c) {
-  const publicClient = createPublicClient({ chain: c.chain, transport: http(c.rpcUrl, { batch: true }) });
+  const transport = rpcTransport(c);
+  const publicClient = createPublicClient({ chain: c.chain, transport });
   const account = c.relayerKey ? privateKeyToAccount(c.relayerKey) : null;
-  const walletClient = account ? createWalletClient({ account, chain: c.chain, transport: http(c.rpcUrl) }) : null;
+  const walletClient = account ? createWalletClient({ account, chain: c.chain, transport }) : null;
   return { publicClient, walletClient, account };
 }
 export const domain = (c) => ({ name: "pNouns Voter", version: "1", chainId: c.chainId, verifyingContract: c.metagov });
