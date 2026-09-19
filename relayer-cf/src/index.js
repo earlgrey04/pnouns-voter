@@ -45,7 +45,7 @@ app.get("/api/proposals", async (ctx) => {
   const list = (await Promise.all(limited.map(async (p) => {
     try {
     const votable = p.state === 0 || p.state === 1;
-    const [title, mg, sum, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state), metagovInfo(c, pc, p.id), store.getSummary(p.id), store.getExecuted(p.id)]);
+    const [title, mg, sum, executed] = await Promise.all([proposalTitle(c, pc, store, p.id, p.creationBlock, p.state, p.startBlock), metagovInfo(c, pc, p.id), store.getSummary(p.id), store.getExecuted(p.id)]);
     const snapEntry = snapByNouns[p.id] || null;
     const snapshotProposalId = snapEntry ? snapEntry.id : null;
     const snapshotEnd = snapEntry ? snapEntry.end : 0;
@@ -55,7 +55,8 @@ app.get("/api/proposals", async (ctx) => {
     } catch (e) { console.warn(`[api] prop ${p.id} skipped: ${(e.shortMessage || e.message || "").slice(0, 80)}`); return null; }
   }))).filter(Boolean);
   const res = ctx.json({ block, proposals: list });
-  const toCache = new Response(res.body, res); toCache.headers.set("Cache-Control", "public, max-age=30");
+  // 60 秒キャッシュ(dApp のポーリングも 60 秒。集計は relayer の 2 分 tick でしか動かないので情報の鮮度は落ちない)
+  const toCache = new Response(res.body, res); toCache.headers.set("Cache-Control", "public, max-age=60");
   ctx.executionCtx.waitUntil(cache.put(cacheKey, toCache.clone()));
   return toCache;
   } catch (e) { console.warn(`[api] proposals failed: ${String(e && (e.message || e)).slice(0, 200)}`); return ctx.json({ error: "temporarily unavailable" }, 500); }

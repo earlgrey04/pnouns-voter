@@ -96,7 +96,7 @@ async function announceNew(c, pc, store, p, block, snapInfo) {
     }
     return;
   }
-  const title = await proposalTitle(c, pc, store, p.id, p.creationBlock, p.state);
+  const title = await proposalTitle(c, pc, store, p.id, p.creationBlock, p.state, p.startBlock);
   const deadlineBlock = mg.deadline || p.endBlock;
   const minutes = Math.max(0, Math.round((deadlineBlock - block) * 12 / 60));
   const jst = new Date(Date.now() + minutes * 60000).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "numeric", minute: "2-digit" });

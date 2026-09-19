@@ -189,27 +189,33 @@ export async function getLogsRanged(c, pc, params) {
   return out;
 }
 
-export async function proposalTitle(c, pc, store, id, creationBlock, state) {
-  const frozen = state === 0 || state === 1;
+// 本文を変更できるのは Updatable(state 10)の間だけ。それ以外(Pending/Active と終了状態)は確定値として KV に 30 日保存する。
+// 更新イベントの探索範囲も startBlock まで(投票開始後は更新不可)。2026-09-19: 終了済み提案を毎回 getLogs していたため、
+// dApp の 60 秒ポーリング × 9,000 ブロック分割で Infura の日次クレジットを 1 日で使い切りかけた。
+export async function proposalTitle(c, pc, store, id, creationBlock, state, startBlock = 0) {
+  const frozen = state !== 10;
   const kv = store ? store.kvRaw : null;
   if (frozen && kv) { const f = await kv.get(`title:${id}:final`); if (f) return f; }
   const m = titleMem.get(id);
-  if (!frozen && m && Date.now() - m.at < 30000) return m.title;
+  if (!frozen && m && Date.now() - m.at < 300000) return m.title; // Updatable 中はメモリ 5 分(2026-09-19: 30 秒では 60 秒ポーリングごとに getLogs していた)
   let title = `Proposal ${id}`;
+  let resolved = false; // 本文を実際に読めたときだけ KV に確定保存する(RPC 障害中の退化タイトルを 30 日固定しない)
   try {
     const events = DAO_ABI.filter((x) => x.type === "event");
     const latest = await pc.getBlockNumber();
     const created = await pc.getLogs({ address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: BigInt(creationBlock), events });
-    const updates = await getLogsRanged(c, pc, { address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: latest, events: events.filter((e) => e.name === "ProposalUpdated" || e.name === "ProposalDescriptionUpdated"), args: { id: BigInt(id) } });
+    const updEnd = startBlock > creationBlock && BigInt(startBlock) < latest ? BigInt(startBlock) : latest;
+    const updates = await getLogsRanged(c, pc, { address: c.nounsDAO, fromBlock: BigInt(creationBlock), toBlock: updEnd, events: events.filter((e) => e.name === "ProposalUpdated" || e.name === "ProposalDescriptionUpdated"), args: { id: BigInt(id) } });
     let desc = "";
     for (const l of created) if (l.eventName && l.eventName.startsWith("ProposalCreated") && Number(l.args.id) === id) desc = String(l.args.description || "");
     for (const l of updates) if (Number(l.args.id) === id) desc = String(l.args.description ?? desc); // 空文字への更新も有効な最新値(第18回監査)
     const first = desc.split("\n").find((x) => x.trim()) || "";
     title = first.replace(/^#+\s*/, "").trim() || title;
+    resolved = !!desc;
     if (updates.length) title += " (更新あり)";
   } catch (e) { /* タイトルは必須でない */ }
-  if (frozen && kv) await kv.put(`title:${id}:final`, title, { expirationTtl: 86400 * 30 });
-  else titleMem.set(id, { at: Date.now(), title });
+  if (frozen && kv && resolved) await kv.put(`title:${id}:final`, title, { expirationTtl: 86400 * 30 });
+  else if (resolved) titleMem.set(id, { at: Date.now(), title });
   return title;
 }
 // pNouns 所有者キャッシュはメモリ(isolate 内)+ 60 秒。KV には書かない
