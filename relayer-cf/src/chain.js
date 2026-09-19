@@ -195,7 +195,7 @@ export async function getLogsRanged(c, pc, params) {
 export async function proposalTitle(c, pc, store, id, creationBlock, state, startBlock = 0) {
   const frozen = state !== 10;
   const kv = store ? store.kvRaw : null;
-  if (frozen && kv) { const f = await kv.get(`title:${id}:final`); if (f) return f; }
+  if (frozen && kv) { const f = await kv.get(`title:${id}:final`); if (f && f !== `Proposal ${id}`) return f; } // 退化値(Proposal N)は再取得(2026-09-19 以前に保存されたもの)
   const m = titleMem.get(id);
   if (!frozen && m && Date.now() - m.at < 300000) return m.title; // Updatable 中はメモリ 5 分(2026-09-19: 30 秒では 60 秒ポーリングごとに getLogs していた)
   let title = `Proposal ${id}`;
