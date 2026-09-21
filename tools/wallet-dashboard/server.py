@@ -253,7 +253,12 @@ button{{font:inherit;font-size:11px;padding:1px 6px;border:1px solid var(--line)
             parts.append(f"<div><b>registrar</b><span class=\"addr\">{short(ct['registrar'])}</span></div><div><b>owner</b><span class=\"addr\">{short(ct['owner'])}</span></div>")
             parts.append(f"<div><b>Nouns 提案数</b>{ct['nounsProposalCount']}</div><div><b>pNouns 総供給</b>{ct['pnounsTotalSupply']:,}</div>")
         if n.get("worker"):
-            wtxt = f"最終 tick {e(str(hb))}(age {wk.get('ageSec')} s)" if hb else f"取得不可: {e(str(wk.get('_error') or wk))}"
+            if hb:
+                wtxt = f"最終 tick {e(str(hb))}(age {wk.get('ageSec')} s)"
+            elif isinstance(wk, dict) and wk.get("_error"):
+                wtxt = f"取得不可: {e(str(wk['_error']))}"
+            else:
+                wtxt = "cron 停止中(ハートビート無し)"
             parts.append(f"<div><b>Worker</b><span class=\"tag {hbcls}\">{'停止中' if stale else '稼働'}</span> {wtxt} <a href=\"{e(n['worker']['url'])}\" target=\"_blank\">投票ページ</a></div>")
         parts.append("</div></div>")
         parts.append('<div class="card"><table><thead><tr><th>役割</th><th>アドレス</th><th class="num">ETH</th><th class="num">推奨</th><th class="num">pNouns</th><th>tokenId / 備考</th></tr></thead><tbody>')
