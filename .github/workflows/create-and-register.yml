@@ -11,6 +11,12 @@ on:
       nouns_id:
         description: "Nouns 提案番号(空なら自動検知)"
         required: false
+      snapshot_id:
+        description: "登録のみ: 外部作成済みの Snapshot 提案 ID(0x…64hex)。nouns_id と author も必須"
+        required: false
+      author:
+        description: "登録のみ: その Snapshot 提案の作成者アドレス(検算で照合)"
+        required: false
       network:
         description: "対象ネットワーク"
         type: choice
@@ -50,7 +56,9 @@ jobs:
           MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          if [ -n "${{ github.event.inputs.nouns_id }}" ]; then
+          if [ -n "${{ github.event.inputs.snapshot_id }}" ]; then
+            node scripts/create-and-register.mjs --nouns "${{ github.event.inputs.nouns_id }}" --register "${{ github.event.inputs.snapshot_id }}" --author "${{ github.event.inputs.author }}"
+          elif [ -n "${{ github.event.inputs.nouns_id }}" ]; then
             node scripts/create-and-register.mjs --nouns "${{ github.event.inputs.nouns_id }}"
           else
             node scripts/create-and-register.mjs --auto

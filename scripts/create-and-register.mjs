@@ -65,6 +65,16 @@ async function detectTarget() {
 
 async function main() {
   let nounsArg = String(arg("nouns") || "");
+  // 登録のみモード(2026-09-21): 外部(pnouns-mirror 等)が作成した Snapshot 提案を、読み戻し検算のうえ対応表に登録する。
+  // 作成 bot が空間の作成条件(pNouns 保有)を満たせない場合の運用経路。--author で作成者アドレスを明示させ、検算で照合する。
+  const registerId = String(arg("register") || "");
+  const expectAuthor = String(arg("author") || "");
+  if (registerId) {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(registerId)) throw new Error("--register は Snapshot 提案 ID(0x + 64 hex)で指定してください");
+    if (!ethers.isAddress(expectAuthor)) throw new Error("--register には --author <作成者アドレス> が必要です");
+    if (process.argv.includes("--auto")) throw new Error("--register と --auto は併用できません(--nouns を明示)");
+  }
+  const MIRROR_CHOICES = ["賛成", "反対", "棄権"]; // 登録のみモードで許容する選択肢(コントラクトは 1/2/3 をこの順で解釈)
   if (process.argv.includes("--auto")) {
     const found = await detectTarget();
     if (found === null) { console.log("自動検知: 作成対象の提案はありません"); return; }
@@ -162,7 +172,7 @@ async function main() {
   const endBlock = Number(nProp[6]);
   const deadlineSec = (endBlock - Number(marginBlocks) - Number(curBlock)) * 12; // 集計締切までの概算秒
   const drainSec = 1800; // 排出余裕 30 分
-  if (period + drainSec > deadlineSec) throw new Error(`時間が足りません: Snapshot ${period/3600}h + 排出余裕が、集計締切(Nouns 締切24h前)まで ${Math.max(0,deadlineSec/3600).toFixed(1)}h に収まりません`);
+  if (!registerId && period + drainSec > deadlineSec) throw new Error(`時間が足りません: Snapshot ${period/3600}h + 排出余裕が、集計締切(Nouns 締切24h前)まで ${Math.max(0,deadlineSec/3600).toFixed(1)}h に収まりません`);
   console.log(`Nouns #${nounsId}: ${STATE_NAMES[st]}、集計締切まで約 ${(deadlineSec/3600).toFixed(1)} 時間(Snapshot ${period/3600}h + 余裕が収まることを確認)`);
 
   // 冪等チェックポイント(第22回監査): 作成後・登録前に失敗して再実行した場合、Snapshot 提案を
@@ -171,8 +181,11 @@ async function main() {
   const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true, batchMaxCount: 1 });
   const now = Math.floor(Date.now() / 1000);
   let receipt, sentStart, sentEnd, sentSnapshot;
-  const ckpt = readPending();
-  if (ckpt) {
+  const ckpt = registerId ? null : readPending();
+  if (registerId) {
+    receipt = { id: registerId };
+    console.log(`登録のみ: Snapshot 提案 ${registerId} を読み戻して検算します(作成しません)`);
+  } else if (ckpt) {
     receipt = { id: ckpt.id }; sentStart = ckpt.start; sentEnd = ckpt.end; sentSnapshot = ckpt.snapshot;
     if (Number(sentEnd) <= Math.floor(Date.now() / 1000)) { clearPending(); throw new Error(`記録済みの Snapshot 提案 ${ckpt.id} は投票期間が終了済みです。チェックポイントを破棄しました。--nouns ${nounsId} を再実行すると新しい提案を作成します。`); }
     console.log(`再開: 記録済みの Snapshot 提案 ${ckpt.id} を読み戻して登録します(再作成しません)`);
@@ -209,17 +222,30 @@ async function main() {
     if (!pr) continue; // まだ索引されていない
     const problems = [];
     if (pr.id !== receipt.id) problems.push(`id 不一致: ${pr.id}`);
-    if (String(pr.author || "").toLowerCase() !== bot.address.toLowerCase()) problems.push(`author 不一致: ${pr.author}`);
+    const wantAuthor = registerId ? expectAuthor : bot.address;
+    if (String(pr.author || "").toLowerCase() !== wantAuthor.toLowerCase()) problems.push(`author 不一致: ${pr.author}`);
     if (pr.type !== "single-choice") problems.push(`type 不一致: ${pr.type}`);
     if (pr.space?.id !== SPACE) problems.push(`space 不一致: ${pr.space?.id}`);
-    if (pr.title !== p.title) problems.push("title 不一致");
-    if ((pr.body || "") !== p.body) problems.push("body 不一致");
-    if ((pr.discussion || "") !== p.discussion) problems.push("discussion 不一致");
+    if (registerId) {
+      if (!String(pr.title || "").startsWith(`[Prop ${nounsId}]`)) problems.push(`title が [Prop ${nounsId}] で始まらない: ${pr.title}`);
+    } else {
+      if (pr.title !== p.title) problems.push("title 不一致");
+      if ((pr.body || "") !== p.body) problems.push("body 不一致");
+      if ((pr.discussion || "") !== p.discussion) problems.push("discussion 不一致");
+    }
     if (!discussionRefsProposal(pr.discussion)) problems.push(`discussion が nouns.wtf/vote/${nounsId} を厳密に指していない`);
-    if (JSON.stringify(pr.choices) !== JSON.stringify(p.choices)) problems.push(`choices 不一致: ${JSON.stringify(pr.choices)}`);
-    if (Number(pr.start) !== sentStart) problems.push(`start 不一致: ${pr.start} != ${sentStart}`);
-    if (Number(pr.end) !== sentEnd) problems.push(`end 不一致: ${pr.end} != ${sentEnd}`);
-    if (Number(pr.snapshot) !== Number(sentSnapshot)) problems.push(`snapshot 不一致: ${pr.snapshot} != ${sentSnapshot}`);
+    const wantChoices = registerId ? MIRROR_CHOICES : p.choices;
+    if (JSON.stringify(pr.choices) !== JSON.stringify(wantChoices)) problems.push(`choices 不一致: ${JSON.stringify(pr.choices)}`);
+    if (registerId) {
+      // 外部作成: start/end/snapshot は作成時の値を知らないので、締切に収まるかで検査する
+      const nS = Math.floor(Date.now() / 1000);
+      if (Number(pr.end) + drainSec > nS + deadlineSec) problems.push(`Snapshot 終了(${pr.end})+排出余裕が集計締切に収まらない`);
+      if (!(Number(pr.snapshot) > 0)) problems.push(`snapshot ブロックが不正: ${pr.snapshot}`);
+    } else {
+      if (Number(pr.start) !== sentStart) problems.push(`start 不一致: ${pr.start} != ${sentStart}`);
+      if (Number(pr.end) !== sentEnd) problems.push(`end 不一致: ${pr.end} != ${sentEnd}`);
+      if (Number(pr.snapshot) !== Number(sentSnapshot)) problems.push(`snapshot 不一致: ${pr.snapshot} != ${sentSnapshot}`);
+    }
     { const nS = Math.floor(Date.now() / 1000); if (!(Number(pr.start) <= nS && nS < Number(pr.end))) problems.push("読み戻し時点で投票期間外(start<=now<end でない)"); }
     if (problems.length) throw new Error(`読み戻し検算に失敗(登録を中止。Snapshot 提案 ${receipt.id} は孤児として残るため確認してください): ${problems.join(" / ")}`);
     verified = pr;
