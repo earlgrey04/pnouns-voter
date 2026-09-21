@@ -131,6 +131,20 @@ async function main() {
   if (!registrarPhrase) throw new Error("mainnet では REGISTRAR_MNEMONIC の明示が必要です(fallback 禁止)");
   const bot = botKey ? new ethers.Wallet(botKey.startsWith("0x") ? botKey : `0x${botKey}`) : ethers.HDNodeWallet.fromPhrase(botPhrase, undefined, "m/44'/60'/0'/0/0");
   const registrarWallet = ethers.HDNodeWallet.fromPhrase(registrarPhrase, undefined, "m/44'/60'/0'/0/0");
+  // --check-keys: 鍵の導出結果と作成資格だけを確認して終了する(2026-09-21。mirror の「Verify bot wallet key」相当)
+  if (flag("check-keys")) {
+    const prov = new ethers.JsonRpcProvider(rpc, undefined, { batchMaxCount: 1 });
+    const v = new ethers.Contract(voter, ["function registrar() view returns (address)", "function owner() view returns (address)"], prov);
+    const [reg, own] = await Promise.all([v.registrar(), v.owner()]);
+    const pn = new ethers.Contract("0x4bE962499cE295b1ed180F923bf9c73b6357DE80", ["function balanceOf(address) view returns (uint256)"], prov);
+    const vp = NETWORK === "mainnet" ? Number(await pn.balanceOf(bot.address)) : -1;
+    console.log(`bot: ${bot.address}(${botKey ? "SNAPSHOT_BOT_PRIVATE_KEY" : "mnemonic"}) pNouns=${vp}`);
+    console.log(`registrar 鍵: ${registrarWallet.address} / on-chain registrar: ${reg} / owner: ${own}`);
+    const distinct = new Set([bot.address, registrarWallet.address, own].map((a) => a.toLowerCase())).size === 3;
+    console.log(`registrar 一致: ${registrarWallet.address.toLowerCase() === reg.toLowerCase()} / 役割分離: ${distinct} / 作成資格(pNouns>=1): ${vp >= 1}`);
+    if (registrarWallet.address.toLowerCase() !== reg.toLowerCase() || !distinct || (NETWORK === "mainnet" && vp < 1)) { console.error("check-keys: NG"); process.exit(1); }
+    console.log("check-keys: OK"); return;
+  }
   // mnemonic 文字列ではなく、実際に使う鍵から導出したアドレスで比較する
   if (NETWORK === "mainnet" && bot.address === registrarWallet.address) throw new Error(`mainnet では提案作成(bot)と registrar の鍵を分けてください(どちらも ${bot.address})`);
 
