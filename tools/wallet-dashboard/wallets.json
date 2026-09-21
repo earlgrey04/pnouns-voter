@@ -1,0 +1,147 @@
+{
+  "title": "pNouns Voter ウォレット管理",
+  "networks": [
+    {
+      "id": "mainnet",
+      "name": "本番(シャドー運用・mainnet)",
+      "explorer": "https://etherscan.io",
+      "worker": "https://pnouns-voter-mainnet.x402-adsb-worker.workers.dev",
+      "rpcFileUrl": "~/.config/pnouns-voter/mainnet-rpc.url",
+      "rpcFallback": [
+        "https://eth.drpc.org",
+        "https://rpc.mevblocker.io"
+      ],
+      "contracts": {
+        "voter": "0x2a28548989ce393F3Fa5846cC4D9EAfbFB254b0a",
+        "pnouns": "0x4bE962499cE295b1ed180F923bf9c73b6357DE80",
+        "nounsToken": "0x9C8fF314C9Bc7F6e59A9d9225Fb22946427eDC03",
+        "nounsDAO": "0x6f3E6272A167e8AcCb32072d08E0957F9c79223d"
+      },
+      "wallets": [
+        {
+          "label": "返金プール(PNounsSnapVoter 本体)",
+          "address": "0x2a28548989ce393F3Fa5846cC4D9EAfbFB254b0a",
+          "role": "コントラクト",
+          "warnBelow": 0.01,
+          "recommend": 0.05,
+          "note": "投函・execute のガスを relayer に払い戻す原資。ETH を直接送金して補充",
+          "nounsVotes": true
+        },
+        {
+          "label": "relayer(投函)",
+          "address": "0x0F9f1883b944dD2b3B0acA1f8D0954c624d37c6A",
+          "role": "EOA",
+          "warnBelow": 0.005,
+          "recommend": 0.01,
+          "note": "鍵: Cloudflare secret RELAYER_PRIVATE_KEY。tx を立て替え、プールから払い戻し"
+        },
+        {
+          "label": "registrar(対応表の登録係)",
+          "address": "0x68f6Fd72733c34dDEC4EAE5a4E1940B0A9D88a4B",
+          "role": "EOA",
+          "warnBelow": 0.003,
+          "recommend": 0.005,
+          "note": "鍵: GitHub env mainnet REGISTRAR_MNEMONIC。registerProposal 1 回 約12万 gas(払い戻し無し)"
+        },
+        {
+          "label": "owner(派生#1)",
+          "address": "0x91E34EfD307b95F78eCd962E28a5506375635EA5",
+          "role": "EOA",
+          "warnBelow": 0.002,
+          "recommend": 0.005,
+          "note": "setLiveMode 等の管理操作用。マルチシグ移管は保留"
+        },
+        {
+          "label": "Snapshot 作成 bot(pnouns-mirror と共用)",
+          "address": "0xfaE13DF278a1470b7579da0f2BbD164abb60dd10",
+          "role": "EOA",
+          "needPnouns": 1,
+          "note": "鍵: GitHub env mainnet SNAPSHOT_BOT_PRIVATE_KEY / pnouns-mirror BOT_PRIVATE_KEY。pNouns 1 枚以上が作成条件。ETH 不要"
+        },
+        {
+          "label": "旧 Snapshot bot(SNAPSHOT_BOT_MNEMONIC)",
+          "address": "0x10849D31FfEaEca7727af6711A8D1b0a9b738925",
+          "role": "EOA",
+          "note": "pNouns 未保有のため本番では未使用(秘密鍵設定時は使われない)"
+        },
+        {
+          "label": "手動投票の委任先(MANUAL_DELEGATE)",
+          "address": "0xD2355D2C0Fb7c992dF43DcAf5251A7f773CD0A7e",
+          "role": "EOA",
+          "note": "現行の手動運用。シャドー結果との一致判定に使用",
+          "nounsVotes": true
+        },
+        {
+          "label": "Snapshot space admin(マルチシグ)",
+          "address": "0x8AE80e0B44205904bE18869240c2eC62D2342785",
+          "role": "コントラクト",
+          "note": "pnounsdao.eth の admin(Safe 系プロキシ)"
+        },
+        {
+          "label": "Snapshot space admin(EOA)",
+          "address": "0x2072c081c77a476c28d4b2e0f86ed8a789bd8078",
+          "role": "EOA",
+          "note": "pnounsdao.eth の admin"
+        }
+      ]
+    },
+    {
+      "id": "sepolia",
+      "name": "テスト(Sepolia)",
+      "explorer": "https://sepolia.etherscan.io",
+      "worker": "https://pnouns-voter.x402-adsb-worker.workers.dev",
+      "rpcFallback": [
+        "https://sepolia.gateway.tenderly.co",
+        "https://ethereum-sepolia-rpc.publicnode.com"
+      ],
+      "contracts": {
+        "voter": "0x64CdACeA6857c6560F3124c532AA4ed34152693F",
+        "pnouns": "0x2dc16A3EC98A825e731b09512B602fDDC5246Ad6",
+        "nounsToken": "0x4C4674bb72a096855496a7204962297bd7e12b85",
+        "nounsDAO": "0x35d2670d7C8931AACdd37C89Ddcb0638c3c44A57"
+      },
+      "wallets": [
+        {
+          "label": "返金プール(PNounsSnapVoter Sepolia)",
+          "address": "0x64CdACeA6857c6560F3124c532AA4ed34152693F",
+          "role": "コントラクト",
+          "warnBelow": 0.01,
+          "note": "Sepolia 版。space=earl-grey.eth",
+          "nounsVotes": true
+        },
+        {
+          "label": "relayer(Sepolia)",
+          "address": "0xBbE0b0fe2181586a947cF8660D7704926A9eD561",
+          "role": "EOA",
+          "warnBelow": 0.01,
+          "note": "鍵: .env SEPOLIA_RELAYER_KEY / Cloudflare(sepolia) RELAYER_PRIVATE_KEY"
+        },
+        {
+          "label": "owner / proposer(SEPOLIA_MNEMONIC #0)",
+          "address": "0x10849D31FfEaEca7727af6711A8D1b0a9b738925",
+          "role": "EOA",
+          "warnBelow": 0.02,
+          "note": "テストの提案作成・ONLY_PROPOSER。earlgreyai.eth の author"
+        },
+        {
+          "label": "テスト投票者(SEPOLIA_MNEMONIC #1)",
+          "address": "0x5Da746dDd73B441C87c513525f0d1144affB659e",
+          "role": "EOA"
+        },
+        {
+          "label": "テスト投票者(SEPOLIA_MNEMONIC #2)",
+          "address": "0xa886b397825B4af270C910140d6845c27E2C2693",
+          "role": "EOA"
+        },
+        {
+          "label": "registrar(Sepolia、.env REGISTRAR_MNEMONIC)",
+          "address": "0xfE07E953BfdBbDA576551e047Bb9166C34d7c9ae",
+          "role": "EOA",
+          "warnBelow": 0.01,
+          "note": "ローカル .env の REGISTRAR_MNEMONIC はこちら(mainnet の登録係とは別)"
+        }
+      ],
+      "tokensFromWorker": false
+    }
+  ]
+}
