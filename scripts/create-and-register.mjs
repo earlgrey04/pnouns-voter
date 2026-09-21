@@ -121,11 +121,15 @@ async function main() {
   if (!process.env.MAINNET_RPC_URL) throw new Error("MAINNET_RPC_URL が未設定です(Snapshot の基準ブロック取得に全 network で必要)");
   if (NETWORK !== "mainnet" && NETWORK !== "sepolia") throw new Error(`NETWORK は sepolia か mainnet(got ${NETWORK})`);
   // mainnet では提案作成(bot)と registrar の鍵をそれぞれ明示する(他の鍵への fallback は禁止)
+  // mainnet の bot 鍵は SNAPSHOT_BOT_PRIVATE_KEY(秘密鍵、優先)または SNAPSHOT_BOT_MNEMONIC(ニーモニック)。
+  // 2026-09-21: 空間の作成条件(pNouns 保有)を満たす pnouns-mirror の bot(秘密鍵形式)を共用するため秘密鍵に対応
+  const botKey = NETWORK === "mainnet" ? (process.env.SNAPSHOT_BOT_PRIVATE_KEY || "").trim() : "";
   const botPhrase = NETWORK === "mainnet" ? process.env.SNAPSHOT_BOT_MNEMONIC : process.env.SEPOLIA_MNEMONIC;
-  if (!botPhrase) throw new Error(NETWORK === "mainnet" ? "mainnet では SNAPSHOT_BOT_MNEMONIC の明示が必要です(fallback 禁止)" : "SEPOLIA_MNEMONIC が未設定です");
+  if (botKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(botKey)) throw new Error("SNAPSHOT_BOT_PRIVATE_KEY の形式が不正です(64 hex)");
+  if (!botKey && !botPhrase) throw new Error(NETWORK === "mainnet" ? "mainnet では SNAPSHOT_BOT_PRIVATE_KEY か SNAPSHOT_BOT_MNEMONIC の明示が必要です(fallback 禁止)" : "SEPOLIA_MNEMONIC が未設定です");
   const registrarPhrase = process.env.REGISTRAR_MNEMONIC || (NETWORK === "mainnet" ? null : process.env.SEPOLIA_MNEMONIC);
   if (!registrarPhrase) throw new Error("mainnet では REGISTRAR_MNEMONIC の明示が必要です(fallback 禁止)");
-  const bot = ethers.HDNodeWallet.fromPhrase(botPhrase, undefined, "m/44'/60'/0'/0/0");
+  const bot = botKey ? new ethers.Wallet(botKey.startsWith("0x") ? botKey : `0x${botKey}`) : ethers.HDNodeWallet.fromPhrase(botPhrase, undefined, "m/44'/60'/0'/0/0");
   const registrarWallet = ethers.HDNodeWallet.fromPhrase(registrarPhrase, undefined, "m/44'/60'/0'/0/0");
   // mnemonic 文字列ではなく、実際に使う鍵から導出したアドレスで比較する
   if (NETWORK === "mainnet" && bot.address === registrarWallet.address) throw new Error(`mainnet では提案作成(bot)と registrar の鍵を分けてください(どちらも ${bot.address})`);
