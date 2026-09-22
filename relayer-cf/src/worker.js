@@ -227,7 +227,7 @@ async function submitFromSnapshot(c, pc, wc, store, snapInfo, nounsId, rush) {
   const votedByToken = new Map();
   for (let start = 0; start < checkTokenIds.length; start += 200) {
     const ids = checkTokenIds.slice(start, start + 200);
-    const flags = await pc.multicall({ contracts: ids.map((id) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasTokenVoted", args: [BigInt(nounsId), BigInt(id)] })), allowFailure: false });
+    const flags = await pc.multicall({ contracts: ids.map((id) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "hasTokenVoted", args: [BigInt(nounsId), BigInt(id)] })), allowFailure: false, batchSize: 0 });
     ids.forEach((id, i) => votedByToken.set(id, !!flags[i]));
   }
   const uncountedTokens = rows.map((_, i) => (recs[i][0] ? 0 : tokenCounts[i]));

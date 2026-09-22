@@ -20,7 +20,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CFG = json.load(open(os.path.join(HERE, "wallets.json"), encoding="utf-8"))
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8415"))
-CACHE_SEC = int(os.environ.get("CACHE_SEC", "120"))
+CACHE_SEC = int(os.environ.get("CACHE_SEC", "300"))
+TOKENS_TTL = 3600  # tokenId 一覧(Worker の /api/tokens は pNouns 2,100 枚の ownerOf を読む重い処理)は 1 時間キャッシュ
+_tokens_cache = {}
 RPC_TIMEOUT = 8
 # Python 既定の UA(Python-urllib)は Cloudflare 配下の公開 RPC や自前 Worker に 403 で弾かれる
 UA = "Mozilla/5.0 (compatible; pnouns-wallet-dashboard/1.0)"
@@ -150,9 +152,15 @@ def collect_network(net):
                 row["nounsVotesError"] = str(e)[:80]
         # tokenId は Worker の所有者キャッシュから(best-effort)
         if w and net.get("tokensFromWorker", True) and row.get("pnouns"):
-            t = http_json(f"{w}/api/tokens/{a}", 20)
-            if isinstance(t, dict) and isinstance(t.get("tokenIds"), list):
-                row["tokenIds"] = t["tokenIds"]
+            key = f"{net['id']}:{a.lower()}"
+            hit = _tokens_cache.get(key)
+            if hit and time.time() - hit[0] < TOKENS_TTL and len(hit[1]) == row["pnouns"]:
+                row["tokenIds"] = hit[1]
+            else:
+                t = http_json(f"{w}/api/tokens/{a}", 20)
+                if isinstance(t, dict) and isinstance(t.get("tokenIds"), list):
+                    row["tokenIds"] = t["tokenIds"]
+                    _tokens_cache[key] = (time.time(), t["tokenIds"])
         try:
             code = rpc(net, "eth_getCode", [a, "latest"])
             row["isContract"] = code not in ("0x", "")
@@ -232,7 +240,7 @@ a{{color:var(--link);text-decoration:none}} code{{font-size:12px}} .addr{{font-f
 button{{font:inherit;font-size:11px;padding:1px 6px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--fg);cursor:pointer}}
 </style></head><body><main>
 <h1>{e(data['title'])}</h1>
-<div class="sub">更新: {e(data['generatedAt'])}(取得 {data['elapsedSec']} 秒、2 分キャッシュ、2 分ごとに自動再読込) ・ <a href="/api/state">JSON</a> ・ <a href="/?refresh=1">今すぐ再取得</a></div>"""]
+<div class="sub">更新: {e(data['generatedAt'])}(取得 {data['elapsedSec']} 秒、5 分キャッシュ、5 分ごとに自動再読込) ・ <a href="/api/state">JSON</a> ・ <a href="/?refresh=1">今すぐ再取得</a></div>"""]
     for n in data["networks"]:
         ex = n["explorer"]
         parts.append(f"<h2>{e(n['name'])}</h2>")
@@ -286,7 +294,7 @@ button{{font:inherit;font-size:11px;padding:1px 6px;border:1px solid var(--line)
             )
         parts.append("</tbody></table></div>")
     parts.append("""<div class="sub" style="margin-top:20px">ETH の列: 黄 = 警告閾値未満、赤 = 閾値の半分未満。「推奨」は警告閾値と補充後の目安。pNouns の列が黄 = 作成条件(1 枚以上)未達。</div>
-<script>setTimeout(function(){location.replace('/')},120000)</script></main></body></html>""")
+<script>setTimeout(function(){location.replace('/')},300000)</script></main></body></html>""")
     return "".join(parts)
 
 

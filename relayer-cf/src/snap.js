@@ -88,6 +88,7 @@ export async function resolveMappings(c, pc, activeNounsIds = []) {
     const res = await pc.multicall({
       contracts: data.proposals.map((p) => ({ address: c.metagov, abi: METAGOV_ABI, functionName: "snapToNouns", args: [keccak256(stringToBytes(p.id))] })),
       allowFailure: false,
+      batchSize: 0,
     });
     data.proposals.forEach((p, i) => { const n = Number(res[i]); if (n > 0) found.set(n, p.id); });
   }

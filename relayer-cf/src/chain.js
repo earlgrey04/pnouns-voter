@@ -101,17 +101,19 @@ export const storeNs = (c) => `${c.chainId}:${c.metagov.toLowerCase()}`;
 // さらに Infura はバッチ JSON-RPC の 429 を id 無しのエラー配列で返し、viem/ethers のバッチ照合が壊れるためバッチは使わない。
 // 429(HTTP / -32005)は viem が再試行対象にしており、fallback は失敗した要求をそのまま次の URL に流す。
 export function rpcUrls(raw) { return String(raw || "").split(",").map((s) => s.trim()).filter(Boolean); }
-export function rpcTransport(c) {
-  const urls = rpcUrls(c.rpcUrl);
+export function rpcTransport(c, order = "write") {
+  let urls = rpcUrls(c.rpcUrl);
+  // 2026-09-22: 読み取り(publicClient)はキー無しの公開 RPC(2 本目以降)を先に使い、先頭のキー付き RPC(Infura、
+  // 日次 300 万クレジット)は最後の保険にする。送信(walletClient)は従来どおり先頭を優先。
+  if (order === "read" && urls.length > 1) urls = [...urls.slice(1), urls[0]];
   const retry = { retryCount: 4, retryDelay: 500 }; // 0.5s, 1s, 2s, 4s
   if (urls.length <= 1) return http(urls[0], { batch: false, ...retry });
   return fallback(urls.map((u) => http(u, { batch: false })), retry);
 }
 export function clients(c) {
-  const transport = rpcTransport(c);
-  const publicClient = createPublicClient({ chain: c.chain, transport });
+  const publicClient = createPublicClient({ chain: c.chain, transport: rpcTransport(c, "read") });
   const account = c.relayerKey ? privateKeyToAccount(c.relayerKey) : null;
-  const walletClient = account ? createWalletClient({ account, chain: c.chain, transport }) : null;
+  const walletClient = account ? createWalletClient({ account, chain: c.chain, transport: rpcTransport(c, "write") }) : null;
   return { publicClient, walletClient, account };
 }
 export const domain = (c) => ({ name: "pNouns Voter", version: "1", chainId: c.chainId, verifyingContract: c.metagov });
@@ -123,17 +125,18 @@ export function revertErrorName(e) {
   return null;
 }
 
-// pNouns 全 tokenId の所有者(multicall)。メモリに 60 秒キャッシュ
+// pNouns 全 tokenId の所有者(multicall)。メモリに 5 分キャッシュ(2026-09-22: 60 秒 → 5 分。所有は投函時にコントラクトが再検証する)
 let ownersCache = { at: 0, owners: [] };
 export async function allOwners(c, pc) {
-  if (ownersCache.owners.length && Date.now() - ownersCache.at < 60000) return ownersCache.owners;
+  if (ownersCache.owners.length && Date.now() - ownersCache.at < 300000) return ownersCache.owners;
   const total = Number(await pc.readContract({ address: c.pnouns, abi: PNOUNS_ABI, functionName: "totalSupply" }));
   const owners = [];
   const CH = 500;
   for (let start = 1; start <= total; start += CH) {
     const ids = [];
     for (let id = start; id < start + CH && id <= total; id++) ids.push(id);
-    const res = await pc.multicall({ contracts: ids.map((id) => ({ address: c.pnouns, abi: PNOUNS_ABI, functionName: "ownerOf", args: [BigInt(id)] })), allowFailure: true });
+    // batchSize: 0 = calldata サイズで分割しない(500 件 = eth_call 1 回。既定 1,024 バイトだと約 18 回に分割される)
+    const res = await pc.multicall({ contracts: ids.map((id) => ({ address: c.pnouns, abi: PNOUNS_ABI, functionName: "ownerOf", args: [BigInt(id)] })), allowFailure: true, batchSize: 0 });
     res.forEach((r, i) => { owners[ids[i]] = r.status === "success" ? r.result.toLowerCase() : null; });
   }
   ownersCache = { at: Date.now(), owners };
@@ -159,6 +162,7 @@ export async function recentProposals(c, pc) {
       { address: c.nounsDAO, abi: DAO_ABI, functionName: "state", args: [BigInt(id)] },
     ]),
     allowFailure: false,
+    batchSize: 0, // 30 提案 × 2 = 60 件を eth_call 1 回で
   });
   const out = [];
   ids.forEach((id, i) => {

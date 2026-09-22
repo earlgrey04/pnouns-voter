@@ -28,6 +28,25 @@ const SEQ = process.env.SEQ_URL || "https://seq.snapshot.org";
 const MAINNET_SUBGRAPH = "https://api.goldsky.com/api/public/project_clnbcoajmebxn33wdbt98f439/subgraphs/nouns-mainnet/1.0.0/gn";
 const adapt = (w) => ({ _signTypedData: (d, t, m) => w.signTypedData(d, t, m), getAddress: async () => w.address });
 
+// RPC URL はカンマ区切りで複数指定できる(2026-09-22)。先頭から順に eth_chainId が通るものを採用する
+// (Infura の日次クレジット上限 429 などで先頭が使えないときに、次の URL へ切り替える)。
+const _rpcPick = new Map();
+async function pickRpc(raw) {
+  const urls = String(raw || "").split(",").map((x) => x.trim()).filter(Boolean);
+  if (urls.length <= 1) return urls[0] || raw;
+  if (_rpcPick.has(raw)) return _rpcPick.get(raw);
+  for (const u of urls) {
+    try {
+      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
+      const r = await fetch(u, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }), signal: ctl.signal });
+      clearTimeout(t);
+      const j = await r.json();
+      if (r.ok && j && j.result) { _rpcPick.set(raw, u); return u; }
+    } catch { /* 次へ */ }
+  }
+  throw new Error("RPC に接続できません(すべての URL で eth_chainId 失敗)");
+}
+
 async function nounsDescription(id) {
   const r = await (await fetch(MAINNET_SUBGRAPH, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: `{ proposal(id:"${id}") { description } }` }) })).json();
   const d = r?.data?.proposal?.description;
@@ -45,7 +64,7 @@ async function hubVotingPeriod() {
 async function detectTarget() {
   const dep = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", `${NETWORK}.json`), "utf8"));
   const voter = dep.snapVoter;
-  const rpc = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
+  const rpc = await pickRpc(NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL);
   const provider = new ethers.JsonRpcProvider(rpc, undefined, { staticNetwork: true, batchMaxCount: 1 }); // Infura はバッチの 429 応答に id が無く ethers が照合できないためバッチ無効
   const c = new ethers.Contract(voter, ["function nounsToSnap(uint256) view returns (bytes32)", "function nounsDAO() view returns (address)", "function marginBlocks() view returns (uint256)"], provider);
   const daoAddr = await c.nounsDAO();
@@ -116,8 +135,9 @@ async function main() {
   const clearPending = () => { try { fs.unlinkSync(pendingPath); } catch {} };
   const voter = dep.snapVoter || dep.voter;
   if (!voter) throw new Error(`deployments/${NETWORK}.json に snapVoter がありません`);
-  const rpc = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
-  if (!rpc) throw new Error(`${NETWORK} の RPC URL が未設定です`);
+  const rpcRaw = NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL;
+  if (!rpcRaw) throw new Error(`${NETWORK} の RPC URL が未設定です`);
+  const rpc = await pickRpc(rpcRaw);
   if (!process.env.MAINNET_RPC_URL) throw new Error("MAINNET_RPC_URL が未設定です(Snapshot の基準ブロック取得に全 network で必要)");
   if (NETWORK !== "mainnet" && NETWORK !== "sepolia") throw new Error(`NETWORK は sepolia か mainnet(got ${NETWORK})`);
   // mainnet では提案作成(bot)と registrar の鍵をそれぞれ明示する(他の鍵への fallback は禁止)
@@ -196,7 +216,7 @@ async function main() {
   // 冪等チェックポイント(第22回監査): 作成後・登録前に失敗して再実行した場合、Snapshot 提案を
   // 再作成せず、記録済みの ID から読み戻し→登録を再開する(孤児提案の量産を防ぐ)。
   // 提案単位のチェックポイント(第23回監査: network 単位の read-modify-write による競合を避ける)
-  const mainnetProvider = new ethers.JsonRpcProvider(process.env.MAINNET_RPC_URL, undefined, { staticNetwork: true, batchMaxCount: 1 });
+  const mainnetProvider = new ethers.JsonRpcProvider(await pickRpc(process.env.MAINNET_RPC_URL), undefined, { staticNetwork: true, batchMaxCount: 1 });
   const now = Math.floor(Date.now() / 1000);
   let receipt, sentStart, sentEnd, sentSnapshot;
   const ckpt = registerId ? null : readPending();

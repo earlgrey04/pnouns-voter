@@ -11,6 +11,8 @@ test("1 本なら http、2 本以上なら fallback トランスポートにな�
   const one = rpcTransport({ rpcUrl: "https://a.example" })({ chain: undefined });
   assert.equal(one.config.type, "http");
   assert.equal(one.value?.url, "https://a.example");
+  const rd = rpcTransport({ rpcUrl: "https://a.example,https://b.example" }, "read")({ chain: undefined });
+  assert.equal(rd.value.transports[0].value.url, "https://b.example", "読み取りは 2 本目以降を先に使う");
   const two = rpcTransport({ rpcUrl: "https://a.example,https://b.example" })({ chain: undefined });
   assert.equal(two.config.type, "fallback");
   assert.equal(two.value.transports.length, 2);
