@@ -31,20 +31,27 @@ const adapt = (w) => ({ _signTypedData: (d, t, m) => w.signTypedData(d, t, m), g
 // RPC URL はカンマ区切りで複数指定できる(2026-09-22)。先頭から順に eth_chainId が通るものを採用する
 // (Infura の日次クレジット上限 429 などで先頭が使えないときに、次の URL へ切り替える)。
 const _rpcPick = new Map();
+const rpcHost = (u) => { try { return new URL(u).host; } catch { return "?"; } };
 async function pickRpc(raw) {
   const urls = String(raw || "").split(",").map((x) => x.trim()).filter(Boolean);
   if (urls.length <= 1) return urls[0] || raw;
   if (_rpcPick.has(raw)) return _rpcPick.get(raw);
+  const failures = [];
   for (const u of urls) {
+    // 実際に使う ethers の provider で eth_blockNumber を試す(fetch の UA 違いや 429 の取りこぼしを避ける)
+    const prov = new ethers.JsonRpcProvider(u, undefined, { staticNetwork: true, batchMaxCount: 1 });
     try {
-      const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), 8000);
-      const r = await fetch(u, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_chainId", params: [] }), signal: ctl.signal });
-      clearTimeout(t);
-      const j = await r.json();
-      if (r.ok && j && j.result) { _rpcPick.set(raw, u); return u; }
-    } catch { /* 次へ */ }
+      const bn = await Promise.race([prov.getBlockNumber(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout 8s")), 8000))]);
+      prov.destroy();
+      console.log(`RPC: ${rpcHost(u)} を使用(block ${bn})`);
+      _rpcPick.set(raw, u);
+      return u;
+    } catch (e) {
+      prov.destroy();
+      failures.push(`${rpcHost(u)}: ${String(e.shortMessage || e.message).slice(0, 60)}`);
+    }
   }
-  throw new Error("RPC に接続できません(すべての URL で eth_chainId 失敗)");
+  throw new Error(`RPC に接続できません: ${failures.join(" / ")}`);
 }
 
 async function nounsDescription(id) {
