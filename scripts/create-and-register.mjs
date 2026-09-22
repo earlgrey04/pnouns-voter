@@ -177,7 +177,7 @@ async function main() {
 
   // オンチェーン preflight(第13回監査): registrar 権限・コントラクト実在・未登録を送信前に確認する。
   // 「鍵は存在するが権限がない」場合、送信後に NotRegistrar で落ちると孤児提案が残るため。
-  const provider = new ethers.JsonRpcProvider(rpc, undefined, { batchMaxCount: 1 });
+  const provider = new ethers.JsonRpcProvider(rpc, undefined, { staticNetwork: true, batchMaxCount: 1 }); // 自動検出の再試行ループ(exceeded maximum retry limit)を避ける。chainId は直後に getNetwork で検証
   const code = await provider.getCode(voter);
   if (code === "0x") throw new Error(`${voter} にコントラクトがありません(deployments/${NETWORK}.json が古い可能性)`);
   const expectedChainId = NETWORK === "mainnet" ? 1n : 11155111n;
