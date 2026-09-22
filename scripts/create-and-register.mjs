@@ -32,16 +32,28 @@ const adapt = (w) => ({ _signTypedData: (d, t, m) => w.signTypedData(d, t, m), g
 // (Infura の日次クレジット上限 429 などで先頭が使えないときに、次の URL へ切り替える)。
 const _rpcPick = new Map();
 const rpcHost = (u) => { try { return new URL(u).host; } catch { return "?"; } };
+// ethers の既定は 429 を指数バックオフで最大 12 回再試行し、十数分止まりうる(Infura の日次上限時に発生)。
+// 20 秒タイムアウト・429 は 2 回までにして速やかに失敗させ、pickRpc で次の URL に切り替える。
+function rpcRequest(u) {
+  const req = new ethers.FetchRequest(u);
+  req.timeout = 20000;
+  req.retryFunc = async (_req, _resp, attempt) => attempt < 2;
+  return req;
+}
+const makeProvider = (u, opts = {}) => new ethers.JsonRpcProvider(rpcRequest(u), undefined, { staticNetwork: true, batchMaxCount: 1, ...opts });
+// 全体の見張り(10 分で強制終了。GitHub の runner を最大 6 時間占有しない)
+setTimeout(() => { console.error("watchdog: 10 分経過のため中断します(RPC/ハブの停滞)"); process.exit(2); }, 10 * 60 * 1000).unref();
 async function pickRpc(raw) {
   const urls = String(raw || "").split(",").map((x) => x.trim()).filter(Boolean);
   if (urls.length <= 1) return urls[0] || raw;
   if (_rpcPick.has(raw)) return _rpcPick.get(raw);
   const failures = [];
   for (const u of urls) {
-    // 実際に使う ethers の provider で eth_blockNumber を試す(fetch の UA 違いや 429 の取りこぼしを避ける)
-    const prov = new ethers.JsonRpcProvider(u, undefined, { staticNetwork: true, batchMaxCount: 1 });
+    // 実際に使う ethers の provider で eth_blockNumber を 3 回続けて試す(1 回通っても毎秒制限/日次上限で以後 429 になる RPC を除外)
+    const prov = makeProvider(u);
     try {
-      const bn = await Promise.race([prov.getBlockNumber(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout 8s")), 8000))]);
+      let bn = 0;
+      for (let i = 0; i < 3; i++) bn = await Promise.race([prov.getBlockNumber(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout 8s")), 8000))]);
       prov.destroy();
       console.log(`RPC: ${rpcHost(u)} を使用(block ${bn})`);
       _rpcPick.set(raw, u);
@@ -72,7 +84,7 @@ async function detectTarget() {
   const dep = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", `${NETWORK}.json`), "utf8"));
   const voter = dep.snapVoter;
   const rpc = await pickRpc(NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL);
-  const provider = new ethers.JsonRpcProvider(rpc, undefined, { staticNetwork: true, batchMaxCount: 1 }); // Infura はバッチの 429 応答に id が無く ethers が照合できないためバッチ無効
+  const provider = makeProvider(rpc); // Infura はバッチの 429 応答に id が無く ethers が照合できないためバッチ無効
   const c = new ethers.Contract(voter, ["function nounsToSnap(uint256) view returns (bytes32)", "function nounsDAO() view returns (address)", "function marginBlocks() view returns (uint256)"], provider);
   const daoAddr = await c.nounsDAO();
   const dao = new ethers.Contract(daoAddr, ["function proposalCount() view returns (uint256)", "function state(uint256) view returns (uint8)", "function proposals(uint256) view returns (uint256,address,uint256,uint256,uint256,uint256 startBlock,uint256 endBlock,uint256,uint256,uint256,bool,bool,bool,uint256,uint256)"], provider);
@@ -160,7 +172,7 @@ async function main() {
   const registrarWallet = ethers.HDNodeWallet.fromPhrase(registrarPhrase, undefined, "m/44'/60'/0'/0/0");
   // --check-keys: 鍵の導出結果と作成資格だけを確認して終了する(2026-09-21。mirror の「Verify bot wallet key」相当)
   if (flag("check-keys")) {
-    const prov = new ethers.JsonRpcProvider(rpc, undefined, { batchMaxCount: 1 });
+    const prov = makeProvider(rpc);
     const v = new ethers.Contract(voter, ["function registrar() view returns (address)", "function owner() view returns (address)"], prov);
     const [reg, own] = await Promise.all([v.registrar(), v.owner()]);
     const pn = new ethers.Contract("0x4bE962499cE295b1ed180F923bf9c73b6357DE80", ["function balanceOf(address) view returns (uint256)"], prov);
@@ -177,7 +189,7 @@ async function main() {
 
   // オンチェーン preflight(第13回監査): registrar 権限・コントラクト実在・未登録を送信前に確認する。
   // 「鍵は存在するが権限がない」場合、送信後に NotRegistrar で落ちると孤児提案が残るため。
-  const provider = new ethers.JsonRpcProvider(rpc, undefined, { staticNetwork: true, batchMaxCount: 1 }); // 自動検出の再試行ループ(exceeded maximum retry limit)を避ける。chainId は直後に getNetwork で検証
+  const provider = makeProvider(rpc); // 自動検出の再試行ループを避ける。chainId は直後に getNetwork で検証
   const code = await provider.getCode(voter);
   if (code === "0x") throw new Error(`${voter} にコントラクトがありません(deployments/${NETWORK}.json が古い可能性)`);
   const expectedChainId = NETWORK === "mainnet" ? 1n : 11155111n;
@@ -223,7 +235,7 @@ async function main() {
   // 冪等チェックポイント(第22回監査): 作成後・登録前に失敗して再実行した場合、Snapshot 提案を
   // 再作成せず、記録済みの ID から読み戻し→登録を再開する(孤児提案の量産を防ぐ)。
   // 提案単位のチェックポイント(第23回監査: network 単位の read-modify-write による競合を避ける)
-  const mainnetProvider = new ethers.JsonRpcProvider(await pickRpc(process.env.MAINNET_RPC_URL), undefined, { staticNetwork: true, batchMaxCount: 1 });
+  const mainnetProvider = makeProvider(await pickRpc(process.env.MAINNET_RPC_URL));
   const now = Math.floor(Date.now() / 1000);
   let receipt, sentStart, sentEnd, sentSnapshot;
   const ckpt = registerId ? null : readPending();
