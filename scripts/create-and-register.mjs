@@ -40,7 +40,34 @@ function rpcRequest(u) {
   req.retryFunc = async (_req, _resp, attempt) => attempt < 2;
   return req;
 }
-const makeProvider = (u, opts = {}) => new ethers.JsonRpcProvider(rpcRequest(u), undefined, { staticNetwork: true, batchMaxCount: 1, ...opts });
+// 実行中の切り替え(2026-09-23): pickRpc の検証を通った Infura が直後の読み取りで 429(毎秒上限。Worker の tick と
+// 共用キー)になり run が落ちたため、429・5xx・タイムアウトで残りの URL へ切り替えて同じ要求を再送する。
+// 送信(eth_sendRawTransaction)は二重送信を避けるため、未処理が確実な 429 のときだけ切り替える。
+class FailoverProvider extends ethers.JsonRpcProvider {
+  #urls; #i = 0;
+  constructor(urls, opts) { super(rpcRequest(urls[0]), undefined, opts); this.#urls = urls; }
+  _getConnection() { return rpcRequest(this.#urls[this.#i]); }
+  async _send(payload) {
+    for (;;) {
+      const used = this.#i;
+      try { return await super._send(payload); } catch (e) {
+        const status = e?.response?.statusCode;
+        const isSend = [].concat(payload).some((p) => p.method === "eth_sendRawTransaction");
+        const retryable = status === 429 || (!isSend && (status >= 500 || e?.code === "TIMEOUT"));
+        if (!retryable) throw e;
+        if (used !== this.#i) continue; // 並行中の別要求が既に切り替えた → 新しい URL で再送
+        if (this.#i + 1 >= this.#urls.length) throw e;
+        this.#i++;
+        console.log(`RPC: ${rpcHost(this.#urls[used])} が ${status || e.code} のため ${rpcHost(this.#urls[this.#i])} に切り替えます`);
+      }
+    }
+  }
+}
+// u はカンマ区切りの URL 列でもよい(pickRpc は採用した URL を先頭に並べ替えた列を返す)
+const makeProvider = (u, opts = {}) => {
+  const urls = String(u).split(",").map((x) => x.trim()).filter(Boolean);
+  return new FailoverProvider(urls, { staticNetwork: true, batchMaxCount: 1, ...opts });
+};
 // 全体の見張り(10 分で強制終了。GitHub の runner を最大 6 時間占有しない)
 setTimeout(() => { console.error("watchdog: 10 分経過のため中断します(RPC/ハブの停滞)"); process.exit(2); }, 10 * 60 * 1000).unref();
 async function pickRpc(raw) {
@@ -56,8 +83,9 @@ async function pickRpc(raw) {
       for (let i = 0; i < 3; i++) bn = await Promise.race([prov.getBlockNumber(), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout 8s")), 8000))]);
       prov.destroy();
       console.log(`RPC: ${rpcHost(u)} を使用(block ${bn})`);
-      _rpcPick.set(raw, u);
-      return u;
+      const ordered = [u, ...urls.filter((x) => x !== u)].join(","); // 残りは実行中の切り替え先
+      _rpcPick.set(raw, ordered);
+      return ordered;
     } catch (e) {
       prov.destroy();
       failures.push(`${rpcHost(u)}: ${String(e.shortMessage || e.message).slice(0, 60)}`);
@@ -90,9 +118,9 @@ async function detectTarget() {
   const dao = new ethers.Contract(daoAddr, ["function proposalCount() view returns (uint256)", "function state(uint256) view returns (uint8)", "function proposals(uint256) view returns (uint256,address,uint256,uint256,uint256,uint256 startBlock,uint256 endBlock,uint256,uint256,uint256,bool,bool,bool,uint256,uint256)"], provider);
   const [count, margin, curBlock, period] = await Promise.all([dao.proposalCount(), c.marginBlocks(), provider.getBlockNumber(), hubVotingPeriod()]);
   for (let id = Number(count); id > Math.max(0, Number(count) - 15); id--) {
-    const [st, mapped] = await Promise.all([dao.state(id), c.nounsToSnap(id)]);
-    if (Number(st) !== 1) continue;                       // 投票中(Active)のみ
-    if (mapped !== ethers.ZeroHash) continue;             // 登録済みは対象外
+    // 逐次に呼ぶ(並列だと Infura の毎秒上限に当たりやすい。state が Active でなければ対応表は読まない)
+    if (Number(await dao.state(id)) !== 1) continue;      // 投票中(Active)のみ
+    if ((await c.nounsToSnap(id)) !== ethers.ZeroHash) continue; // 登録済みは対象外
     const pr = await dao.proposals(id);
     const deadlineSec = (Number(pr[6]) - Number(margin) - Number(curBlock)) * 12;
     if (period + 1800 > deadlineSec) { console.log(`#${id}: 投票中だが残り時間不足のためスキップ(締切まで ${(deadlineSec/3600).toFixed(1)}h)`); continue; }
