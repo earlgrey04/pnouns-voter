@@ -26,28 +26,48 @@ on:
         type: choice
         options: ["sepolia", "mainnet"]
         default: "mainnet"
-# 同一提案の二重作成を防ぐ(第21回監査): 直列化。自動実行どうしも重ならない
+# 同一提案の二重作成を防ぐ(第21回監査): 直列化。
+# 2026-10-01: 以前は nouns_id ごとの group で、手動起動(#N 指定)と自動実行が並行しえたため network 単位に統一
 concurrency:
-  group: create-and-register-${{ github.event.inputs.network || 'mainnet' }}-${{ github.event.inputs.nouns_id || 'auto' }}
+  group: create-and-register-${{ github.event.inputs.network || 'mainnet' }}
   cancel-in-progress: false
 permissions:
   contents: read
+  actions: read   # 直前 run のチェックポイント artifact を探して取得する
 jobs:
   run:
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.network || 'mainnet' }}   # 承認・secret を環境で分離
     steps:
       - uses: actions/checkout@v4
+      # 直前 run が残したチェックポイントを復元(再作成でなく登録から再開するため)。
+      # 2026-10-01: download-artifact は run-id 無しだと「同じ run」の artifact しか読まず、別 run の
+      # チェックポイントが一度も復元されていなかった(#999 で再作成しかけた)。最新の artifact の run を探して指定する。
+      # 毎 run が必ず状態(スタンプ + チェックポイント)を保存するので、最新の artifact = 直前 run の状態。
+      - name: find checkpoint
+        id: ckpt
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NAME: pending-${{ github.event.inputs.network || 'mainnet' }}
+        run: |
+          set -o pipefail   # 取得に失敗したら run を止める(空の状態で保存して引き継ぎを失わないため)
+          # API の並び順は保証されないため全ページを取得して created_at で最新を選ぶ(保持 2 日 ≒ 150 件程度)
+          RID=$(gh api --paginate "repos/${{ github.repository }}/actions/artifacts?name=$NAME&per_page=100" \
+            --jq '.artifacts[] | select(.expired | not) | "\(.created_at) \(.workflow_run.id)"' | sort | tail -1 | cut -d' ' -f2)
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+          echo "checkpoint artifact: ${RID:-なし}"
+      - name: restore checkpoint
+        id: restore
+        if: steps.ckpt.outputs.run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: pending-${{ github.event.inputs.network || 'mainnet' }}
+          path: deployments
+          run-id: ${{ steps.ckpt.outputs.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
       - run: npm ci
-      # 直前の失敗 run が残したチェックポイントを復元(再作成でなく登録から再開するため)
-      - name: restore checkpoint
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: pending-${{ github.event.inputs.network || 'mainnet' }}-${{ github.event.inputs.nouns_id || 'auto' }}
-          path: deployments
       - name: create + verify + register
         env:
           NETWORK: ${{ github.event.inputs.network || 'mainnet' }}
@@ -70,12 +90,20 @@ jobs:
           else
             node scripts/create-and-register.mjs --auto
           fi
-      # 未登録で終わった場合にチェックポイントを次 run へ引き継ぐ(登録成功時はファイルが消えているので空)
+      # 状態を次 run へ引き継ぐ。チェックポイントが無くてもスタンプを必ず保存し、「最新の artifact = 直前 run の状態」を保つ
+      # (空の run が保存しないと、登録済みの古いチェックポイントが最新として復元されてしまう)。
+      # 復元に失敗した run は保存しない(手元に無い状態で上書きすると引き継ぎが失われる)
+      - name: stamp checkpoint
+        if: always() && steps.ckpt.outcome == 'success' && steps.restore.outcome != 'failure'
+        run: echo "${{ github.run_id }}" > deployments/ckpt-stamp.txt
       - name: save checkpoint
-        if: always()
+        if: always() && steps.ckpt.outcome == 'success' && steps.restore.outcome != 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: pending-${{ github.event.inputs.network || 'mainnet' }}-${{ github.event.inputs.nouns_id || 'auto' }}
-          path: deployments/*-pending-*.json
-          if-no-files-found: ignore
-          retention-days: 7
+          name: pending-${{ github.event.inputs.network || 'mainnet' }}
+          path: |
+            deployments/ckpt-stamp.txt
+            deployments/*-pending-*.json
+          if-no-files-found: error
+          overwrite: true   # 同じ run の再実行(re-run)で名前が衝突しないように
+          retention-days: 2

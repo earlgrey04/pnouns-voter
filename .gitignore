@@ -12,3 +12,4 @@ deployments/*-pending*.json
 
 .env*
 !.env.example
+deployments/ckpt-stamp.txt

@@ -166,8 +166,12 @@ Snapshot 側に冪等 API が無いため厳密な exactly-once は保証でき�
    残る。再実行前に `https://snapshot.box/#/s:<space>` で、対象 Nouns 議案(discussion=
    nouns.wtf/vote/N)を指す **bot 作成の提案が複数無いか**を目視確認する。
 2. **チェックポイント**: ローカル実行は `deployments/<net>-pending-<id>.json` が残っていれば
-   再作成せず読み戻し→登録から再開する。GitHub Actions は artifact(pending-…)で同一 run の
-   再試行のみ引き継ぐ。**別の workflow dispatch では引き継がれない**ため、上記 1 を必ず行う。
+   再作成せず読み戻し→登録から再開する。GitHub Actions は artifact `pending-<net>` に毎 run の
+   状態を保存し、次の run(自動・手動とも)が最新の artifact を復元して引き継ぐ(2026-10-01 修正。
+   それ以前は run-id 未指定のため別 run に引き継がれていなかった)。
+   さらに作成前にハブを確認し、**bot 作成の未終了 `[Prop N]` 提案があれば再作成せずそれを登録**する。
+   bot 以外が作成した提案がある場合は作成・登録とも行わない(登録のみモードで人が指定)。
+   それでも上記 1 の目視確認は行う。
 3. **重複時の判断**: 同一議案を指す提案が複数ある場合、登録するのは 1 本のみ(コントラクトが
    両方向の重複を AlreadyRegistered で拒否)。**どの提案を正とするかは人が決め**、不要な提案は
    投票が入る前に周知する(Snapshot 提案は作成者でも削除できないため、告知で明示する)。

@@ -62,6 +62,13 @@ class FailoverProvider extends ethers.JsonRpcProvider {
       }
     }
   }
+  // 呼び出し側の判断で次の URL へ切り替える(送信の再試行用)。最後の URL なら先頭に戻る
+  rotate(reason) {
+    if (this.#urls.length <= 1) return;
+    const from = this.#i;
+    this.#i = (this.#i + 1) % this.#urls.length;
+    console.log(`RPC: ${rpcHost(this.#urls[from])} で ${reason} のため ${rpcHost(this.#urls[this.#i])} に切り替えます`);
+  }
 }
 // u はカンマ区切りの URL 列でもよい(pickRpc は採用した URL を先頭に並べ替えた列を返す)
 const makeProvider = (u, opts = {}) => {
@@ -100,6 +107,17 @@ async function nounsDescription(id) {
   if (!d) throw new Error(`Nouns 提案 ${id} の本文を取得できませんでした`);
   return d;
 }
+// ハブ上の「Nouns #N を指す未終了の提案」(2026-10-01、#999 の重複作成未遂の教訓):
+// チェックポイントが失われても、既に作成済みの提案があれば新規作成しない。
+// title が [Prop N] で始まる(mirror の "[Prop N]xxx" 形式も含む)提案のうち、投票終了前のもの。
+// ハブに問い合わせられない場合は例外(作成しない側に倒す)。
+async function openHubProposals(nounsId) {
+  const r = await (await fetch(`${HUB}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: `query($space:String!,$t:String!){ proposals(first:20, where:{ space:$space, title_contains:$t }, orderBy:"created", orderDirection:desc) { id author title end created } }`, variables: { space: SPACE, t: `[Prop ${nounsId}]` } }) })).json();
+  const list = r?.data?.proposals;
+  if (!Array.isArray(list)) throw new Error(`ハブで既存提案を確認できません(重複作成を避けるため中止): ${JSON.stringify(r?.errors || r).slice(0, 200)}`);
+  const now = Math.floor(Date.now() / 1000);
+  return list.filter((p) => String(p.title || "").startsWith(`[Prop ${nounsId}]`) && Number(p.end) > now);
+}
 async function hubVotingPeriod() {
   const r = await (await fetch(`${HUB}/graphql`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query: `{ space(id:"${SPACE}") { voting { period } } }` }) })).json();
   return r?.data?.space?.voting?.period || 172800;
@@ -108,7 +126,18 @@ async function hubVotingPeriod() {
 // 自動検知(2026-08-23 実装): 「投票中(Active)で、対応表が未登録で、48h+余裕が締切に収まる」
 // Nouns 提案のうち最も新しい 1 件を選ぶ(1 回の実行で 1 件だけ = Snapshot の日次上限を守る)。
 // 該当がなければ null(正常終了)。個別の詳細検査は main の preflight が改めて行う。
-async function detectTarget() {
+// bot(Snapshot 提案の作成者)の鍵。mainnet は SNAPSHOT_BOT_PRIVATE_KEY(秘密鍵、優先)または SNAPSHOT_BOT_MNEMONIC(ニーモニック)。
+// 2026-09-21: 空間の作成条件(pNouns 保有)を満たす pnouns-mirror の bot(秘密鍵形式)を共用するため秘密鍵に対応
+function loadBot() {
+  const botKey = NETWORK === "mainnet" ? (process.env.SNAPSHOT_BOT_PRIVATE_KEY || "").trim() : "";
+  const botPhrase = NETWORK === "mainnet" ? process.env.SNAPSHOT_BOT_MNEMONIC : process.env.SEPOLIA_MNEMONIC;
+  if (botKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(botKey)) throw new Error("SNAPSHOT_BOT_PRIVATE_KEY の形式が不正です(64 hex)");
+  if (!botKey && !botPhrase) throw new Error(NETWORK === "mainnet" ? "mainnet では SNAPSHOT_BOT_PRIVATE_KEY か SNAPSHOT_BOT_MNEMONIC の明示が必要です(fallback 禁止)" : "SEPOLIA_MNEMONIC が未設定です");
+  const bot = botKey ? new ethers.Wallet(botKey.startsWith("0x") ? botKey : `0x${botKey}`) : ethers.HDNodeWallet.fromPhrase(botPhrase, undefined, "m/44'/60'/0'/0/0");
+  return { bot, fromKey: !!botKey };
+}
+
+async function detectTarget(botAddr) {
   const dep = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", `${NETWORK}.json`), "utf8"));
   const voter = dep.snapVoter;
   const rpc = await pickRpc(NETWORK === "mainnet" ? process.env.MAINNET_RPC_URL : process.env.SEPOLIA_RPC_URL);
@@ -121,6 +150,11 @@ async function detectTarget() {
     // 逐次に呼ぶ(並列だと Infura の毎秒上限に当たりやすい。state が Active でなければ対応表は読まない)
     if (Number(await dao.state(id)) !== 1) continue;      // 投票中(Active)のみ
     if ((await c.nounsToSnap(id)) !== ethers.ZeroHash) continue; // 登録済みは対象外
+    // 作成済みの提案がハブにあれば新規作成しない(チェックポイント喪失時の重複作成防止)。
+    // bot 自身が作った提案なら main が再利用して登録する(残り時間の検査は作成時のものなので適用しない)
+    const open = await openHubProposals(id);
+    if (open.some((p) => p.author.toLowerCase() === botAddr.toLowerCase())) return id;
+    if (open.length) { console.log(`#${id}: bot 以外が作成した未終了の Snapshot 提案があるためスキップ(${open.map((p) => `${p.id.slice(0, 10)}… by ${p.author}`).join(", ")})。登録する場合は snapshot_id と author を指定した登録のみモードで`); continue; }
     const pr = await dao.proposals(id);
     const deadlineSec = (Number(pr[6]) - Number(margin) - Number(curBlock)) * 12;
     if (period + 1800 > deadlineSec) { console.log(`#${id}: 投票中だが残り時間不足のためスキップ(締切まで ${(deadlineSec/3600).toFixed(1)}h)`); continue; }
@@ -142,7 +176,12 @@ async function main() {
   }
   const MIRROR_CHOICES = ["賛成", "反対", "棄権"]; // 登録のみモードで許容する選択肢(コントラクトは 1/2/3 をこの順で解釈)
   if (process.argv.includes("--auto")) {
-    const found = await detectTarget();
+    // Actions は直前 run の状態(チェックポイント)を毎回引き継ぐため、投票終了済みの古いものはここで捨てる
+    for (const f of fs.readdirSync(path.join(ROOT, "deployments")).filter((x) => x.startsWith(`${NETWORK}-pending-`) && x.endsWith(".json"))) {
+      try { const j = JSON.parse(fs.readFileSync(path.join(ROOT, "deployments", f), "utf8")); if (Number(j.end) > Math.floor(Date.now() / 1000)) continue; } catch {}
+      fs.unlinkSync(path.join(ROOT, "deployments", f)); console.log(`チェックポイント ${f} を破棄(投票終了済みまたは破損)`);
+    }
+    const found = await detectTarget(loadBot().bot.address);
     if (found === null) { console.log("自動検知: 作成対象の提案はありません"); return; }
     console.log(`自動検知: Nouns #${found} を作成対象に選定`);
     nounsArg = String(found);
@@ -188,15 +227,9 @@ async function main() {
   if (!process.env.MAINNET_RPC_URL) throw new Error("MAINNET_RPC_URL が未設定です(Snapshot の基準ブロック取得に全 network で必要)");
   if (NETWORK !== "mainnet" && NETWORK !== "sepolia") throw new Error(`NETWORK は sepolia か mainnet(got ${NETWORK})`);
   // mainnet では提案作成(bot)と registrar の鍵をそれぞれ明示する(他の鍵への fallback は禁止)
-  // mainnet の bot 鍵は SNAPSHOT_BOT_PRIVATE_KEY(秘密鍵、優先)または SNAPSHOT_BOT_MNEMONIC(ニーモニック)。
-  // 2026-09-21: 空間の作成条件(pNouns 保有)を満たす pnouns-mirror の bot(秘密鍵形式)を共用するため秘密鍵に対応
-  const botKey = NETWORK === "mainnet" ? (process.env.SNAPSHOT_BOT_PRIVATE_KEY || "").trim() : "";
-  const botPhrase = NETWORK === "mainnet" ? process.env.SNAPSHOT_BOT_MNEMONIC : process.env.SEPOLIA_MNEMONIC;
-  if (botKey && !/^(0x)?[0-9a-fA-F]{64}$/.test(botKey)) throw new Error("SNAPSHOT_BOT_PRIVATE_KEY の形式が不正です(64 hex)");
-  if (!botKey && !botPhrase) throw new Error(NETWORK === "mainnet" ? "mainnet では SNAPSHOT_BOT_PRIVATE_KEY か SNAPSHOT_BOT_MNEMONIC の明示が必要です(fallback 禁止)" : "SEPOLIA_MNEMONIC が未設定です");
+  const { bot, fromKey: botFromKey } = loadBot();
   const registrarPhrase = process.env.REGISTRAR_MNEMONIC || (NETWORK === "mainnet" ? null : process.env.SEPOLIA_MNEMONIC);
   if (!registrarPhrase) throw new Error("mainnet では REGISTRAR_MNEMONIC の明示が必要です(fallback 禁止)");
-  const bot = botKey ? new ethers.Wallet(botKey.startsWith("0x") ? botKey : `0x${botKey}`) : ethers.HDNodeWallet.fromPhrase(botPhrase, undefined, "m/44'/60'/0'/0/0");
   const registrarWallet = ethers.HDNodeWallet.fromPhrase(registrarPhrase, undefined, "m/44'/60'/0'/0/0");
   // --check-keys: 鍵の導出結果と作成資格だけを確認して終了する(2026-09-21。mirror の「Verify bot wallet key」相当)
   if (flag("check-keys")) {
@@ -205,7 +238,7 @@ async function main() {
     const [reg, own] = await Promise.all([v.registrar(), v.owner()]);
     const pn = new ethers.Contract("0x4bE962499cE295b1ed180F923bf9c73b6357DE80", ["function balanceOf(address) view returns (uint256)"], prov);
     const vp = NETWORK === "mainnet" ? Number(await pn.balanceOf(bot.address)) : -1;
-    console.log(`bot: ${bot.address}(${botKey ? "SNAPSHOT_BOT_PRIVATE_KEY" : "mnemonic"}) pNouns=${vp}`);
+    console.log(`bot: ${bot.address}(${botFromKey ? "SNAPSHOT_BOT_PRIVATE_KEY" : "mnemonic"}) pNouns=${vp}`);
     console.log(`registrar 鍵: ${registrarWallet.address} / on-chain registrar: ${reg} / owner: ${own}`);
     const distinct = new Set([bot.address, registrarWallet.address, own].map((a) => a.toLowerCase())).size === 3;
     console.log(`registrar 一致: ${registrarWallet.address.toLowerCase() === reg.toLowerCase()} / 役割分離: ${distinct} / 作成資格(pNouns>=1): ${vp >= 1}`);
@@ -239,6 +272,19 @@ async function main() {
     if (ck && existing === ethers.keccak256(ethers.toUtf8Bytes(ck.id))) { clearPending(); console.log(`Nouns #${nounsId} は既にこの提案(${ck.id.slice(0, 14)}…)で登録済みです。チェックポイントを解消しました。`); return; }
     throw new Error(`Nouns #${nounsId} には既に対応表が登録されています(${existing.slice(0, 18)}…)`);
   }
+  // 作成済み提案の再利用(2026-10-01): チェックポイントが無くても、bot が作った未終了の提案がハブにあれば
+  // 新規作成せず、それを登録する(#999 で作成後の登録失敗 → 次回の自動実行が再作成しかけた)。
+  // bot 以外の作成分は自動では登録しない(登録のみモードで人が作成者を確認して指定する)。
+  const ckpt = registerId ? null : readPending();
+  let reuseId = "";
+  if (!registerId && !ckpt) {
+    const open = await openHubProposals(nounsId);
+    const mine = open.filter((x) => x.author.toLowerCase() === bot.address.toLowerCase());
+    if (mine.length > 1) throw new Error(`bot 作成の未終了提案が複数あります(${mine.map((x) => x.id).join(", ")})。どれを登録するか人が決めて、登録のみモードで指定してください`);
+    if (mine.length === 1) reuseId = mine[0].id;
+    else if (open.length) throw new Error(`bot 以外が作成した未終了の Snapshot 提案があります(${open.map((x) => `${x.id} by ${x.author}`).join(", ")})。重複を避けるため作成しません。登録する場合は snapshot_id と author を指定した登録のみモードで`);
+  }
+  const externalId = registerId || reuseId; // 作成時の start/end/snapshot を知らない提案(締切に収まるかで検査)
 
   // タイミング検査(2026-08-23、mainnet リハーサル #991 の教訓):
   // ① Updatable(本文更新可能)中は作らない — メンバーが確定前の本文に投票してしまう
@@ -257,7 +303,7 @@ async function main() {
   const endBlock = Number(nProp[6]);
   const deadlineSec = (endBlock - Number(marginBlocks) - Number(curBlock)) * 12; // 集計締切までの概算秒
   const drainSec = 1800; // 排出余裕 30 分
-  if (!registerId && period + drainSec > deadlineSec) throw new Error(`時間が足りません: Snapshot ${period/3600}h + 排出余裕が、集計締切(Nouns 締切24h前)まで ${Math.max(0,deadlineSec/3600).toFixed(1)}h に収まりません`);
+  if (!externalId && period + drainSec > deadlineSec) throw new Error(`時間が足りません: Snapshot ${period/3600}h + 排出余裕が、集計締切(Nouns 締切24h前)まで ${Math.max(0,deadlineSec/3600).toFixed(1)}h に収まりません`);
   console.log(`Nouns #${nounsId}: ${STATE_NAMES[st]}、集計締切まで約 ${(deadlineSec/3600).toFixed(1)} 時間(Snapshot ${period/3600}h + 余裕が収まることを確認)`);
 
   // 冪等チェックポイント(第22回監査): 作成後・登録前に失敗して再実行した場合、Snapshot 提案を
@@ -266,10 +312,12 @@ async function main() {
   const mainnetProvider = makeProvider(await pickRpc(process.env.MAINNET_RPC_URL));
   const now = Math.floor(Date.now() / 1000);
   let receipt, sentStart, sentEnd, sentSnapshot;
-  const ckpt = registerId ? null : readPending();
   if (registerId) {
     receipt = { id: registerId };
     console.log(`登録のみ: Snapshot 提案 ${registerId} を読み戻して検算します(作成しません)`);
+  } else if (reuseId) {
+    receipt = { id: reuseId };
+    console.log(`再利用: bot 作成済みの Snapshot 提案 ${reuseId} を読み戻して登録します(再作成しません)`);
   } else if (ckpt) {
     receipt = { id: ckpt.id }; sentStart = ckpt.start; sentEnd = ckpt.end; sentSnapshot = ckpt.snapshot;
     if (Number(sentEnd) <= Math.floor(Date.now() / 1000)) { clearPending(); throw new Error(`記録済みの Snapshot 提案 ${ckpt.id} は投票期間が終了済みです。チェックポイントを破棄しました。--nouns ${nounsId} を再実行すると新しい提案を作成します。`); }
@@ -311,7 +359,7 @@ async function main() {
     if (String(pr.author || "").toLowerCase() !== wantAuthor.toLowerCase()) problems.push(`author 不一致: ${pr.author}`);
     if (pr.type !== "single-choice") problems.push(`type 不一致: ${pr.type}`);
     if (pr.space?.id !== SPACE) problems.push(`space 不一致: ${pr.space?.id}`);
-    if (registerId) {
+    if (externalId) {
       if (!String(pr.title || "").startsWith(`[Prop ${nounsId}]`)) problems.push(`title が [Prop ${nounsId}] で始まらない: ${pr.title}`);
     } else {
       if (pr.title !== p.title) problems.push("title 不一致");
@@ -319,10 +367,10 @@ async function main() {
       if ((pr.discussion || "") !== p.discussion) problems.push("discussion 不一致");
     }
     if (!discussionRefsProposal(pr.discussion)) problems.push(`discussion が nouns.wtf/vote/${nounsId} を厳密に指していない`);
-    const wantChoices = registerId ? MIRROR_CHOICES : p.choices;
+    const wantChoices = externalId ? MIRROR_CHOICES : p.choices;
     if (JSON.stringify(pr.choices) !== JSON.stringify(wantChoices)) problems.push(`choices 不一致: ${JSON.stringify(pr.choices)}`);
-    if (registerId) {
-      // 外部作成: start/end/snapshot は作成時の値を知らないので、締切に収まるかで検査する
+    if (externalId) {
+      // 外部作成・再利用: start/end/snapshot は作成時の値を知らないので、締切に収まるかで検査する
       const nS = Math.floor(Date.now() / 1000);
       if (Number(pr.end) + drainSec > nS + deadlineSec) problems.push(`Snapshot 終了(${pr.end})+排出余裕が集計締切に収まらない`);
       if (!(Number(pr.snapshot) > 0)) problems.push(`snapshot ブロックが不正: ${pr.snapshot}`);
@@ -342,8 +390,37 @@ async function main() {
   const w = registrarWallet.connect(provider);
   const abi = ["function registerProposal(string,uint256)", "function registrationDelayBlocks() view returns (uint256)"];
   const c = new ethers.Contract(voter, abi, w);
-  const tx = await c.registerProposal(receipt.id, nounsId);
-  await tx.wait();
+  // 送信の再試行(2026-10-01): #999 で送信が RPC の "could not coalesce error" で落ち、未送信のまま終わった。
+  // nonce を固定して最大 3 回、RPC を切り替えて再送する。同じ nonce なので二重登録にはならない
+  // (先の送信が届いていれば後の送信は nonce too low 等で弾かれる)。失敗のたびに対応表を読んで登録済みなら成功とする。
+  const wantHash = ethers.keccak256(ethers.toUtf8Bytes(receipt.id));
+  const isRegistered = async () => { try { return (await pre.nounsToSnap(nounsId)) === wantHash; } catch { return false; } };
+  const waitRegistered = async (ms) => {
+    for (const end = Date.now() + ms; Date.now() < end; ) { if (await isRegistered()) return true; await new Promise((r) => setTimeout(r, 10000)); }
+    return isRegistered();
+  };
+  const nonce = await provider.getTransactionCount(w.address, "pending");
+  let txHash = "";
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const tx = await c.registerProposal(receipt.id, nounsId, { nonce });
+      txHash = tx.hash;
+      const rc = await tx.wait(1, 90000); // 10 分の watchdog に収まるよう短め(未確定は下の照合で拾う)
+      if (rc && rc.status !== 1) throw new Error(`登録 tx が revert しました(${tx.hash})`);
+      break;
+    } catch (e) {
+      const msg = String(e.shortMessage || e.message).slice(0, 120);
+      console.log(`登録の送信/確認に失敗(${attempt} 回目): ${msg}`);
+      if (await waitRegistered(15000)) { console.log("対応表を確認したところ登録済みでした(先の送信が反映)"); break; }
+      if (attempt >= 3) {
+        // 送信済みで未採掘の可能性(nonce が進んでいる)なら、採掘を最大 2 分待つ
+        const pendingNonce = await provider.getTransactionCount(w.address, "pending").catch(() => nonce);
+        if (pendingNonce > nonce && await waitRegistered(120000)) { console.log("対応表を確認したところ登録済みでした(採掘待ち後)"); break; }
+        throw e;
+      }
+      provider.rotate(msg);
+    }
+  }
   clearPending(); // チェックポイントを解消
   if (process.env.DISCORD_WEBHOOK_URL) {
     try {
@@ -351,7 +428,7 @@ async function main() {
     } catch (e) { console.warn("Discord 通知失敗:", e.message); }
   }
   const delay = Number(await c.registrationDelayBlocks());
-  console.log(`対応付けを登録: Snapshot ${receipt.id.slice(0, 14)}… → Nouns #${nounsId} (tx ${tx.hash})`);
+  console.log(`対応付けを登録: Snapshot ${receipt.id.slice(0, 14)}… → Nouns #${nounsId} (tx ${txHash || "不明(再送前の送信が反映)"})`);
   if (delay) console.log(`※ 登録から ${delay} ブロック(約 ${Math.round(delay * 12 / 60)} 分)は票を受け付けません(誤登録の確認猶予)`);
 }
 main().catch((e) => { console.error(e.error_description || e.shortMessage || e.message); process.exit(1); });
